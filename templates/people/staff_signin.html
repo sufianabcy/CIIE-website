@@ -18,7 +18,8 @@
       <div class="mb-4"><label class="form-label" for="{{ form.password.id_for_label }}">{{ form.password.label }}</label>{{ form.password }}{% for e in form.password.errors %}<div class="field-error">{{ e }}</div>{% endfor %}</div>
       <button class="btn btn-primary btn-lg w-100" type="submit">{% include "ui/icon.html" with name="sign-in" %}Sign in</button>
     </form>
-    <p class="small text-secondary mt-4 mb-0">Students don't need a password. <a href="{% url 'signin' %}">Student sign-in by email code</a></p>
+    <p class="small text-secondary mt-4 mb-2">Not on the organisers' list yet? <a href="{% url 'faculty_register' %}">Register as faculty</a> (you sign in with an email code first).</p>
+    <p class="small text-secondary mb-0">Students don't need a password. <a href="{% url 'signin' %}">Student sign-in by email code</a></p>
   </div>
 </div>
 {% endblock %}

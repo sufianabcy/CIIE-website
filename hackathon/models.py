@@ -294,3 +294,52 @@ class Score(models.Model):
             raise ValidationError("That criterion belongs to another round.")
         if self.criterion_id and self.marks is not None and self.marks > self.criterion.max_marks:
             raise ValidationError({"marks": f"At most {self.criterion.max_marks.normalize():f}."})
+
+
+@pghistory.track()
+class FacultyRequest(models.Model):
+    """Someone who signed up asks to be faculty. They get nothing until an admin approves."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Waiting for an admin"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+
+    person = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="faculty_requests")
+    full_name = models.CharField("name", max_length=150)
+    employee_id = models.CharField("employee ID", max_length=50)
+    department = models.CharField(max_length=150)
+    designation = models.CharField(max_length=100, help_text="For example Assistant Professor.")
+    phone = models.CharField(max_length=20)
+    event = models.ForeignKey(
+        "events.Event", null=True, blank=True, on_delete=models.SET_NULL, related_name="faculty_requests",
+        verbose_name="hackathon to judge", help_text="Optional. Approving adds them as faculty there.",
+    )
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    note = models.CharField("note to them", max_length=500, blank=True, help_text="Sent in the email when you decide.")
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    decided_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["status", "-created_at"]
+        verbose_name = "faculty request"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["person"], condition=Q(status="pending"), name="one_pending_faculty_request_per_person"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.full_name} ({self.get_status_display()})"
+
+    def duplicates(self):
+        """Other accounts that already look like this faculty member (same email or employee ID)."""
+        from people.models import Person
+
+        q = Q(employee_id__iexact=self.employee_id) if self.employee_id else Q(pk__in=[])
+        for email in {e for e in (self.person.email, self.person.kl_email) if e}:
+            q |= Q(email__iexact=email) | Q(kl_email__iexact=email)
+        return Person.objects.filter(q).exclude(pk=self.person_id).distinct()

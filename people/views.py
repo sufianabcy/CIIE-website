@@ -139,8 +139,9 @@ def staff_signin(request):
 def password_change(request):
     """Choose your own password. Required straight after signing in with a temporary one."""
     person = request.user
-    if not person.has_usable_password():
-        messages.info(request, "Your account signs in with an emailed code, so it has no password to change.")
+    # Students sign in by emailed code only; faculty and supervisors may add a password.
+    if not person.has_usable_password() and not (person.is_faculty or person.is_supervisor):
+        messages.info(request, "Your account signs in with an emailed code, so it has no password to set.")
         return redirect("my_registrations")
     form = SetPasswordForm(person, request.POST or None)
     for field in form.fields.values():

@@ -37,6 +37,7 @@
     <div class="empty-icon">{% include "ui/icon.html" with name="gavel" %}</div>
     <h2 class="heading-5">Nothing assigned to you yet</h2>
     <p>The organisers add faculty and supervisors to each hackathon. Check back soon.</p>
+    {% if not user.is_faculty %}<a class="btn btn-primary" href="{% url 'faculty_register' %}">Register as faculty</a>{% endif %}
   </div>
   {% endif %}
 </div>

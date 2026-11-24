@@ -8,6 +8,7 @@
     <h1 class="heading-2">Run events</h1>
     <p>Everything for the day: the door, live counts, judging, the report and the Excel files.</p>
   </div>
+  {% if user.is_portal_admin %}<a class="btn btn-quiet" href="{% url 'faculty_requests' %}">{% include "ui/icon.html" with name="gavel" %}Faculty requests</a>{% endif %}
   {% if user.is_staff %}<a class="btn btn-ink" href="{% url 'admin:events_event_add' %}">{% include "ui/icon.html" with name="plus" %}New event</a>{% endif %}
 </header>
 

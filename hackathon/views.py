@@ -80,9 +80,16 @@ def dashboard(request, slug):
             "warnings": services.room_rule_warnings(event) + services.mentor_conflicts(event),
             "upload_form": UploadForm(),
             "allocate_form": AllocateForm(event=event),
+            "pending_requests": _pending_requests() if is_admin(request.user) else 0,
             "credentials_form": CredentialsForm(initial={"expires_at": default_expiry.strftime("%Y-%m-%dT%H:%M")}),
         },
     )
+
+
+def _pending_requests() -> int:
+    from .models import FacultyRequest
+
+    return FacultyRequest.objects.filter(status=FacultyRequest.Status.PENDING).count()
 
 
 UPLOADS = {
@@ -377,3 +384,60 @@ def my_hackathon(request, slug):
         request, "hackathon/my_hackathon.html",
         {"event": event, "registration": registration, "person": request.user, "team": team, "members": members, "rounds": rounds},
     )
+
+
+# --- Faculty self-registration ------------------------------------------------------
+
+
+@never_cache
+@login_required
+def faculty_register(request):
+    from .forms import FacultyRequestForm
+    from .models import FacultyRequest
+
+    person = request.user
+    if person.is_faculty:
+        messages.info(request, "You're already faculty on the portal.")
+        return redirect("staff_home")
+    pending = FacultyRequest.objects.filter(person=person, status=FacultyRequest.Status.PENDING).first()
+    last = pending or FacultyRequest.objects.filter(person=person).first()
+    form = None
+    if not pending:
+        form = FacultyRequestForm(request.POST or None, initial={"full_name": person.full_name, "phone": person.phone, "department": person.branch})
+        if request.method == "POST" and form.is_valid():
+            try:
+                services.request_faculty(person, form.cleaned_data)
+            except services.RequestError as exc:
+                messages.error(request, str(exc))
+            else:
+                messages.success(request, "Request sent. An admin will check it; you'll get an email either way.")
+            return redirect("faculty_register")
+    return render(request, "hackathon/faculty_register.html", {"form": form, "pending": pending, "last": last})
+
+
+@never_cache
+@login_required
+def faculty_requests(request):
+    from .forms import DecisionForm
+    from .models import FacultyRequest
+
+    if not is_admin(request.user):
+        raise PermissionDenied
+    if request.method == "POST":
+        req = get_object_or_404(FacultyRequest, pk=request.POST.get("request"))
+        form = DecisionForm(request.POST)
+        note = form.cleaned_data["note"] if form.is_valid() else ""
+        try:
+            if request.POST.get("decision") == "approve":
+                services.approve_faculty_request(req, request.user, note, allow_duplicates=request.POST.get("anyway") == "1")
+                messages.success(request, f"{req.full_name} is now faculty. They've been emailed.")
+            elif request.POST.get("decision") == "reject":
+                services.reject_faculty_request(req, request.user, note)
+                messages.success(request, f"{req.full_name}'s request was rejected. They've been emailed.")
+        except services.RequestError as exc:
+            messages.error(request, str(exc))
+        return redirect("faculty_requests")
+    pending = list(FacultyRequest.objects.filter(status=FacultyRequest.Status.PENDING).select_related("person", "event"))
+    rows = [(r, list(r.duplicates())) for r in pending]
+    decided = FacultyRequest.objects.exclude(status=FacultyRequest.Status.PENDING).select_related("person", "event", "decided_by")[:30]
+    return render(request, "hackathon/faculty_requests.html", {"rows": rows, "decided": decided, "decision_form": DecisionForm()})

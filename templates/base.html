@@ -73,7 +73,7 @@
               <li><h2 class="dropdown-header">{{ user.full_name|default:"Signed in" }}<br>{{ user.email }}</h2></li>
               <li><a class="dropdown-item" href="{% url 'my_registrations' %}">{% include "ui/icon.html" with name="ticket" %}My passes</a></li>
               <li><a class="dropdown-item" href="{% url 'profile' %}">{% include "ui/icon.html" with name="user" %}Profile</a></li>
-              {% if user.has_usable_password %}<li><a class="dropdown-item" href="{% url 'password_change' %}">{% include "ui/icon.html" with name="shield" %}Change password</a></li>{% endif %}
+              {% if user.has_usable_password or user.is_faculty or user.is_supervisor %}<li><a class="dropdown-item" href="{% url 'password_change' %}">{% include "ui/icon.html" with name="shield" %}{% if user.has_usable_password %}Change{% else %}Set a{% endif %} password</a></li>{% endif %}
               {% if user.is_staff %}<li><a class="dropdown-item" href="{% url 'admin:index' %}">{% include "ui/icon.html" with name="gear" %}Admin</a></li>{% endif %}
               <li><hr class="dropdown-divider"></li>
               <li>

@@ -4,7 +4,7 @@ from django.db.models import Q
 from events.models import Event
 
 from .access import can_change_marks
-from .models import Assignment, Criterion, EventFaculty, Room, Round, Score, Supervisor, Team, TeamMember
+from .models import Assignment, Criterion, EventFaculty, FacultyRequest, Room, Round, Score, Supervisor, Team, TeamMember
 from .services import room_change_warnings
 
 
@@ -210,3 +210,19 @@ class AssignmentAdmin(ScopedAdmin):
             return False
         return super().has_delete_permission(request, obj)
 
+
+
+@admin.register(FacultyRequest)
+class FacultyRequestAdmin(admin.ModelAdmin):
+    """Admins decide on the Faculty requests page; this list is for looking things up."""
+
+    list_display = ["full_name", "person", "employee_id", "department", "event", "status", "created_at", "decided_by"]
+    list_filter = ["status", "event"]
+    search_fields = ["full_name", "employee_id", "person__email"]
+    readonly_fields = [f.name for f in FacultyRequest._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

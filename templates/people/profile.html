@@ -38,5 +38,20 @@
       </div>
     </div>
   </section>
+
+  {% if user.is_faculty or user.is_supervisor %}
+  <section class="form-card mt-4" aria-labelledby="staff-password">
+    <div class="d-flex gap-3 align-items-start">
+      <span class="step-num" aria-hidden="true">{% include "ui/icon.html" with name="shield" size="sm" %}</span>
+      <div>
+        <h2 class="heading-6 mb-2" id="staff-password">Password sign-in</h2>
+        <p class="text-secondary">{% if user.has_usable_password %}You can sign in with your password at the faculty sign-in page, or by email code.{% else %}You sign in by email code. Set a password if you'd rather use the faculty sign-in page.{% endif %}</p>
+        <a class="btn btn-quiet btn-sm" href="{% url 'password_change' %}">{% if user.has_usable_password %}Change{% else %}Set{% endif %} my password</a>
+      </div>
+    </div>
+  </section>
+  {% elif not user.is_faculty %}
+  <p class="caption-2 text-secondary text-center mt-4">Faculty member? <a href="{% url 'faculty_register' %}">Register as faculty</a>.</p>
+  {% endif %}
 </div>
 {% endblock %}

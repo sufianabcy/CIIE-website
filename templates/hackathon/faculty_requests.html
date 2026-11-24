@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Faculty requests{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'manage' %}">{% include "ui/icon.html" with name="arrow-left" %}Run events</a>
+<header class="tool-head">
+  <div>
+    <span class="eyebrow">Admins</span>
+    <h1 class="heading-3">Faculty requests</h1>
+    <p>People who signed up and asked to be faculty. Approving gives them the Faculty role and, if they picked one, a place on that hackathon's faculty list. They're emailed either way.</p>
+  </div>
+</header>
+{% for r, dupes in rows %}
+<article class="panel mb-3">
+  <div class="d-flex flex-wrap justify-content-between gap-3">
+    <div>
+      <h2 class="heading-6 mb-1">{{ r.full_name }} <span class="caption-2 text-secondary">{{ r.designation }}, {{ r.department }}</span></h2>
+      <div class="caption-2 text-secondary">{{ r.person.email }} · employee ID <code>{{ r.employee_id }}</code> · {{ r.phone }} · asked {{ r.created_at|date:"j M, g:i A" }}</div>
+      <div class="caption-2">{% if r.event %}Wants to judge <strong>{{ r.event.title }}</strong>{% else %}No hackathon chosen{% endif %}</div>
+      {% if dupes %}<div class="alert alert-warning mt-2 mb-0 py-2">Possible duplicate: {% for p in dupes %}{{ p.display_name }} ({{ p.email|default:p.employee_id }}){% if not forloop.last %}, {% endif %}{% endfor %} already has this email or employee ID.</div>{% endif %}
+    </div>
+    <form method="post" class="d-flex flex-wrap align-items-start gap-2" style="max-width: 420px">{% csrf_token %}
+      <input type="hidden" name="request" value="{{ r.pk }}">
+      {{ decision_form.note }}
+      {% if dupes %}<label class="caption-2"><input type="checkbox" name="anyway" value="1"> Approve anyway (keeps the accounts separate)</label>{% endif %}
+      <button class="btn btn-primary btn-sm" type="submit" name="decision" value="approve">Approve</button>
+      <button class="btn btn-quiet btn-sm" type="submit" name="decision" value="reject">Reject</button>
+    </form>
+  </div>
+</article>
+{% empty %}
+<div class="empty-state mb-4"><h2 class="heading-5">No requests waiting</h2></div>
+{% endfor %}
+{% if decided %}
+<h2 class="heading-6 mt-5 mb-3">Decided</h2>
+<div class="table-responsive"><table class="table table-sm align-middle">
+  <thead><tr><th>Name</th><th>Email</th><th>Hackathon</th><th>Decision</th><th>By</th><th>Note</th></tr></thead>
+  <tbody>{% for r in decided %}<tr><td>{{ r.full_name }}</td><td>{{ r.person.email }}</td><td>{{ r.event.title|default:"—" }}</td><td>{{ r.get_status_display }} {{ r.decided_at|date:"j M" }}</td><td>{{ r.decided_by.display_name }}</td><td>{{ r.note }}</td></tr>{% endfor %}</tbody>
+</table></div>
+{% endif %}
+{% endblock %}

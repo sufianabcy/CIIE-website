@@ -76,3 +76,36 @@ class MarksForm(forms.Form):
         for c in missing:
             self.add_error(f"c_{c.pk}", "Give marks before submitting.")
         return not missing
+
+
+class FacultyRequestForm(forms.Form):
+    full_name = forms.CharField(label="Your name", max_length=150)
+    employee_id = forms.CharField(label="Employee ID", max_length=50)
+    department = forms.CharField(max_length=150)
+    designation = forms.CharField(max_length=100, help_text="For example Assistant Professor.")
+    phone = forms.CharField(max_length=20)
+    event = forms.ModelChoiceField(
+        label="Hackathon you'd like to judge (optional)", queryset=None, required=False, empty_label="Not yet",
+    )
+
+    def __init__(self, *args, **kwargs):
+        from django.utils import timezone
+
+        from events.models import Event
+
+        super().__init__(*args, **kwargs)
+        self.fields["event"].queryset = Event.objects.filter(
+            kind=Event.Kind.HACKATHON, status=Event.Status.PUBLISHED, ends_at__gte=timezone.now()
+        ).order_by("starts_at")
+        for field in self.fields.values():
+            field.widget.attrs.setdefault("class", "form-select" if isinstance(field, forms.ModelChoiceField) else "form-control")
+
+    def clean_phone(self):
+        digits = "".join(ch for ch in self.cleaned_data["phone"] if ch.isdigit())
+        if not 10 <= len(digits) <= 15:
+            raise forms.ValidationError("Enter a phone number with 10 to 15 digits.")
+        return self.cleaned_data["phone"].strip()
+
+
+class DecisionForm(forms.Form):
+    note = forms.CharField(required=False, max_length=500, widget=forms.TextInput(attrs={"class": "form-control form-control-sm", "placeholder": "Note to them (optional)"}))

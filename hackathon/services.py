@@ -10,6 +10,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from decimal import Decimal
 
+from django.conf import settings
 from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -563,3 +564,84 @@ def save_marks(assignment, marks: dict, remarks: str, submit: bool):
         assignment.submitted_at = timezone.now()
     assignment.save()
     return assignment
+
+
+# --- Faculty self-registration --------------------------------------------------
+
+
+class RequestError(Exception):
+    pass
+
+
+def request_faculty(person, data) -> "FacultyRequest":
+    """A signed-in person asks to be faculty. Nothing is granted until an admin approves."""
+    from .models import FacultyRequest
+
+    if person.is_faculty:
+        raise RequestError("You're already faculty on the portal.")
+    if FacultyRequest.objects.filter(person=person, status=FacultyRequest.Status.PENDING).exists():
+        raise RequestError("Your request is already waiting for an admin.")
+    return FacultyRequest.objects.create(person=person, **data)
+
+
+def _decision_email(req):
+    from mailer.services import enqueue_email
+
+    if not req.person.email:
+        return
+    if req.status == req.Status.APPROVED:
+        subject = "You're registered as faculty"
+        text = (
+            f"Hello {req.full_name},\n\nAn admin approved your faculty registration on the {settings.CLUB_NAME} portal."
+            + (f" You're on the faculty list for {req.event.title}." if req.event_id else "")
+            + "\n\nSign in with your email as usual; the Judging page lists the teams allocated to you. "
+            "To sign in with a password instead, set one from your profile.\n"
+        )
+    else:
+        subject = "Your faculty registration"
+        text = f"Hello {req.full_name},\n\nAn admin did not approve your faculty registration this time. Your account stays as it was.\n"
+    if req.note:
+        text += f"\nNote from the admin: {req.note}\n"
+    enqueue_email(to=req.person.email, subject=subject, text=text, person=req.person)
+
+
+@transaction.atomic
+def approve_faculty_request(req, by, note="", allow_duplicates=False):
+    """Give the Faculty role (and the chosen hackathon). Refuses if the person looks like an existing account."""
+    from .models import FacultyRequest
+
+    req = FacultyRequest.objects.select_for_update(of=("self",)).select_related("person", "event").get(pk=req.pk)
+    if req.status != FacultyRequest.Status.PENDING:
+        raise RequestError("This request was already decided.")
+    dupes = list(req.duplicates())
+    if dupes and not allow_duplicates:
+        names = ", ".join(f"{p.display_name} ({p.email or p.employee_id})" for p in dupes)
+        raise RequestError(f"Possible duplicate: {names} already has this email or employee ID. Reject this request or fix the accounts first.")
+    person = req.person
+    person.full_name = person.full_name or req.full_name
+    person.phone = person.phone or req.phone
+    person.branch = person.branch or req.department
+    if not person.employee_id and not dupes:
+        person.employee_id = req.employee_id
+    person.save()
+    if req.event_id:
+        add_faculty(req.event, person, {"Designation": req.designation})
+    else:
+        person.groups.add(_group("Faculty"))
+    req.status, req.note, req.decided_by, req.decided_at = FacultyRequest.Status.APPROVED, note, by, timezone.now()
+    req.save()
+    _decision_email(req)
+    return req
+
+
+@transaction.atomic
+def reject_faculty_request(req, by, note=""):
+    from .models import FacultyRequest
+
+    req = FacultyRequest.objects.select_for_update(of=("self",)).select_related("person").get(pk=req.pk)
+    if req.status != FacultyRequest.Status.PENDING:
+        raise RequestError("This request was already decided.")
+    req.status, req.note, req.decided_by, req.decided_at = FacultyRequest.Status.REJECTED, note, by, timezone.now()
+    req.save()
+    _decision_email(req)
+    return req

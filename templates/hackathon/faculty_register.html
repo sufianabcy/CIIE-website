@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Register as faculty{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block content %}
+<div class="page-narrow" style="max-width: 560px">
+  {% if pending %}
+  <div class="form-card text-center">
+    <span class="eyebrow mb-2">Faculty registration</span>
+    <h1 class="heading-4 mb-2">Waiting for an admin</h1>
+    <p class="text-secondary mb-0">You asked on {{ pending.created_at|date:"j M, g:i A" }}{% if pending.event %} to judge {{ pending.event.title }}{% endif %}. You'll get an email when an admin decides. Until then your account works as a normal student account.</p>
+  </div>
+  {% else %}
+  <form method="post" class="form-card" novalidate>{% csrf_token %}
+    <span class="eyebrow mb-2">Faculty</span>
+    <h1 class="heading-4 mb-2">Register as faculty</h1>
+    <p class="text-secondary mb-4">Tell us who you are. An admin checks every request; once approved you can judge the hackathon teams allocated to you.</p>
+    {% if last and last.status == 'rejected' %}<div class="alert alert-secondary">Your last request was not approved{% if last.note %}: {{ last.note }}{% endif %}. You can ask again.</div>{% endif %}
+    {% for field in form %}
+      <div class="mb-3"><label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}{% for e in field.errors %}<div class="field-error">{{ e }}</div>{% endfor %}</div>
+    {% endfor %}
+    <button class="btn btn-primary btn-lg w-100" type="submit">{% include "ui/icon.html" with name="gavel" %}Send request</button>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

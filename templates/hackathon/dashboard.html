@@ -19,6 +19,10 @@
   <div class="stat-card stat-blue"><div class="stat-value">{{ submitted }} / {{ allocated }}</div><div class="stat-label">marks submitted</div></div>
 </div>
 
+{% if pending_requests %}
+<div class="alert alert-info mb-4">{{ pending_requests }} faculty request{{ pending_requests|pluralize }} waiting. <a href="{% url 'faculty_requests' %}">Review them</a>.</div>
+{% endif %}
+
 {% if warnings or without_team or teams_without_room %}
 <section class="panel mb-4" aria-label="Things to check">
   <h2 class="panel-title">{% include "ui/icon.html" with name="warning" %}Check these</h2>

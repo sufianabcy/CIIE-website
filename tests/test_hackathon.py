@@ -621,3 +621,120 @@ def test_only_admins_publish_results(client, setup, make_person):
     assert client.post(reverse("hackathon_round_action", args=[event.slug, round1.pk, "publish"])).status_code == 403
     round1.refresh_from_db()
     assert round1.results_published_at is None
+
+
+# --- Faculty self-registration (Phase 3) --------------------------------------------
+
+
+def _request_data(event=None, **kw):
+    data = {"full_name": "Dr. New", "employee_id": "KLF500", "department": "CSE", "designation": "Assistant Professor", "phone": "9000000500"}
+    if event:
+        data["event"] = event.pk
+    data.update(kw)
+    return data
+
+
+def test_faculty_request_is_pending_with_no_access_until_approved(client, setup, admin_user, make_person):
+    from hackathon.models import FacultyRequest
+    from mailer.models import OutboxEmail
+
+    event = setup["event"]
+    services.allocate_room(setup["rounds"][0], setup["faculty"][0], setup["rooms"][0])
+    applicant = make_person(email="new@kluniversity.in")
+    assert client.get(reverse("faculty_register")).status_code == 302  # sign in first
+    client.force_login(applicant)
+    client.post(reverse("faculty_register"), _request_data(event))
+    req = FacultyRequest.objects.get(person=applicant)
+    assert req.status == FacultyRequest.Status.PENDING and req.event == event
+    assert b"Waiting for an admin" in client.get(reverse("faculty_register")).content
+    # Pending: still a plain student.
+    applicant.refresh_from_db()
+    assert not applicant.is_faculty and not EventFaculty.objects.filter(person=applicant).exists()
+    assert client.get(reverse("hackathon_judge_event", args=[event.slug])).status_code == 404
+    assert client.get(reverse("hackathon_dashboard", args=[event.slug])).status_code == 403
+    assert client.get(reverse("hackathon_mark", args=[Assignment.objects.first().pk])).status_code == 404
+    # Students can't approve anything, including themselves.
+    assert client.get(reverse("faculty_requests")).status_code == 403
+    client.post(reverse("faculty_requests"), {"request": req.pk, "decision": "approve"})
+    req.refresh_from_db()
+    assert req.status == FacultyRequest.Status.PENDING
+    # A second request while one is pending is refused.
+    client.post(reverse("faculty_register"), _request_data())
+    assert FacultyRequest.objects.filter(person=applicant).count() == 1
+
+    client.force_login(admin_user)
+    assert b"1 faculty request waiting" in client.get(reverse("hackathon_dashboard", args=[event.slug])).content
+    client.post(reverse("faculty_requests"), {"request": req.pk, "decision": "approve", "note": "Welcome"})
+    req.refresh_from_db()
+    applicant.refresh_from_db()
+    assert req.status == FacultyRequest.Status.APPROVED and req.decided_by == admin_user
+    assert applicant.is_faculty and applicant.employee_id == "KLF500" and applicant.branch == "CSE"
+    role = EventFaculty.objects.get(person=applicant)
+    assert role.event == event and role.extra == {"Designation": "Assistant Professor"}
+    # Exactly that: faculty at that event, nothing more.
+    assert not applicant.is_supervisor and not applicant.is_staff
+    mail = OutboxEmail.objects.filter(to_email="new@kluniversity.in").latest("pk")
+    assert "registered as faculty" in mail.subject and "Welcome" in mail.text_body
+
+    client.force_login(applicant)
+    assert client.get(reverse("hackathon_judge_event", args=[event.slug])).status_code == 200
+    assert client.get(reverse("hackathon_dashboard", args=[event.slug])).status_code == 403
+    # They can set a password so the faculty sign-in works too.
+    client.post(reverse("password_change"), {"new_password1": GOOD_PASSWORD, "new_password2": GOOD_PASSWORD})
+    client.logout()
+    assert client.post(reverse("staff_signin"), {"login": "new@kluniversity.in", "password": GOOD_PASSWORD})["Location"] == reverse("staff_home")
+
+
+def test_rejected_request_stays_a_student_and_gets_an_email(client, admin_user, make_person):
+    from hackathon.models import FacultyRequest
+    from mailer.models import OutboxEmail
+
+    applicant = make_person(email="maybe@example.com")
+    client.force_login(applicant)
+    client.post(reverse("faculty_register"), _request_data(employee_id="KLF777"))
+    req = FacultyRequest.objects.get(person=applicant)
+    client.force_login(admin_user)
+    client.post(reverse("faculty_requests"), {"request": req.pk, "decision": "reject", "note": "Not faculty"})
+    req.refresh_from_db()
+    applicant.refresh_from_db()
+    assert req.status == FacultyRequest.Status.REJECTED and not applicant.is_faculty and applicant.employee_id == ""
+    assert "Not faculty" in OutboxEmail.objects.filter(to_email="maybe@example.com").latest("pk").text_body
+    # Students can't set a password; they can ask again.
+    client.force_login(applicant)
+    assert client.get(reverse("password_change"))["Location"] == reverse("my_registrations")
+    assert b"not approved" in client.get(reverse("faculty_register")).content
+
+
+def test_duplicate_faculty_requests_are_flagged_not_merged(client, setup, admin_user, make_person):
+    from hackathon.models import FacultyRequest
+
+    existing = setup["faculty"][0].person
+    existing.employee_id = "KLF500"
+    existing.save()
+    applicant = make_person(email="copy@example.com")
+    client.force_login(applicant)
+    client.post(reverse("faculty_register"), _request_data())
+    req = FacultyRequest.objects.get(person=applicant)
+    client.force_login(admin_user)
+    assert b"Possible duplicate" in client.get(reverse("faculty_requests")).content
+    page = client.post(reverse("faculty_requests"), {"request": req.pk, "decision": "approve"}, follow=True)
+    assert b"Possible duplicate" in page.content
+    req.refresh_from_db()
+    applicant.refresh_from_db()
+    assert req.status == FacultyRequest.Status.PENDING and not applicant.is_faculty
+    # "Approve anyway" keeps them separate and never copies the clashing employee ID.
+    client.post(reverse("faculty_requests"), {"request": req.pk, "decision": "approve", "anyway": "1"})
+    applicant.refresh_from_db()
+    assert applicant.is_faculty and applicant.employee_id == ""
+    assert Person.objects.filter(employee_id="KLF500").count() == 1
+
+
+def test_existing_faculty_and_supervisors_cannot_self_register_as_supervisors(client, setup):
+    a = setup["faculty"][0].person
+    client.force_login(a)
+    assert client.get(reverse("faculty_register"))["Location"] == reverse("staff_home")
+    # There is no supervisor sign-up at all: supervisor roles come only from admins.
+    from django.urls import NoReverseMatch
+
+    with pytest.raises(NoReverseMatch):
+        reverse("supervisor_register")
