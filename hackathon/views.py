@@ -15,7 +15,7 @@ from django.views.decorators.http import require_POST
 from registrations.models import Registration
 
 from . import services
-from .access import can_change_marks, is_admin, overseen_event, overseen_events
+from .access import PERMISSIONS, allowed, is_admin, overseen_event, overseen_events, permissions_for, require
 from .exports import TEMPLATES, credentials_file, template_file
 from .forms import AllocateForm, CredentialsForm, MarksForm, MoveTeamForm, UploadForm
 from .models import Assignment, EventFaculty, Room, Round, Supervisor, Team, TeamMember
@@ -65,6 +65,7 @@ def dashboard(request, slug):
         {
             "event": event,
             "is_admin": is_admin(request.user),
+            "can": permissions_for(request.user, event),
             "rounds": round_rows,
             "rooms": rooms,
             "teams": teams,
@@ -80,16 +81,19 @@ def dashboard(request, slug):
             "warnings": services.room_rule_warnings(event) + services.mentor_conflicts(event),
             "upload_form": UploadForm(),
             "allocate_form": AllocateForm(event=event),
-            "pending_requests": _pending_requests() if is_admin(request.user) else 0,
+            "pending_requests": _pending_requests(request.user, event),
             "credentials_form": CredentialsForm(initial={"expires_at": default_expiry.strftime("%Y-%m-%dT%H:%M")}),
         },
     )
 
 
-def _pending_requests() -> int:
+def _pending_requests(user, event) -> int:
     from .models import FacultyRequest
 
-    return FacultyRequest.objects.filter(status=FacultyRequest.Status.PENDING).count()
+    pending = FacultyRequest.objects.filter(status=FacultyRequest.Status.PENDING)
+    if is_admin(user):
+        return pending.count()
+    return pending.filter(event=event).count() if allowed(user, event, "can_approve_requests") else 0
 
 
 UPLOADS = {
@@ -107,7 +111,8 @@ def upload(request, slug, kind):
     if kind not in UPLOADS:
         raise Http404
     if kind == "supervisors" and not is_admin(request.user):
-        raise PermissionDenied  # supervisors never add supervisors
+        raise PermissionDenied  # only admins add supervisors
+    require(request.user, event, "can_import")
     form = UploadForm(request.POST, request.FILES)
     if not form.is_valid():
         messages.error(request, " ".join(form.errors.get("file", ["Choose a file."])))
@@ -144,6 +149,7 @@ def template(request, slug, kind):
 @require_POST
 def allocate(request, slug):
     event = overseen_event(request, slug)
+    require(request.user, event, "can_edit_allocations")
     form = AllocateForm(request.POST, event=event)
     if not form.is_valid():
         messages.error(request, "Choose a round, a faculty member and a room.")
@@ -171,6 +177,7 @@ def allocate(request, slug):
 def round_action(request, slug, pk, action):
     event = overseen_event(request, slug)
     round_ = get_object_or_404(Round, pk=pk, event=event)
+    require(request.user, event, "can_publish" if action in ("publish", "unpublish") else "can_edit_rounds")
     if action == "open":
         services.open_round_now(round_)
         messages.success(request, f"{round_} is open for marking now.")
@@ -178,8 +185,6 @@ def round_action(request, slug, pk, action):
         services.close_round_now(round_)
         messages.success(request, f"{round_} is closed. Faculty can no longer change marks.")
     elif action in ("publish", "unpublish"):
-        if not is_admin(request.user):
-            raise PermissionDenied
         round_.results_published_at = timezone.now() if action == "publish" else None
         round_.save(update_fields=["results_published_at"])
         messages.success(request, f"Results for {round_} {'published: each team sees its own marks' if action == 'publish' else 'hidden again'}.")
@@ -193,6 +198,7 @@ def round_action(request, slug, pk, action):
 def move_team(request, slug, pk):
     event = overseen_event(request, slug)
     team = get_object_or_404(Team, pk=pk, event=event)
+    require(request.user, event, "can_edit_teams")
     form = MoveTeamForm(request.POST, event=event)
     if form.is_valid():
         room = form.cleaned_data["room"]
@@ -208,6 +214,7 @@ def move_team(request, slug, pk):
 def solo_teams(request, slug):
     """Registrations with no team (online sign-ups) become teams of one."""
     event = overseen_event(request, slug)
+    require(request.user, event, "can_edit_teams")
     made = 0
     for registration in Registration.objects.filter(
         event=event, status=Registration.Status.CONFIRMED, team_membership__isnull=True
@@ -224,8 +231,9 @@ def solo_teams(request, slug):
 @require_POST
 def logins(request, slug):
     event = overseen_event(request, slug)
-    if not is_admin(request.user):
-        raise PermissionDenied  # a new password for someone else is a way into their account
+    # A new password for someone is a way into their account: admins, or supervisors given the switch
+    # (and then only for this hackathon's plain faculty).
+    require(request.user, event, "can_make_logins")
     form = CredentialsForm(request.POST)
     if not form.is_valid():
         messages.error(request, "Choose who gets passwords and when they stop working.")
@@ -233,7 +241,9 @@ def logins(request, slug):
     if form.cleaned_data["expires_at"] <= timezone.now():
         messages.error(request, "Choose an expiry time in the future.")
         return redirect("hackathon_dashboard", slug)
-    issued = services.issue_credentials(event, form.cleaned_data["expires_at"], form.cleaned_data["which"])
+    issued = services.issue_credentials(
+        event, form.cleaned_data["expires_at"], form.cleaned_data["which"], faculty_only=not is_admin(request.user)
+    )
     if not issued:
         messages.info(request, "Everyone already has a password. Choose \"Everyone\" to make new temporary ones.")
         return redirect("hackathon_dashboard", slug)
@@ -245,6 +255,7 @@ def logins(request, slug):
 def marks(request, slug):
     """Every mark from every faculty member, read-only (admins change marks in the admin)."""
     event = overseen_event(request, slug)
+    require(request.user, event, "can_view_marks")
     rounds = []
     for round_ in Round.objects.filter(event=event).prefetch_related("criteria"):
         criteria = list(round_.criteria.all())
@@ -260,7 +271,7 @@ def marks(request, slug):
         rounds.append((round_, criteria, rows))
     return render(
         request, "hackathon/marks.html",
-        {"event": event, "rounds": rounds, "can_change": can_change_marks(request.user)},
+        {"event": event, "rounds": rounds, "can": permissions_for(request.user, event)},
     )
 
 
@@ -421,10 +432,17 @@ def faculty_requests(request):
     from .forms import DecisionForm
     from .models import FacultyRequest
 
-    if not is_admin(request.user):
-        raise PermissionDenied
+    user = request.user
+    visible = FacultyRequest.objects.all()
+    if not is_admin(user):
+        events = [e.pk for e in overseen_events(user) if allowed(user, e, "can_approve_requests")]
+        if not events:
+            raise PermissionDenied
+        visible = visible.filter(event__in=events)
     if request.method == "POST":
-        req = get_object_or_404(FacultyRequest, pk=request.POST.get("request"))
+        req = get_object_or_404(visible, pk=request.POST.get("request"))
+        if not is_admin(user) and not (req.event and allowed(user, req.event, "can_approve_requests")):
+            raise PermissionDenied
         form = DecisionForm(request.POST)
         note = form.cleaned_data["note"] if form.is_valid() else ""
         try:
@@ -437,7 +455,84 @@ def faculty_requests(request):
         except services.RequestError as exc:
             messages.error(request, str(exc))
         return redirect("faculty_requests")
-    pending = list(FacultyRequest.objects.filter(status=FacultyRequest.Status.PENDING).select_related("person", "event"))
+    pending = list(visible.filter(status=FacultyRequest.Status.PENDING).select_related("person", "event"))
     rows = [(r, list(r.duplicates())) for r in pending]
-    decided = FacultyRequest.objects.exclude(status=FacultyRequest.Status.PENDING).select_related("person", "event", "decided_by")[:30]
+    decided = visible.exclude(status=FacultyRequest.Status.PENDING).select_related("person", "event", "decided_by")[:30]
     return render(request, "hackathon/faculty_requests.html", {"rows": rows, "decided": decided, "decision_form": DecisionForm()})
+
+
+
+# --- Admins and permitted supervisors: changing marks, jury switch, adding faculty ----
+
+
+@never_cache
+@login_required
+def change_marks(request, slug, pk):
+    """Change one allocation's marks, or reopen it, with a recorded reason."""
+    from .forms import ChangeMarksForm
+
+    event = overseen_event(request, slug)
+    assignment = get_object_or_404(
+        Assignment.objects.select_related("round", "faculty__person", "team__room"), pk=pk, round__event=event
+    )
+    can_change = allowed(request.user, event, "can_change_marks")
+    can_reopen = allowed(request.user, event, "can_reopen_marks")
+    if not (can_change or can_reopen):
+        raise PermissionDenied
+    criteria = list(assignment.round.criteria.all())
+    scores = {s.criterion_id: s.marks for s in assignment.scores.all()}
+    form = ChangeMarksForm(request.POST or None, criteria=criteria, scores=scores, assignment=assignment)
+    if request.method == "POST":
+        reopening = request.POST.get("action") == "reopen"
+        require(request.user, event, "can_reopen_marks" if reopening else "can_change_marks")
+        if form.is_valid():
+            try:
+                if reopening:
+                    services.reopen_marks(assignment, request.user, form.cleaned_data["reason"])
+                    messages.success(request, f"Reopened: {assignment.faculty} can change these marks again while the round is open.")
+                else:
+                    services.change_marks(assignment, request.user, form.marks(), form.cleaned_data["reason"], form.cleaned_data["remarks"])
+                    messages.success(request, "Marks changed. The reason is recorded and appears in the marks Excel.")
+                return redirect("hackathon_marks", slug)
+            except ValidationError as exc:
+                form.add_error(None, exc)
+    return render(
+        request, "hackathon/change_marks.html",
+        {"event": event, "assignment": assignment, "form": form, "can_change": can_change, "can_reopen": can_reopen,
+         "history": assignment.changes.select_related("changed_by")},
+    )
+
+
+@login_required
+@require_POST
+def jury_switch(request, slug):
+    event = overseen_event(request, slug)
+    require(request.user, event, "can_publish")
+    event.show_jury_to_students = request.POST.get("show") == "1"
+    event.save(update_fields=["show_jury_to_students"])
+    messages.success(request, "Students now see their jury." if event.show_jury_to_students else "The jury is hidden from students.")
+    return redirect("hackathon_dashboard", slug)
+
+
+@login_required
+@require_POST
+def add_faculty(request, slug):
+    from people.models import Person
+
+    event = overseen_event(request, slug)
+    require(request.user, event, "can_add_faculty")
+    text = request.POST.get("who", "").strip()
+    person = None
+    if text:
+        person = (
+            Person.objects.filter(email__iexact=text).first()
+            or Person.objects.filter(kl_email__iexact=text).first()
+            or Person.objects.filter(employee_id__iexact=text).first()
+            or Person.objects.filter(login_id__iexact=text).first()
+        )
+    if not person:
+        messages.error(request, f"Nobody on the portal matches \"{text}\". Upload them in the faculty Excel, or ask them to register as faculty.")
+    else:
+        _, created = services.add_faculty(event, person)
+        messages.success(request, f"{person.display_name} {'added to' if created else 'is already on'} this hackathon's faculty.")
+    return redirect("hackathon_dashboard", slug)

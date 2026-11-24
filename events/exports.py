@@ -194,10 +194,15 @@ def build_export(event: Event, kind: str, user) -> tuple[str, bytes]:
 
 @login_required
 def export(request, slug, kind):
-    from hackathon.access import oversees
+    from hackathon.access import allowed
 
     event = get_object_or_404(Event, slug=slug)
-    if not (event.coordinated_by(request.user) or (event.is_hackathon and oversees(request.user, event))):
+    if event.is_hackathon:
+        if not allowed(request.user, event, "can_download"):
+            raise PermissionDenied
+        if kind == "marks" and not allowed(request.user, event, "can_view_marks"):
+            raise PermissionDenied
+    elif not event.coordinated_by(request.user):
         raise PermissionDenied
     if kind in HACKATHON_EXPORTS and not event.is_hackathon:
         raise Http404

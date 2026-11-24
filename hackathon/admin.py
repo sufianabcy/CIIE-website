@@ -1,10 +1,13 @@
 from django.contrib import admin
+from django.core.exceptions import PermissionDenied
 from django.db.models import Q
+from django.urls import reverse
+from django.utils.html import format_html
 
 from events.models import Event
 
-from .access import can_change_marks
-from .models import Assignment, Criterion, EventFaculty, FacultyRequest, Room, Round, Score, Supervisor, Team, TeamMember
+from .access import PERMISSIONS, allowed, events_allowing
+from .models import Assignment, Criterion, EventFaculty, FacultyRequest, MarkChange, Room, Round, Score, Supervisor, Team, TeamMember
 from .services import room_change_warnings
 
 
@@ -17,7 +20,16 @@ def overseen_q(request, path="event"):
 
 
 class ScopedAdmin(admin.ModelAdmin):
+    """Lists only the hackathons this person oversees; editing needs `perm` on that hackathon (see access.allowed)."""
+
     event_path = "event"
+    perm = None  # the access.PERMISSIONS switch needed to add, change or delete; None means admins only
+
+    def event_of(self, obj):
+        target = obj
+        for part in self.event_path.split("__"):
+            target = getattr(target, part)
+        return target
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
@@ -25,17 +37,38 @@ class ScopedAdmin(admin.ModelAdmin):
             return qs
         return qs.filter(overseen_q(request, self.event_path)).distinct()
 
+    def _may_edit(self, request, obj=None):
+        user = request.user
+        if user.is_portal_admin:
+            return True
+        if self.perm is None:
+            return False
+        if obj is None:
+            return bool(events_allowing(user, self.perm))
+        return allowed(user, self.event_of(obj), self.perm)
+
+    def has_add_permission(self, request):
+        return super().has_add_permission(request) and self._may_edit(request)
+
+    def has_change_permission(self, request, obj=None):
+        return super().has_change_permission(request, obj) and self._may_edit(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        return super().has_delete_permission(request, obj) and self._may_edit(request, obj)
+
+    def save_model(self, request, obj, form, change):
+        if not request.user.is_portal_admin and (self.perm is None or not allowed(request.user, self.event_of(obj), self.perm)):
+            raise PermissionDenied
+        super().save_model(request, obj, form, change)
+
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        model = db_field.related_model
         if not request.user.is_portal_admin:
-            model = db_field.related_model
             if model is Event:
-                kwargs["queryset"] = Event.objects.filter(
-                    Q(coordinators=request.user) | Q(supervisors__person=request.user, supervisors__is_active=True),
-                    kind=Event.Kind.HACKATHON,
-                ).distinct()
+                kwargs["queryset"] = Event.objects.filter(pk__in=[e.pk for e in events_allowing(request.user, self.perm)]) if self.perm else Event.objects.none()
             elif model in (Round, Room, Team, EventFaculty):
                 kwargs["queryset"] = model.objects.filter(overseen_q(request)).distinct()
-        elif db_field.related_model is Event:
+        elif model is Event:
             kwargs["queryset"] = Event.objects.filter(kind=Event.Kind.HACKATHON)
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
@@ -53,6 +86,7 @@ class CriterionInline(admin.TabularInline):
 
 @admin.register(Round)
 class RoundAdmin(ScopedAdmin):
+    perm = "can_edit_rounds"
     list_display = ["name", "event", "position", "opens_at", "closes_at", "state", "results_published_at"]
     list_filter = ["event"]
     fields = ["event", "name", "position", ("opens_at", "closes_at"), "results_published_at"]
@@ -65,12 +99,14 @@ class RoundAdmin(ScopedAdmin):
         return initial
 
     def get_readonly_fields(self, request, obj=None):
-        # Publishing results to students is the admin's call.
-        return [] if request.user.is_portal_admin else ["results_published_at"]
+        if request.user.is_portal_admin or (obj and allowed(request.user, obj.event, "can_publish")):
+            return []
+        return ["results_published_at"]
 
 
 @admin.register(Room)
 class RoomAdmin(ScopedAdmin):
+    perm = "can_edit_teams"
     list_display = ["name", "building", "capacity", "event", "team_count"]
     list_filter = ["event"]
     search_fields = ["name", "building"]
@@ -86,9 +122,22 @@ class TeamMemberInline(admin.TabularInline):
     autocomplete_fields = ["registration"]
     fields = ["registration", "extra"]
 
+    def _may_edit(self, request, obj):
+        return request.user.is_portal_admin or (obj is not None and allowed(request.user, obj.event, "can_edit_teams"))
+
+    def has_add_permission(self, request, obj=None):
+        return super().has_add_permission(request, obj) and self._may_edit(request, obj)
+
+    def has_change_permission(self, request, obj=None):
+        return super().has_change_permission(request, obj) and self._may_edit(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        return super().has_delete_permission(request, obj) and self._may_edit(request, obj)
+
 
 @admin.register(Team)
 class TeamAdmin(ScopedAdmin):
+    perm = "can_edit_teams"
     list_display = ["name", "project_title", "room", "mentor_display", "event"]
     list_filter = ["event", "room"]
     search_fields = ["name", "project_title", "members__registration__person__full_name", "members__registration__person__email"]
@@ -109,6 +158,7 @@ class TeamAdmin(ScopedAdmin):
 
 @admin.register(EventFaculty)
 class EventFacultyAdmin(ScopedAdmin):
+    perm = "can_add_faculty"
     list_display = ["person", "employee_id", "department", "event", "is_active"]
     list_filter = ["event", "is_active"]
     search_fields = ["person__full_name", "person__email", "person__employee_id"]
@@ -132,10 +182,26 @@ class EventFacultyAdmin(ScopedAdmin):
 
 @admin.register(Supervisor)
 class SupervisorAdmin(ScopedAdmin):
-    list_display = ["person", "kind", "event", "is_active"]
+    """Only admins add supervisors or change what they may do (perm = None)."""
+
+    list_display = ["person", "kind", "event", "is_active", "switched_on"]
     list_filter = ["event", "kind", "is_active"]
     search_fields = ["person__full_name", "person__email", "person__employee_id", "person__student_id"]
     autocomplete_fields = ["person"]
+    fieldsets = [
+        (None, {"fields": ["event", "person", "kind", "is_active"]}),
+        (
+            "What this supervisor can do at this hackathon",
+            {
+                "fields": list(PERMISSIONS),
+                "description": "Supervisors always see this hackathon's page. Tick what else they may do. Only admins change these.",
+            },
+        ),
+    ]
+
+    @admin.display(description="Switched on")
+    def switched_on(self, obj):
+        return ", ".join(label for name, (label, _, _) in PERMISSIONS.items() if getattr(obj, name)) or "-"
 
     def save_model(self, request, obj, form, change):
         super().save_model(request, obj, form, change)
@@ -145,48 +211,60 @@ class SupervisorAdmin(ScopedAdmin):
 
 
 class ScoreInline(admin.TabularInline):
+    """Read-only here: marks are changed on the hackathon's marks page, which records a reason."""
+
     model = Score
     extra = 0
     fields = ["criterion", "marks", "updated_at"]
-    readonly_fields = ["updated_at"]
+    readonly_fields = ["criterion", "marks", "updated_at"]
 
-    def get_formset(self, request, obj=None, **kwargs):
-        formset = super().get_formset(request, obj, **kwargs)
-        if obj and "criterion" in formset.form.base_fields:
-            formset.form.base_fields["criterion"].queryset = Criterion.objects.filter(round=obj.round)
-        return formset
-
-    # Only admins change marks (see access.can_change_marks).
     def has_add_permission(self, request, obj=None):
-        return can_change_marks(request.user)
+        return False
 
     def has_change_permission(self, request, obj=None):
-        return can_change_marks(request.user)
+        return False
 
     def has_delete_permission(self, request, obj=None):
-        return can_change_marks(request.user)
+        return False
+
+
+class MarkChangeInline(admin.TabularInline):
+    model = MarkChange
+    extra = 0
+    fields = ["kind", "changed_at", "changed_by", "reason", "before", "after"]
+    readonly_fields = fields
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(Assignment)
 class AssignmentAdmin(ScopedAdmin):
+    perm = "can_edit_allocations"
     event_path = "round__event"
     list_display = ["team", "room", "faculty", "round", "source", "total_marks", "submitted_at"]
     list_filter = ["round__event", "round", ("submitted_at", admin.EmptyFieldListFilter), "source"]
     search_fields = ["team__name", "faculty__person__full_name", "faculty__person__email"]
     list_select_related = ["team__room", "faculty__person", "round"]
-    fields = ["round", "faculty", "team", "source", "remarks", "submitted_at"]
-    readonly_fields = ["source"]
-    inlines = [ScoreInline]
-    actions = ["reopen"]
+    fields = ["round", "faculty", "team", "source", "remarks", "submitted_at", "change_marks"]
+    readonly_fields = ["source", "remarks", "submitted_at", "change_marks"]
+    inlines = [ScoreInline, MarkChangeInline]
 
     def get_queryset(self, request):
         return super().get_queryset(request).prefetch_related("scores")
 
-    def get_readonly_fields(self, request, obj=None):
-        fields = list(super().get_readonly_fields(request, obj))
-        if not can_change_marks(request.user):
-            fields += ["remarks", "submitted_at"]
-        return fields
+    @admin.display(description="Marks")
+    def change_marks(self, obj):
+        if not obj.pk:
+            return "-"
+        url = reverse("hackathon_change_marks", args=[obj.round.event.slug, obj.pk])
+        return format_html('<a href="{}">Change marks or reopen (on the hackathon page, with a reason)</a>', url)
 
     @admin.display(description="Room")
     def room(self, obj):
@@ -197,24 +275,16 @@ class AssignmentAdmin(ScopedAdmin):
         scores = list(obj.scores.all())
         return sum(s.marks for s in scores).normalize() if scores else "-"
 
-    @admin.action(description="Let faculty change these marks again (admins only)")
-    def reopen(self, request, queryset):
-        if not can_change_marks(request.user):
-            self.message_user(request, "Only admins can reopen submitted marks.", level="error")
-            return
-        n = queryset.exclude(submitted_at__isnull=True).update(submitted_at=None)
-        self.message_user(request, f"{n} allocation(s) reopened. The faculty member must submit again.")
-
     def has_delete_permission(self, request, obj=None):
-        if obj is not None and obj.scores.exists() and not can_change_marks(request.user):
+        # An allocation with marks can only go if the person may also change marks.
+        if obj is not None and obj.scores.exists() and not allowed(request.user, obj.round.event, "can_change_marks"):
             return False
         return super().has_delete_permission(request, obj)
 
 
-
 @admin.register(FacultyRequest)
 class FacultyRequestAdmin(admin.ModelAdmin):
-    """Admins decide on the Faculty requests page; this list is for looking things up."""
+    """Decisions are made on the Faculty requests page; this list is for looking things up."""
 
     list_display = ["full_name", "person", "employee_id", "department", "event", "status", "created_at", "decided_by"]
     list_filter = ["status", "event"]

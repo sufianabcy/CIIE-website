@@ -7,22 +7,23 @@
   <div>
     <span class="eyebrow">All marks</span>
     <h1 class="heading-3">{{ event.title }}</h1>
-    <p>Every faculty member's marks, by round. {% if can_change %}Change a mark from the allocation's page in the admin.{% else %}Read-only: only admins can change marks.{% endif %}</p>
+    <p>Every faculty member's marks, by round. {% if can.can_change_marks or can.can_reopen_marks %}Use "Change" to change or reopen a marksheet; you'll be asked for a reason, which is recorded.{% else %}Read-only: you can't change marks.{% endif %}</p>
   </div>
-  <a class="btn btn-primary" href="{% url 'event_export' event.slug 'marks' %}">{% include "ui/icon.html" with name="download" %}Excel</a>
+  {% if can.can_download %}<a class="btn btn-primary" href="{% url 'event_export' event.slug 'marks' %}">{% include "ui/icon.html" with name="download" %}Excel</a>{% endif %}
 </header>
 {% for round, criteria, rows in rounds %}
 <section class="panel mb-4">
   <h2 class="panel-title">{{ round.name }} <span class="caption-2 text-secondary ms-2">out of {{ round.out_of.normalize }}</span></h2>
   {% if rows %}
   <div class="table-responsive"><table class="table table-sm align-middle mb-0">
-    <thead><tr><th>Team</th><th>Room</th><th>Faculty</th>{% for c in criteria %}<th class="text-end">{{ c.label }} <span class="text-secondary">/{{ c.max_marks.normalize }}</span></th>{% endfor %}<th class="text-end">Total</th><th>Status</th></tr></thead>
+    <thead><tr><th>Team</th><th>Room</th><th>Faculty</th>{% for c in criteria %}<th class="text-end">{{ c.label }} <span class="text-secondary">/{{ c.max_marks.normalize }}</span></th>{% endfor %}<th class="text-end">Total</th><th>Status</th>{% if can.can_change_marks or can.can_reopen_marks %}<th></th>{% endif %}</tr></thead>
     <tbody>{% for a, values, total in rows %}<tr>
       <td>{{ a.team.name }}</td><td>{{ a.team.room.name|default:"—" }}</td>
-      <td>{% if can_change %}<a href="{% url 'admin:hackathon_assignment_change' a.pk %}">{{ a.faculty.person.display_name }}</a>{% else %}{{ a.faculty.person.display_name }}{% endif %}</td>
+      <td>{{ a.faculty.person.display_name }}</td>
       {% for v in values %}<td class="text-end num">{% if v is not None %}{{ v.normalize }}{% else %}—{% endif %}</td>{% endfor %}
       <td class="text-end num"><strong>{% if total is not None %}{{ total.normalize }}{% else %}—{% endif %}</strong></td>
       <td>{% if a.submitted_at %}<span class="tag tag-green">Submitted</span>{% elif total is not None %}<span class="tag tag-amber">Draft</span>{% else %}<span class="tag">Not started</span>{% endif %}</td>
+      {% if can.can_change_marks or can.can_reopen_marks %}<td><a class="btn btn-quiet btn-sm" href="{% url 'hackathon_change_marks' event.slug a.pk %}">Change</a></td>{% endif %}
     </tr>{% endfor %}</tbody></table></div>
   {% else %}<p class="text-secondary mb-0">Nobody is allocated in this round yet.</p>{% endif %}
 </section>

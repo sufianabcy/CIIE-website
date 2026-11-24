@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Change marks · {{ assignment.team.name }}{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'hackathon_marks' event.slug %}">{% include "ui/icon.html" with name="arrow-left" %}All marks</a>
+<header class="tool-head">
+  <div>
+    <span class="eyebrow">{{ assignment.round.name }} · {{ assignment.faculty.person.display_name }}</span>
+    <h1 class="heading-3">{{ assignment.team.name }}</h1>
+    <p>{% if assignment.submitted_at %}Submitted {{ assignment.submitted_at|date:"j M, g:i A" }}.{% else %}Not submitted yet.{% endif %} Every change needs a reason. Who, when and why are recorded and shown in the marks Excel.</p>
+  </div>
+</header>
+<div class="row g-4">
+  <div class="col-lg-7">
+    <form method="post" class="form-card" novalidate data-marks>{% csrf_token %}
+      {% for e in form.non_field_errors %}<div class="alert alert-danger">{{ e }}</div>{% endfor %}
+      <fieldset {% if not can_change %}disabled{% endif %}>
+      {% for c, field in form.rows %}
+        <div class="mark-field" data-max="{{ c.max_marks.normalize }}">
+          <div><label class="form-label mb-0" for="{{ field.id_for_label }}">{{ c.label }}</label>{% for e in field.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}</div>
+          <div class="mark-input">{{ field }}<span>/ {{ c.max_marks.normalize }}</span></div>
+        </div>
+      {% endfor %}
+      <div class="mt-4 mb-3"><label class="form-label" for="{{ form.remarks.id_for_label }}">Remarks</label>{{ form.remarks }}</div>
+      </fieldset>
+      <div class="mb-3"><label class="form-label" for="{{ form.reason.id_for_label }}">{{ form.reason.label }}</label>{{ form.reason }}{% for e in form.reason.errors %}<div class="field-error">{{ e }}</div>{% endfor %}</div>
+      <div class="d-flex flex-wrap gap-2">
+        {% if can_change %}<button class="btn btn-primary" type="submit" name="action" value="change">Save changed marks</button>{% endif %}
+        {% if can_reopen and assignment.submitted_at %}<button class="btn btn-quiet" type="submit" name="action" value="reopen">Reopen for the faculty member</button>{% endif %}
+      </div>
+    </form>
+  </div>
+  <div class="col-lg-5">
+    <section class="panel">
+      <h2 class="panel-title">History</h2>
+      {% for h in history %}<p class="caption-2 mb-2"><strong>{{ h.get_kind_display }}</strong> by {{ h.changed_by.display_name }}, {{ h.changed_at|date:"j M, g:i A" }}: {{ h.reason }}</p>
+      {% empty %}<p class="caption-2 text-secondary mb-0">No changes yet.</p>{% endfor %}
+    </section>
+  </div>
+</div>
+{% endblock %}

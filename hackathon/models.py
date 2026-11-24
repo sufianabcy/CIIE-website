@@ -55,6 +55,21 @@ class Supervisor(models.Model):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    # What this supervisor may do at this hackathon. Labels and defaults: hackathon.access.PERMISSIONS
+    # (a test keeps the two in step). Only admins change these.
+    can_view_marks = models.BooleanField("view all marks", default=True, help_text="See every faculty member's marks on the marks page.")
+    can_edit_teams = models.BooleanField("edit rooms and teams", default=True, help_text="Add and edit rooms and teams, and move teams between rooms.")
+    can_edit_allocations = models.BooleanField("edit allocations", default=True, help_text="Allocate faculty to rooms for each round, and remove allocations.")
+    can_edit_rounds = models.BooleanField("edit round times", default=True, help_text="Change when rounds open and close, including Open now and Close now.")
+    can_download = models.BooleanField("download Excel files", default=True, help_text="Download this hackathon's Excel files.")
+    can_change_marks = models.BooleanField("change marks", default=False, help_text="Change any faculty member's marks, even after they submit. A reason is recorded.")
+    can_reopen_marks = models.BooleanField("reopen marksheets", default=False, help_text="Let a faculty member edit marks they already submitted.")
+    can_publish = models.BooleanField("publish results", default=False, help_text="Publish or hide round results, and switch \"show jury to students\".")
+    can_make_logins = models.BooleanField("make faculty passwords", default=False, help_text="Make or reset temporary passwords for this hackathon's faculty.")
+    can_import = models.BooleanField("import Excel", default=False, help_text="Upload the students, faculty and allocations Excel files.")
+    can_approve_requests = models.BooleanField("approve faculty requests", default=False, help_text="Approve or reject faculty requests that chose this hackathon.")
+    can_add_faculty = models.BooleanField("add faculty", default=False, help_text="Add existing people to this hackathon's faculty list.")
+
     class Meta:
         ordering = ["event", "person__full_name"]
         verbose_name = "hackathon supervisor"
@@ -62,6 +77,12 @@ class Supervisor(models.Model):
 
     def __str__(self):
         return f"{self.person.display_name} ({self.get_kind_display()})"
+
+    @property
+    def switch_labels(self) -> list[str]:
+        from .access import PERMISSIONS
+
+        return [label for name, (label, _, _) in PERMISSIONS.items() if getattr(self, name)]
 
 
 @pghistory.track()
@@ -343,3 +364,26 @@ class FacultyRequest(models.Model):
         for email in {e for e in (self.person.email, self.person.kl_email) if e}:
             q |= Q(email__iexact=email) | Q(kl_email__iexact=email)
         return Person.objects.filter(q).exclude(pk=self.person_id).distinct()
+
+
+class MarkChange(models.Model):
+    """A change to marks by someone other than the faculty member who gave them, or a reopened marksheet."""
+
+    class Kind(models.TextChoices):
+        CHANGED = "changed", "Marks changed"
+        REOPENED = "reopened", "Marksheet reopened"
+
+    assignment = models.ForeignKey(Assignment, on_delete=models.CASCADE, related_name="changes")
+    kind = models.CharField(max_length=20, choices=Kind.choices, default=Kind.CHANGED)
+    changed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    changed_at = models.DateTimeField(default=timezone.now)
+    reason = models.CharField(max_length=500)
+    before = models.JSONField(default=dict, blank=True, help_text="Criterion label to marks, before.")
+    after = models.JSONField(default=dict, blank=True, help_text="Criterion label to marks, after.")
+
+    class Meta:
+        ordering = ["-changed_at"]
+        verbose_name = "mark change"
+
+    def __str__(self):
+        return f"{self.get_kind_display()} by {self.changed_by} on {self.changed_at:%d %b %Y}"

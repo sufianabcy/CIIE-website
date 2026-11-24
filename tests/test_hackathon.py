@@ -400,6 +400,7 @@ def test_supervisor_sees_their_hackathon_only_and_cannot_change_marks(client, se
     assert not round1.is_open()
     assert client.post(reverse("hackathon_round_action", args=[event.slug, round1.pk, "publish"])).status_code == 403
 
+    assert client.get(reverse("hackathon_change_marks", args=[event.slug, assignment.pk])).status_code == 403
     request = RequestFactory().get("/")
     request.user = supervisor
     inline = ScoreInline(Assignment, django_admin.site)
@@ -407,8 +408,6 @@ def test_supervisor_sees_their_hackathon_only_and_cannot_change_marks(client, se
     assignment_admin = AssignmentAdmin(Assignment, django_admin.site)
     assert {"remarks", "submitted_at"} <= set(assignment_admin.get_readonly_fields(request, assignment))
     assert list(assignment_admin.get_queryset(request)) == [assignment] + list(a.assignments.exclude(pk=assignment.pk))
-    request.user = admin_user
-    assert inline.has_change_permission(request)
     # In the admin a supervisor sees only their hackathon's rows.
     other_team = Team.objects.create(event=other, name="Elsewhere")
     from hackathon.admin import TeamAdmin
@@ -417,27 +416,34 @@ def test_supervisor_sees_their_hackathon_only_and_cannot_change_marks(client, se
     assert other_team not in TeamAdmin(Team, django_admin.site).get_queryset(request)
 
 
-def test_admin_changes_a_submitted_mark_in_the_admin(client, setup, admin_user):
+def test_admin_changes_a_submitted_mark_with_a_recorded_reason(client, setup, admin_user):
+    from hackathon.models import MarkChange
+
+    event = setup["event"]
     a = setup["faculty"][0]
     round1 = setup["rounds"][0]
     services.allocate_room(round1, a, setup["rooms"][0])
-    assignment = a.assignments.first()
-    idea = round1.criteria.get(label="Idea")
-    score = Score.objects.create(assignment=assignment, criterion=idea, marks=Decimal("3"))
-    assignment.submitted_at = timezone.now()
-    assignment.save()
+    assignment = a.assignments.get(team__name="Alpha")
+    idea, demo = round1.criteria.all()
+    services.save_marks(assignment, {idea: 3, demo: 10}, "ok", submit=True)
     client.force_login(admin_user)
-    url = reverse("admin:hackathon_assignment_change", args=[assignment.pk])
+    url = reverse("hackathon_change_marks", args=[event.slug, assignment.pk])
     assert client.get(url).status_code == 200
-    response = client.post(url, {
-        "round": round1.pk, "faculty": a.pk, "team": assignment.team.pk, "remarks": "fixed",
-        "submitted_at_0": "", "submitted_at_1": "",
-        "scores-TOTAL_FORMS": "1", "scores-INITIAL_FORMS": "1", "scores-MIN_NUM_FORMS": "0", "scores-MAX_NUM_FORMS": "1000",
-        "scores-0-id": score.pk, "scores-0-assignment": assignment.pk, "scores-0-criterion": idea.pk, "scores-0-marks": "9",
-    })
-    assert response.status_code == 302, response.content[:2000]
-    score.refresh_from_db()
-    assert score.marks == Decimal("9")
+    no_reason = client.post(url, {f"c_{idea.pk}": "9", f"c_{demo.pk}": "10", "remarks": "ok", "action": "change"})
+    assert no_reason.status_code == 200 and assignment.scores.get(criterion=idea).marks == 3
+    client.post(url, {f"c_{idea.pk}": "9", f"c_{demo.pk}": "10", "remarks": "ok", "reason": "Typo by judge", "action": "change"})
+    assert assignment.scores.get(criterion=idea).marks == 9
+    change = MarkChange.objects.get(assignment=assignment)
+    assert (change.changed_by, change.reason, change.before["Idea"], change.after["Idea"]) == (admin_user, "Typo by judge", 3, 9)
+    rows = sheet(build_export(event, "marks", admin_user)[1], "R1 Round 1 marks")
+    row = next(r for r in rows[1:] if r[0] == "Alpha")
+    assert row[rows[0].index("Last changed: reason")] == "Typo by judge" and row[rows[0].index("Changed by")] == "Admin One"
+    log = sheet(build_export(event, "marks", admin_user)[1], "Mark changes")
+    assert log[1][2:7] == ("Marks changed", "Round 1", "Alpha", "Dr. A", "Typo by judge")
+    # Reopening is recorded too, and lets the faculty member edit again.
+    client.post(url, {f"c_{idea.pk}": "9", f"c_{demo.pk}": "10", "reason": "Judge asked", "action": "reopen"})
+    assignment.refresh_from_db()
+    assert assignment.submitted_at is None and assignment.changes.first().kind == MarkChange.Kind.REOPENED
 
 
 def test_students_and_outsiders_reach_nothing(client, setup, make_person):
@@ -467,7 +473,7 @@ def test_marks_export_per_round_with_summaries(setup, admin_user):
         services.save_marks(assignment, {idea: marks[0], demo: marks[1]}, "ok", submit=True)
     _, content = build_export(event, "marks", admin_user)
     names = load_workbook(BytesIO(content)).sheetnames
-    assert names[:5] == ["R1 Round 1 marks", "R1 Round 1 summary", "R2 Round 2 marks", "R2 Round 2 summary", "Overall"]
+    assert names[:6] == ["R1 Round 1 marks", "R1 Round 1 summary", "R2 Round 2 marks", "R2 Round 2 summary", "Mark changes", "Overall"]
     rows = sheet(content, "R1 Round 1 marks")
     header = rows[0]
     alpha_a = next(r for r in rows[1:] if r[0] == "Alpha" and r[2] == "Dr. A")
@@ -802,3 +808,155 @@ def test_normal_events_keep_passes_and_the_door(client, event, admin_user, make_
     assert reverse("door", args=[event.slug]) in client.get(reverse("manage")).content.decode()
     assert "Door-team link" in client.get(reverse("admin:events_event_change", args=[event.pk])).content.decode()
     assert sheet(build_export(event, "registrations", admin_user)[1], "Registrations")[0][0] == "Pass code"
+
+
+
+# --- Per-supervisor permissions -------------------------------------------------------
+
+
+def test_permission_labels_and_model_defaults_agree():
+    from hackathon.access import PERMISSIONS
+
+    fields = {f.name: f for f in Supervisor._meta.fields}
+    for name, (label, help_text, default) in PERMISSIONS.items():
+        assert fields[name].default is default and fields[name].verbose_name.lower() == label.lower() and fields[name].help_text == help_text, name
+
+
+@pytest.fixture
+def sup(setup):
+    """A supervisor of the setup hackathon with the default switches, plus a way to flip one."""
+    person = Person.objects.create_user(email="sup@example.com", full_name="Sup")
+    row = services.add_supervisor(setup["event"], person)[0]
+
+    def switch(**values):
+        for k, v in values.items():
+            setattr(row, k, v)
+        row.save()
+
+    return row, switch
+
+
+def test_default_switches(sup):
+    from hackathon.access import DEFAULTS, permissions_for
+
+    row, _ = sup
+    assert permissions_for(row.person, row.event) == DEFAULTS
+    on = {k for k, v in DEFAULTS.items() if v}
+    assert on == {"can_view_marks", "can_edit_teams", "can_edit_allocations", "can_edit_rounds", "can_download"}
+
+
+def test_each_switch_allows_then_forbids(client, setup, sup, admin_user):
+    from hackathon.models import FacultyRequest
+
+    event = setup["event"]
+    row, switch = sup
+    r1 = setup["rooms"][0]
+    a, b, _ = setup["faculty"]
+    round1 = setup["rounds"][0]
+    services.allocate_room(round1, a, r1)
+    assignment = a.assignments.get(team__name="Alpha")
+    idea, demo = round1.criteria.all()
+    services.save_marks(assignment, {idea: 5, demo: 5}, "", submit=True)
+    alpha = setup["teams"]["Alpha"]
+    applicant = Person.objects.create_user(email="applicant@example.com", full_name="App")
+    FacultyRequest.objects.create(person=applicant, full_name="App", employee_id="X1", department="CSE", designation="AP", phone="9000000000", event=event)
+    client.force_login(row.person)
+    slug = event.slug
+    expiry = (timezone.localtime() + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M")
+
+    actions = {
+        "can_view_marks": lambda: client.get(reverse("hackathon_marks", args=[slug])),
+        "can_edit_teams": lambda: client.post(reverse("hackathon_move_team", args=[slug, alpha.pk]), {"room": r1.pk}),
+        "can_edit_allocations": lambda: client.post(reverse("hackathon_allocate", args=[slug]), {"round": round1.pk, "faculty": b.pk, "room": r1.pk, "action": "allocate"}),
+        "can_edit_rounds": lambda: client.post(reverse("hackathon_round_action", args=[slug, round1.pk, "open"])),
+        "can_download": lambda: client.get(reverse("event_export", args=[slug, "teams"])),
+        "can_change_marks": lambda: client.post(reverse("hackathon_change_marks", args=[slug, assignment.pk]), {f"c_{idea.pk}": "6", f"c_{demo.pk}": "5", "reason": "fix", "action": "change"}),
+        "can_reopen_marks": lambda: client.post(reverse("hackathon_change_marks", args=[slug, assignment.pk]), {f"c_{idea.pk}": "6", f"c_{demo.pk}": "5", "reason": "judge asked", "action": "reopen"}),
+        "can_publish": lambda: client.post(reverse("hackathon_jury_switch", args=[slug]), {"show": "1"}),
+        "can_make_logins": lambda: client.post(reverse("hackathon_logins", args=[slug]), {"which": "all", "expires_at": expiry}),
+        "can_import": lambda: client.post(reverse("hackathon_upload", args=[slug, "faculty"]), {"file": xlsx([["Name", "Email"], ["Dr. Z", "z@kluniversity.in"]])}),
+        "can_approve_requests": lambda: client.get(reverse("faculty_requests")),
+        "can_add_faculty": lambda: client.post(reverse("hackathon_add_faculty", args=[slug]), {"who": "applicant@example.com"}),
+    }
+    for name, act in actions.items():
+        switch(**{name: False})
+        assert act().status_code == 403, f"{name} off should be 403"
+        switch(**{name: True})
+        assert act().status_code in (200, 302), f"{name} on should work"
+    # The "on" runs really did their thing.
+    assert assignment.scores.get(criterion=idea).marks == 6
+    assignment.refresh_from_db()
+    assert assignment.submitted_at is None  # reopened
+    event.refresh_from_db()
+    assert event.show_jury_to_students
+    assert EventFaculty.objects.filter(event=event, person__email="z@kluniversity.in").exists()
+    assert EventFaculty.objects.filter(event=event, person=applicant).exists()
+
+
+def test_supervisor_password_switch_only_resets_plain_faculty(client, setup, sup, admin_user):
+    event = setup["event"]
+    row, switch = sup
+    switch(can_make_logins=True)
+    a = setup["faculty"][0].person
+    a.groups.add(Group.objects.get(name="Coordinator"))  # a faculty member with a bigger role
+    client.force_login(row.person)
+    rows = sheet(client.post(reverse("hackathon_logins", args=[event.slug]), {
+        "which": "all", "expires_at": (timezone.localtime() + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M"),
+    }).content, "Logins")
+    names = {r[0] for r in rows[1:]}
+    assert names == {"Dr. B", "Dr. C"}  # not Dr. A (coordinator), not the supervisor, not other supervisors
+
+
+def test_faculty_request_switch_is_per_hackathon(client, setup, sup, make_event):
+    from hackathon.models import FacultyRequest
+
+    row, switch = sup
+    switch(can_approve_requests=True)
+    other = make_event(kind=Event.Kind.HACKATHON)
+    person = Person.objects.create_user(email="elsewhere@example.com", full_name="Elsewhere")
+    req = FacultyRequest.objects.create(person=person, full_name="Elsewhere", employee_id="E1", department="X", designation="Y", phone="9000000000", event=other)
+    client.force_login(row.person)
+    assert b"Elsewhere" not in client.get(reverse("faculty_requests")).content
+    assert client.post(reverse("faculty_requests"), {"request": req.pk, "decision": "approve"}).status_code == 404
+    req.refresh_from_db()
+    assert req.status == FacultyRequest.Status.PENDING
+
+
+def test_supervisors_cannot_change_their_own_switches(client, setup, sup, admin_user):
+    row, _ = sup
+    url = reverse("admin:hackathon_supervisor_change", args=[row.pk])
+    client.force_login(row.person)
+    client.post(url, {"event": row.event.pk, "person": row.person.pk, "kind": "faculty", "is_active": "on", "can_change_marks": "on"})
+    row.refresh_from_db()
+    assert not row.can_change_marks
+    page = client.get(url)
+    assert page.status_code == 200 and b'name="can_change_marks"' not in page.content  # view-only
+    client.force_login(admin_user)
+    assert b'name="can_change_marks"' in client.get(url).content
+
+
+def test_supervisor_excel_sets_switches(hack):
+    report = services.import_staff(hack, xlsx([
+        ["Name", "Email", "Type", "Change marks", "Publish results", "Download Excel files"],
+        ["Dr. S", "s@kluniversity.in", "Faculty", "Yes", "no", "maybe"],
+    ]), "supervisor")
+    row = Supervisor.objects.get(person__email="s@kluniversity.in")
+    assert row.can_change_marks and not row.can_publish and row.can_download
+    assert "isn't yes or no" in report.warnings[0]
+
+
+def test_coordinators_get_the_default_switches(client, setup, make_person):
+    from hackathon.access import DEFAULTS, permissions_for
+
+    coordinator = make_person()
+    coordinator.groups.add(Group.objects.get(name="Coordinator"))
+    setup["event"].coordinators.add(coordinator)
+    assert permissions_for(coordinator, setup["event"]) == DEFAULTS
+
+
+def test_old_judging_app_is_gone(db):
+    from django.apps import apps
+    from django.db import connection
+
+    assert not apps.is_installed("judging")
+    assert not [t for t in connection.introspection.table_names() if t.startswith("judging")]

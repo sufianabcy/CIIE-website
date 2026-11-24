@@ -106,23 +106,26 @@ def marks_workbook(event, wb):
         for a in (
             Assignment.objects.filter(round=round_)
             .select_related("faculty__person", "team__room")
-            .prefetch_related("scores")
+            .prefetch_related("scores", "changes__changed_by")
             .order_by("team__room__name", "team__name", "faculty__person__full_name")
         ):
             marks = {s.criterion_id: s.marks for s in a.scores.all()}
             total = sum(marks.values(), Decimal("0"))
             status = "Submitted" if a.submitted_at else ("Draft saved" if marks else "Not started")
+            last = next(iter(a.changes.all()), None)  # newest first
             rows.append(
                 [a.team.name, a.team.room.name if a.team.room else "", a.faculty.person.display_name, a.faculty.person.employee_id]
                 + [_num(marks.get(c.pk)) for c in criteria]
                 + [_num(total) if marks else None, _num(out_of), a.remarks, status, _local(a.submitted_at)]
+                + ([last.reason, last.changed_by.display_name, _local(last.changed_at)] if last else [None, None, None])
             )
             if a.submitted_at:
                 submitted[a.team_id].append((marks, total))
         title = re.sub(r"[\[\]:*?/\\]", "", f"R{round_.position} {round_.name}")[:22]
         _sheet(
             wb, f"{title} marks",
-            ["Team", "Room", "Faculty", "Employee ID"] + crit_headers + ["Total", "Out of", "Remarks", "Status", "Submitted at"],
+            ["Team", "Room", "Faculty", "Employee ID"] + crit_headers
+            + ["Total", "Out of", "Remarks", "Status", "Submitted at", "Last changed: reason", "Changed by", "Changed at"],
             rows, text_columns=["Employee ID"],
         )
         summary = []
@@ -143,6 +146,21 @@ def marks_workbook(event, wb):
             ["Rank", "Team", "Room", "Members", "Faculty who submitted"] + [f"Average {h}" for h in crit_headers] + ["Average total", "Out of"],
             summary,
         )
+    from .models import MarkChange
+
+    changes = MarkChange.objects.filter(assignment__round__event=event).select_related(
+        "assignment__round", "assignment__team", "assignment__faculty__person", "changed_by"
+    ).order_by("changed_at")
+    _sheet(
+        wb, "Mark changes",
+        ["Changed at", "Changed by", "What", "Round", "Team", "Faculty", "Reason", "Before", "After"],
+        [
+            [_local(c.changed_at), c.changed_by.display_name, c.get_kind_display(), c.assignment.round.name, c.assignment.team.name,
+             c.assignment.faculty.person.display_name, c.reason,
+             ", ".join(f"{k}: {v:g}" for k, v in c.before.items()), ", ".join(f"{k}: {v:g}" for k, v in c.after.items())]
+            for c in changes
+        ],
+    )
     if rounds:
         rows = []
         for team_id, per_round in overall.items():
@@ -187,8 +205,8 @@ TEMPLATES = {
                  ["A. Student", "2300012345@kluniversity.in", "9000000000", "2300012345", "CSE", "3", "Team Rocket", "Smart attendance", "Face-based attendance for labs.", "R&D 101", "faculty@kluniversity.in"]),
     "faculty": ("Faculty", ["Name", "Email", "Employee ID", "Department", "Phone"],
                 ["Dr. A. Example", "a.example@kluniversity.in", "KLF1234", "CSE", "9000000000"]),
-    "supervisors": ("Supervisors", ["Name", "Email", "Employee ID", "KL ID", "Department", "Phone", "Type"],
-                    ["Dr. B. Example", "b.example@kluniversity.in", "KLF5678", "", "ECE", "9000000001", "Faculty"]),
+    "supervisors": ("Supervisors", ["Name", "Email", "Employee ID", "KL ID", "Department", "Phone", "Type", "Change marks", "Publish results"],
+                    ["Dr. B. Example", "b.example@kluniversity.in", "KLF5678", "", "ECE", "9000000001", "Faculty", "No", "No"]),
     "allocations": ("Allocations", ["Round", "Faculty email", "Room", "Team"],
                     ["Round 1", "a.example@kluniversity.in", "R&D 101", ""]),
 }

@@ -47,10 +47,15 @@ COORDINATOR_PERMS = [
     "hackathon.change_assignment",
     "hackathon.delete_assignment",
     "hackathon.view_score",
+    "hackathon.view_markchange",
 ]
 
 # Supervisors: everything about their hackathon except marks and the rubric; they never add supervisors.
 SUPERVISOR_PERMS = [
+    # The model permissions a supervisor could ever need; what each one may actually do at each
+    # hackathon is the switches on their Supervisor row (hackathon.access.allowed).
+    "hackathon.add_eventfaculty",
+    "hackathon.view_markchange",
     "events.view_event",
     "events.view_question",
     "registrations.view_registration",

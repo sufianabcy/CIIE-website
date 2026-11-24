@@ -199,7 +199,20 @@ def add_faculty(event, person, extra=None) -> tuple[EventFaculty, bool]:
     return role, created
 
 
-def add_supervisor(event, person, kind=Supervisor.Kind.FACULTY, extra=None) -> tuple[Supervisor, bool]:
+def _switch_columns():
+    """Supervisor Excel columns that set permission switches, e.g. "Change marks" or "can_change_marks"."""
+    from .access import PERMISSIONS
+
+    out = {}
+    for name, (label, _, _) in PERMISSIONS.items():
+        out[name] = [_key(label), _key(name), _key("can " + label)]
+    return out
+
+
+TRUE_WORDS, FALSE_WORDS = {"yes", "y", "true", "1", "on", "allow", "allowed"}, {"no", "n", "false", "0", "off", "deny"}
+
+
+def add_supervisor(event, person, kind=Supervisor.Kind.FACULTY, extra=None, switches=None) -> tuple[Supervisor, bool]:
     person.groups.add(_group("Supervisor"))
     if kind == Supervisor.Kind.FACULTY:
         person.groups.add(_group("Faculty"))
@@ -212,6 +225,9 @@ def add_supervisor(event, person, kind=Supervisor.Kind.FACULTY, extra=None) -> t
         role.is_active = True
         if extra:
             role.extra = {**role.extra, **extra}
+    for name, value in (switches or {}).items():
+        setattr(role, name, value)
+    if not created or switches:
         role.save()
     return role, created
 
@@ -221,7 +237,8 @@ def import_staff(event, upload, role: str) -> ImportReport:
     """role is "faculty" or "supervisor". Creates or matches accounts and links them to this event."""
     report = ImportReport()
     headers, rows = read_rows(upload)
-    columns = match_columns(headers, STAFF_COLUMNS)
+    spec = {**STAFF_COLUMNS, **(_switch_columns() if role == "supervisor" else {})}
+    columns = match_columns(headers, spec)
     if "name" not in columns.values():
         report.problems.append("No Name column in the first row of the first sheet.")
         return report
@@ -237,19 +254,39 @@ def import_staff(event, upload, role: str) -> ImportReport:
             else:
                 kind_text = _key(data.get("kind"))
                 kind = Supervisor.Kind.STUDENT if kind_text.startswith("stud") else Supervisor.Kind.FACULTY
-                _, created = add_supervisor(event, person, kind, extra)
+                switches = {}
+                for name in _switch_columns():
+                    word = _key(data.get(name))
+                    if word in TRUE_WORDS:
+                        switches[name] = True
+                    elif word in FALSE_WORDS:
+                        switches[name] = False
+                    elif word:
+                        report.warnings.append(f"Row {line}: \"{data[name]}\" isn't yes or no, so {name.replace('_', ' ')} was left as it was.")
+                _, created = add_supervisor(event, person, kind, extra, switches)
         report.created += created
         report.updated += not created
     return report
 
 
-def issue_credentials(event, expires_at, which="new"):
-    """Temporary passwords for this event's faculty and supervisors. Returns [(person, roles, password)]."""
+def _privileged(person) -> bool:
+    """Accounts a non-admin must never reset: a new password would be a way into a bigger account."""
+    return bool(person.is_superuser or person.is_staff or person.groups.filter(name__in=["Admin", "Coordinator", "Supervisor"]).exists())
+
+
+def issue_credentials(event, expires_at, which="new", faculty_only=False):
+    """Temporary passwords for this event's faculty (and supervisors, for admins). Returns [(person, roles, password)].
+
+    faculty_only (for supervisors given the switch) skips supervisors and anyone with a bigger role.
+    """
     people = {}
     for f in EventFaculty.objects.filter(event=event, is_active=True).select_related("person"):
+        if faculty_only and _privileged(f.person):
+            continue
         people.setdefault(f.person.pk, [f.person, []])[1].append("Faculty")
-    for s in Supervisor.objects.filter(event=event, is_active=True).select_related("person"):
-        people.setdefault(s.person.pk, [s.person, []])[1].append("Supervisor")
+    if not faculty_only:
+        for s in Supervisor.objects.filter(event=event, is_active=True).select_related("person"):
+            people.setdefault(s.person.pk, [s.person, []])[1].append("Supervisor")
     issued = []
     with transaction.atomic():
         for person, roles in sorted(people.values(), key=lambda pr: pr[0].display_name):
@@ -645,3 +682,56 @@ def reject_faculty_request(req, by, note=""):
     req.save()
     _decision_email(req)
     return req
+
+
+# --- Changing marks after the fact (admins, or supervisors with the switch) ----------
+
+
+def _marks_by_label(assignment):
+    return {s.criterion.label: float(s.marks) for s in assignment.scores.select_related("criterion")}
+
+
+@transaction.atomic
+def change_marks(assignment, by, marks: dict, reason: str, remarks=None):
+    """Overwrite marks for one allocation, recording who, when, why, and before/after. marks: {criterion: value or None}."""
+    from .models import MarkChange
+
+    reason = (reason or "").strip()
+    if not reason:
+        raise ValidationError("Give a reason for changing these marks.")
+    assignment = Assignment.objects.select_for_update().get(pk=assignment.pk)
+    before = _marks_by_label(assignment)
+    for criterion, value in marks.items():
+        if criterion.round_id != assignment.round_id:
+            raise ValidationError("That criterion belongs to another round.")
+        if value is None:
+            Score.objects.filter(assignment=assignment, criterion=criterion).delete()
+        else:
+            if value < 0 or value > criterion.max_marks:
+                raise ValidationError(f"{criterion.label}: between 0 and {criterion.max_marks.normalize():f}.")
+            Score.objects.update_or_create(assignment=assignment, criterion=criterion, defaults={"marks": Decimal(value)})
+    if remarks is not None:
+        assignment.remarks = remarks
+        assignment.save(update_fields=["remarks", "updated_at"])
+    return MarkChange.objects.create(
+        assignment=assignment, changed_by=by, reason=reason, before=before, after=_marks_by_label(assignment)
+    )
+
+
+@transaction.atomic
+def reopen_marks(assignment, by, reason: str):
+    """Let the faculty member edit a submitted marksheet again (while the round is open)."""
+    from .models import MarkChange
+
+    reason = (reason or "").strip()
+    if not reason:
+        raise ValidationError("Give a reason for reopening.")
+    assignment = Assignment.objects.select_for_update().get(pk=assignment.pk)
+    if not assignment.submitted_at:
+        raise ValidationError("These marks aren't submitted, so there's nothing to reopen.")
+    assignment.submitted_at = None
+    assignment.save(update_fields=["submitted_at", "updated_at"])
+    marks = _marks_by_label(assignment)
+    return MarkChange.objects.create(
+        assignment=assignment, kind=MarkChange.Kind.REOPENED, changed_by=by, reason=reason, before=marks, after=marks
+    )

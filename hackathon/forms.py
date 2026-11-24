@@ -109,3 +109,15 @@ class FacultyRequestForm(forms.Form):
 
 class DecisionForm(forms.Form):
     note = forms.CharField(required=False, max_length=500, widget=forms.TextInput(attrs={"class": "form-control form-control-sm", "placeholder": "Note to them (optional)"}))
+
+
+
+class ChangeMarksForm(MarksForm):
+    """MarksForm plus a required reason (for admins and permitted supervisors)."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["reason"] = forms.CharField(
+            label="Reason (recorded, and shown in the marks Excel)", max_length=500,
+            widget=forms.TextInput(attrs={"class": "form-control"}),
+        )
