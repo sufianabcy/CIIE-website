@@ -58,7 +58,6 @@ INSTALLED_APPS = [
     "registrations",
     "checkin",
     "results",
-    "judging",  # the first judging version; its tables are kept but no longer used
     "hackathon",
 ]
 

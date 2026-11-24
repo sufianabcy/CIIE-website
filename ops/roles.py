@@ -77,7 +77,7 @@ SUPERVISOR_PERMS = [
     "hackathon.view_score",
 ]
 
-ADMIN_APPS = ["people", "events", "registrations", "checkin", "results", "judging", "hackathon", "mailer", "ops", "pghistory", "account", "socialaccount", "auth"]
+ADMIN_APPS = ["people", "events", "registrations", "checkin", "results", "hackathon", "mailer", "ops", "pghistory", "account", "socialaccount", "auth"]
 # Rows that are never deleted, even by admins: they deactivate, cancel or undo instead.
 NEVER_DELETE = {"person", "registration", "checkin", "scanlog", "result", "event", "outboxemail", "backuprun", "sitesettings"}
 
