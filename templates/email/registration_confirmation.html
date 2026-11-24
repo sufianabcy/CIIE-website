@@ -1,0 +1,13 @@
+<!doctype html>
+<html><body style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; color:#1f2328; line-height:1.5">
+<p>Hi {{ person.full_name|default:"there" }},</p>
+<p>You're registered for <strong>{{ event.title }}</strong>.</p>
+<table cellpadding="4" style="border-collapse:collapse">
+  <tr><td style="color:#57606a">When</td><td>{{ event.starts_at|date:"l j F Y, g:i A" }}</td></tr>
+  {% if event.venue %}<tr><td style="color:#57606a">Where</td><td>{{ event.venue }}</td></tr>{% endif %}
+  <tr><td style="color:#57606a">Pass code</td><td style="font-family:monospace; font-size:18px"><strong>{{ registration.pass_code_display }}</strong></td></tr>
+</table>
+<p><a href="{{ pass_url }}" style="display:inline-block; background:#0b5ed7; color:#fff; padding:10px 18px; border-radius:6px; text-decoration:none">Open my pass</a></p>
+<p style="color:#57606a">Show the QR at the door, or read out the code. A screenshot works too. All your registrations: <a href="{{ my_url }}">{{ my_url }}</a></p>
+<p>{{ club_name }} student team<br><span style="color:#57606a">Questions: {{ contact_email }}</span></p>
+</body></html>

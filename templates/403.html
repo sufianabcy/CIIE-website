@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Not allowed{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block content %}
+<div class="error-page">
+  <div class="code" aria-hidden="true">4<span class="o"></span>3</div>
+  <h1 class="heading-3">You can't open this page</h1>
+  <p>It belongs to an event team you're not on. If you should be, ask the event's coordinator to add you.</p>
+  <div class="d-flex flex-wrap gap-2 justify-content-center">
+    <a class="btn btn-primary" href="{% url 'home' %}">Go home</a>
+    <a class="btn btn-quiet" href="{% url 'my_registrations' %}">My passes</a>
+  </div>
+</div>
+{% endblock %}

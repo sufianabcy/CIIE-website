@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Marks · {{ person.display_name }}{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block navbar %}{% include "judging/_nav.html" %}{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'judge_home' %}">{% include "ui/icon.html" with name="arrow-left" %}All your students</a>
+<header class="tool-head">
+  <div>
+    <span class="eyebrow">Marking</span>
+    <h1 class="heading-3">{{ person.display_name }}</h1>
+  </div>
+</header>
+<div class="row g-4">
+  <div class="col-lg-5">
+    <div class="panel">
+      <dl class="detail-list mb-0">
+        {% if person.institution %}<div><dt>Institution</dt><dd>{{ person.institution }}</dd></div>{% endif %}
+        {% if person.branch %}<div><dt>Branch</dt><dd>{{ person.branch }}</dd></div>{% endif %}
+        {% if person.year_of_study %}<div><dt>Year</dt><dd>{{ person.year_of_study }}</dd></div>{% endif %}
+        {% if person.student_id %}<div><dt>KL ID</dt><dd>{{ person.student_id }}</dd></div>{% endif %}
+        <div><dt>Pass code</dt><dd class="font-monospace">{{ assignment.registration.pass_code_display }}</dd></div>
+        {% for q, value in details %}<div><dt>{{ q.label }}</dt><dd style="white-space:pre-wrap">{% if q.kind == 'link' and value %}<a href="{{ value }}" target="_blank" rel="noopener noreferrer">{{ value }}</a>{% else %}{{ value|default:"—" }}{% endif %}</dd></div>{% endfor %}
+      </dl>
+    </div>
+  </div>
+  <div class="col-lg-7">
+    {% if assignment.is_submitted %}
+      <div class="alert alert-success">Submitted {{ assignment.submitted_at|date:"j M, g:i A" }}. Ask the organisers if something needs changing.</div>
+    {% endif %}
+    <form method="post" class="form-card" novalidate data-marks>{% csrf_token %}
+      <fieldset {% if assignment.is_submitted %}disabled{% endif %}>
+      {% for c, field in form.rows %}
+        <div class="mark-field" data-max="{{ c.max_marks.normalize }}">
+          <div>
+            <label class="form-label mb-0" for="{{ field.id_for_label }}">{{ c.label }}</label>
+            {% if c.description %}<div class="caption-2 text-secondary">{{ c.description }}</div>{% endif %}
+            {% for e in field.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+          </div>
+          <div class="mark-input">{{ field }}<span>/ {{ c.max_marks.normalize }}</span></div>
+        </div>
+      {% empty %}
+        <p class="text-secondary">The rubric isn't ready yet.</p>
+      {% endfor %}
+      <div class="mt-4 mb-3"><label class="form-label" for="{{ form.remarks.id_for_label }}">Remarks (optional)</label>{{ form.remarks }}</div>
+      {% if form.rows %}
+        <div class="mark-total"><span>Total</span><strong><span data-marks-total>{% if total is not None %}{{ total.normalize }}{% else %}0{% endif %}</span> / {{ out_of.normalize }}</strong></div>
+      {% endif %}
+      {% if total is not None %}<p class="caption-2 text-secondary">Saved total: <strong>{{ total.normalize }}</strong> out of {{ out_of.normalize }}</p>{% endif %}
+      {% if form.rows and not assignment.is_submitted %}
+      <div class="d-flex flex-wrap gap-2 mt-3">
+        <button class="btn btn-quiet" type="submit" name="save">Save draft</button>
+        <button class="btn btn-primary" type="submit" name="submit" onclick="return confirm('Submit these marks? You won\'t be able to change them afterwards.')">{% include "ui/icon.html" with name="check-circle" %}Submit marks</button>
+      </div>
+      {% endif %}
+      </fieldset>
+    </form>
+  </div>
+</div>
+{% endblock %}

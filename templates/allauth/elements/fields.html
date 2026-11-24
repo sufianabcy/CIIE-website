@@ -1,0 +1,15 @@
+{% for bf in attrs.form %}
+  {% if bf.is_hidden %}{{ bf }}{% else %}
+  <p>
+    {% if bf.field.widget.input_type == "checkbox" %}
+      {{ bf }} <label for="{{ bf.id_for_label }}" class="d-inline">{{ bf.label }}</label>
+    {% else %}
+      <label for="{{ bf.id_for_label }}">{{ bf.label }}</label>
+      {{ bf.errors }}
+      {{ bf }}
+    {% endif %}
+    {% if bf.help_text %}<span class="form-text d-block">{{ bf.help_text|safe }}</span>{% endif %}
+  </p>
+  {% endif %}
+{% endfor %}
+{{ attrs.form.non_field_errors }}

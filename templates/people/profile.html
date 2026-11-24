@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Your profile{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block content %}
+<div class="page-narrow">
+  <header class="page-head mb-4">
+    <span class="eyebrow">{% if first_time %}Almost there{% else %}Account{% endif %}</span>
+    <h1 class="heading-3">{% if first_time %}One step before you register{% else %}Your profile{% endif %}</h1>
+    {% if first_time %}<p>We ask once, so you never retype it for each event. Your name is printed on certificates exactly as you type it.</p>{% endif %}
+  </header>
+  <form method="post" class="form-card" novalidate data-validate>
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ next }}">
+    {% if form.non_field_errors %}<div class="alert alert-danger">{{ form.non_field_errors|join:" " }}</div>{% endif %}
+    {% for field in form %}
+      <div class="mb-4">
+        <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} <span class="req" aria-hidden="true">*</span>{% endif %}</label>
+        {{ field }}
+        {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+        {% for e in field.errors %}<div class="field-error">{{ e }}</div>{% endfor %}
+          <div class="field-error" data-error-for="{{ field.id_for_label }}" hidden></div>
+      </div>
+    {% endfor %}
+    <button class="btn btn-primary btn-lg w-100" type="submit">Save and continue</button>
+  </form>
+
+  <section class="form-card mt-4" aria-labelledby="kl-status">
+    <div class="d-flex gap-3 align-items-start">
+      <span class="step-num" aria-hidden="true">{% include "ui/icon.html" with name="student" size="sm" %}</span>
+      <div>
+        <h2 class="heading-6 mb-2" id="kl-status">KL student status</h2>
+        {% if user.is_kl_verified %}
+          <p class="mb-0"><span class="pass-status">{% include "ui/icon.html" with name="check-circle" %}Verified as KL</span>{% if user.student_id %} <span class="text-secondary">ID {{ user.student_id }}</span>{% endif %}<br><span class="caption-2 text-secondary">Through {{ user.kl_email }}</span></p>
+        {% else %}
+          <p class="text-secondary">Not verified as KL. If you are a KL student, add your KL email (ending in {{ kl_domains|join:" or " }}) and enter the code we send to it. Some events are for KL students only.</p>
+          <a class="btn btn-quiet btn-sm" href="{% url 'account_email' %}">Add my KL email</a>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+</div>
+{% endblock %}

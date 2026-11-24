@@ -1,0 +1,40 @@
+<div class="stat-grid mb-4">
+  <div class="stat-card stat-blue"><div class="stat-value">{{ c.checked_in }}</div><div class="stat-label">checked in</div></div>
+  <div class="stat-card"><div class="stat-value">{{ c.registered }}</div><div class="stat-label">registered online</div></div>
+  <div class="stat-card"><div class="stat-value">{{ c.last_hour }}</div><div class="stat-label">in the last hour</div></div>
+  <div class="stat-card{% if c.problems_last_hour %} stat-red{% endif %}"><div class="stat-value">{{ c.problems_last_hour }}</div><div class="stat-label">problem scans, last hour</div></div>
+</div>
+<div class="row g-3 mb-3">
+  <div class="col-md-4">
+    <div class="panel h-100">
+      <h2 class="panel-title">How</h2>
+      <table class="table table-sm mb-0">{% for label, n in c.by_method %}<tr><td>{{ label }}</td><td class="text-end num">{{ n }}</td></tr>{% endfor %}
+        <tr class="text-secondary"><td>Undone</td><td class="text-end num">{{ c.undone }}</td></tr></table>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="panel h-100">
+      <h2 class="panel-title">Per gate</h2>
+      <table class="table table-sm mb-0">{% for g in c.by_gate %}<tr><td>{{ g.gate|default:"(no gate)" }}</td><td class="text-end num">{{ g.n }}</td></tr>{% empty %}<tr><td class="text-secondary">Nobody yet</td></tr>{% endfor %}</table>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="panel h-100">
+      <h2 class="panel-title">Per member</h2>
+      <table class="table table-sm mb-0">{% for m in c.by_member %}<tr><td>{{ m.checked_in_by__full_name|default:m.checked_in_by__email }}</td><td class="text-end num">{{ m.n }}</td></tr>{% empty %}<tr><td class="text-secondary">Nobody yet</td></tr>{% endfor %}</table>
+    </div>
+  </div>
+</div>
+<div class="panel">
+  <h2 class="panel-title">Latest</h2>
+  <div class="table-responsive">
+    <table class="table table-sm mb-0">
+      {% for ci in c.recent %}
+        <tr class="{% if ci.undone_at %}text-decoration-line-through text-secondary{% endif %}">
+          <td class="num">{{ ci.checked_in_at|time:"g:i:s A" }}</td><td>{{ ci.registration.person.full_name }}</td><td>{{ ci.get_method_display }}</td><td>{{ ci.gate }}</td><td>{{ ci.checked_in_by.full_name|default:ci.checked_in_by.email }}</td>
+        </tr>
+      {% empty %}<tr><td class="text-secondary">No check-ins yet.</td></tr>{% endfor %}
+    </table>
+  </div>
+</div>
+<p class="caption-2 text-secondary mt-3">Updated {{ c.updated_at|time:"g:i:s A" }}. Refreshes every 10 seconds.</p>

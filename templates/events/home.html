@@ -1,0 +1,325 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Hackathons, workshops and pitch days at KL{% endblock %}
+{% block og_title %}{{ CLUB_NAME }}: hackathons, workshops and pitch days at KL{% endblock %}
+{% block main_class %}main-flush{% endblock %}
+{% block extra_head %}
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [
+  {"@type": "Question", "name": "Does it cost anything?", "acceptedAnswer": {"@type": "Answer", "text": "No. Every KL-CIIE event on this portal is free to join."}},
+  {"@type": "Question", "name": "Who can take part?", "acceptedAnswer": {"@type": "Answer", "text": "Most events are for KL students, and some are open to students from other colleges. Each event page says who can join."}},
+  {"@type": "Question", "name": "Do I need a team?", "acceptedAnswer": {"@type": "Answer", "text": "Many events, hackathons especially, are team events. The event page and its registration form say whether you need a team."}},
+  {"@type": "Question", "name": "What do winners get?", "acceptedAnswer": {"@type": "Answer", "text": "Winning teams take home funds or certificates. Each event page explains what is on offer."}},
+  {"@type": "Question", "name": "Can I cancel?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. Open your pass and cancel any time before the event starts. Your seat goes to someone else."}}
+]}
+</script>
+{% endblock %}
+{% block content %}
+
+{# ---------- Hero ---------- #}
+<section class="hero" aria-labelledby="hero-title">
+  <div class="container">
+    <div class="hero-grid">
+      <div class="hero-in">
+        <span class="chip">
+          {% if upcoming_count %}<span class="dot dot-live" aria-hidden="true"></span>{{ upcoming_count }} upcoming event{{ upcoming_count|pluralize }}{% else %}{% include "ui/icon.html" with name="sparkle" %}Free for every KL student{% endif %}
+        </span>
+        <h1 class="heading-1 hero-title" id="hero-title">
+          <span class="line grad">Find your team.</span>
+          <span class="line grad">Build the idea.</span>
+          <span class="line hl">Win the stage.</span>
+        </h1>
+        <p class="hero-sub">Hackathons, workshops and pitch days by {{ CLUB_NAME }}, KL University's Center for Innovation, Incubation and Entrepreneurship. Every event is free, the best teams win funds or certificates, and signing up takes about a minute.</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary btn-lg btn-arrow" href="#events">See upcoming events {% include "ui/icon.html" with name="arrow-right" %}</a>
+          <a class="text-link" href="#how">How it works</a>
+        </div>
+        <div class="hero-proof">
+          <span><strong>Free</strong> entry</span><span class="sep" aria-hidden="true"></span>
+          <span><strong>Funds or certificates</strong> for winners</span><span class="sep" aria-hidden="true"></span>
+          <span>Pass on your <strong>phone</strong></span>
+        </div>
+      </div>
+
+      <div class="stage" data-stage aria-hidden="true">
+        <div class="stage-rig">
+          <div class="obj cube"><div class="float"><div class="spin">
+            <div class="f f1"></div><div class="f f2"></div><div class="f f3"></div><div class="f f4"></div><div class="f f5"></div><div class="f f6"></div>
+          </div></div></div>
+          <div class="obj ring"><div class="float"><div class="spin">
+            <div class="layer"></div><div class="layer"></div><div class="layer"></div><div class="layer"></div><div class="layer"></div><div class="layer"></div>
+          </div></div></div>
+          <div class="obj tri"><div class="float"><div class="shape"></div></div></div>
+          <div class="obj pass3d"><div class="float">
+            <div class="card-edge"></div><div class="card-edge e2"></div>
+            <div class="card-face">
+              <div class="pass-top">
+                <img class="logo-light" src="{% static 'img/logo-mark-light.webp' %}" alt="" width="96" height="18">
+                <img class="logo-dark" src="{% static 'img/logo-mark-dark.webp' %}" alt="" width="96" height="18">
+                <span class="eyebrow">Entry pass</span>
+              </div>
+              <div class="pass-title">{% if next_event %}{{ next_event.title }}{% else %}Your next {{ CLUB_NAME }} event{% endif %}</div>
+              <div class="pass-when">{% if next_event %}{{ next_event.starts_at|date:"D j M, g:i A" }}{% if next_event.venue %} · {{ next_event.venue }}{% endif %}{% else %}Free entry · KL University{% endif %}</div>
+              <div class="perf"></div>
+              <div class="qr">{{ hero_qr|safe }}</div>
+              <div class="pass-foot">Scan to see every event</div>
+            </div>
+          </div></div>
+          <div class="obj orb"><div class="float"><div class="ball"></div></div></div>
+          <div class="obj float-chip fc-1"><div class="float"><span class="chip">{% include "ui/icon.html" with name="check-circle" %}Checked in</span></div></div>
+          <div class="obj float-chip fc-2"><div class="float"><span class="chip">{% include "ui/icon.html" with name="sparkle" %}Free entry</span></div></div>
+          <div class="obj float-chip fc-3"><div class="float"><span class="chip">{% include "ui/icon.html" with name="trophy" %}Funds or certificates</span></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+{# ---------- Event types ---------- #}
+<div class="marquee" aria-label="Kinds of events">
+  <div class="marquee-track">
+    {% for copy in "12" %}
+    <div class="marquee-group"{% if forloop.counter == 2 %} aria-hidden="true"{% endif %}>
+      <span class="marquee-item">Hackathons {% include "ui/icon.html" with name="star-four" %}</span>
+      <span class="marquee-item">Ideathons {% include "ui/icon.html" with name="star-four" %}</span>
+      <span class="marquee-item">Workshops {% include "ui/icon.html" with name="star-four" %}</span>
+      <span class="marquee-item">Pitch days {% include "ui/icon.html" with name="star-four" %}</span>
+      <span class="marquee-item">Bootcamps {% include "ui/icon.html" with name="star-four" %}</span>
+      <span class="marquee-item">Founder talks {% include "ui/icon.html" with name="star-four" %}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+{# ---------- Upcoming events ---------- #}
+<section class="section" id="events" aria-labelledby="events-title">
+  <div class="container">
+    <div class="section-head" data-reveal>
+      <div>
+        <span class="eyebrow">What's on</span>
+        <h2 class="heading-2" id="events-title">Pick your next event</h2>
+        <p>Every event here is free. Open one to see the full plan, then register in about a minute.</p>
+      </div>
+      <a class="btn btn-quiet btn-arrow" href="{% url 'event_list' %}">See all events {% include "ui/icon.html" with name="arrow-right" %}</a>
+    </div>
+    {% if upcoming %}
+      <div class="event-grid">
+        {% for event in upcoming %}{% include "events/_card.html" %}{% endfor %}
+      </div>
+    {% else %}
+      <div class="empty-state" data-reveal>
+        <div class="empty-icon">{% include "ui/icon.html" with name="calendar" %}</div>
+        <h3>New events are on the way</h3>
+        <p>Nothing is open for registration right now. Sign in today so you can register the minute the next one opens.</p>
+        <div class="d-flex flex-wrap gap-2 justify-content-center">
+          {% if not user.is_authenticated %}<a class="btn btn-primary" href="{% url 'signin' %}">Sign in</a>{% endif %}
+          <a class="btn btn-quiet" href="{% url 'event_list' %}?tab=completed">See past events</a>
+        </div>
+      </div>
+    {% endif %}
+  </div>
+</section>
+
+{# ---------- Tagline ---------- #}
+<section class="tagline" aria-label="What we do">
+  <div class="container">
+    <p class="heading-1" data-tagline data-accent="idea" data-accent-red="win">Bring an idea and the friends who will build it with you. We bring the stage, the judges, and funds or certificates for the teams that win.</p>
+  </div>
+</section>
+
+{# ---------- Why join ---------- #}
+<section class="section pt-0" id="why" aria-labelledby="why-title">
+  <div class="container">
+    <div class="section-head" data-reveal>
+      <div>
+        <span class="eyebrow">Why join</span>
+        <h2 class="heading-2" id="why-title">Made for students with a full timetable</h2>
+        <p>Classes, labs and exams come first. Every event is set up so it takes as little of your time as possible.</p>
+      </div>
+    </div>
+    <div class="bento">
+      <article class="tile tile-red b-wide" data-reveal>
+        <div class="big-num"><small>₹</small>0</div>
+        <h3>Free, every single event</h3>
+        <p>No entry fee and nothing to pay later. Register, show up and build.</p>
+      </article>
+      <article class="tile tile-ink b-narrow" data-reveal style="--d: 1">
+        <div class="tile-icon">{% include "ui/icon.html" with name="trophy" %}</div>
+        <h3>Funds or certificates</h3>
+        <p>Winning teams take home funds or certificates for the work they put in.</p>
+      </article>
+      <article class="tile b-half" data-reveal>
+        <div>
+          <div class="week" data-week aria-hidden="true">
+            <div class="day busy">Mon<b>8</b></div><div class="day busy">Tue<b>9</b></div><div class="day">Wed<b>10</b></div>
+            <div class="day busy">Thu<b>11</b></div><div class="day">Fri<b>12</b></div><div class="day pick">Sat<b>13</b></div><div class="day">Sun<b>14</b></div>
+          </div>
+          <div class="week-legend" aria-hidden="true"><span><i></i>Classes</span><span><i class="b"></i>Event</span></div>
+        </div>
+        <h3>Plan it around your classes</h3>
+        <p>Every event shows its exact date, time and venue before you sign up. If plans change, cancel in one tap and free your seat.</p>
+      </article>
+      <article class="tile b-half" data-reveal style="--d: 1">
+        <div class="team-stack" aria-hidden="true"><span>A</span><span>R</span><span>K</span><span>+1</span></div>
+        <h3>Come as a team</h3>
+        <p>Most events are built for teams. Bring your friends, split the work and pitch together.</p>
+      </article>
+      <article class="tile b-narrow" data-reveal>
+        <div class="mini-pass" aria-hidden="true">{{ hero_qr|safe }}</div>
+        <h3>Your pass lives on your phone</h3>
+        <p>Show the QR at the door. A screenshot works even with no signal.</p>
+      </article>
+      <article class="tile tile-blue b-wide" data-reveal style="--d: 1">
+        <div class="tile-icon">{% include "ui/icon.html" with name="lightning" %}</div>
+        <h3>Sign up once, register in seconds</h3>
+        <p>Sign in with a code sent to your email and fill in your profile once. After that, every registration is a single tap.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+{# ---------- How it works ---------- #}
+<section class="section bg-soft-section" id="how" aria-labelledby="how-title">
+  <div class="container">
+    <div class="how" data-how>
+      <div data-reveal>
+        <span class="eyebrow">How it works</span>
+        <h2 class="heading-2 mt-2" id="how-title">From sign up to the door in three steps</h2>
+        <ol class="how-steps" role="tablist" aria-label="Steps">
+          <li><button class="how-step is-active" type="button" role="tab" aria-selected="true" data-step>
+            <span class="step-num">1</span><span class="st">Sign in with your email</span>
+            <span class="sd">Type your KL email and we send you a code. There is no password to remember.</span><span class="bar"></span>
+          </button></li>
+          <li><button class="how-step" type="button" role="tab" aria-selected="false" data-step>
+            <span class="step-num">2</span><span class="st">Register for an event</span>
+            <span class="sd">Fill in your profile once. After that, registering is a single tap.</span><span class="bar"></span>
+          </button></li>
+          <li><button class="how-step" type="button" role="tab" aria-selected="false" data-step>
+            <span class="step-num">3</span><span class="st">Show your pass at the door</span>
+            <span class="sd">Your QR pass is on your phone and in your inbox. One scan and you are in.</span><span class="bar"></span>
+          </button></li>
+        </ol>
+      </div>
+      <div class="phone-wrap" data-reveal style="--d: 1" aria-hidden="true">
+        <div class="phone">
+          <div class="phone-screen">
+            <div class="screen is-active" data-screen>
+              <img class="s-logo logo-light" src="{% static 'img/logo-mark-light.webp' %}" alt="">
+              <img class="s-logo logo-dark" src="{% static 'img/logo-mark-dark.webp' %}" alt="">
+              <div class="s-h">Sign in</div>
+              <div class="s-p">New here? Type your email and we'll send you a code.</div>
+              <div class="s-label">Email</div>
+              <div class="s-input"><span data-type="2300031234@kluniversity.in">2300031234@kluniversity.in</span><span class="caret"></span></div>
+              <div class="s-btn">Email me a code</div>
+              <div class="s-pop">
+                <div class="s-p mb-2">Enter the code we sent you</div>
+                <div class="s-codes"><span>4</span><span>7</span><span>Q</span><span>M</span><span>2</span><span>X</span></div>
+              </div>
+            </div>
+            <div class="screen" data-screen>
+              <div class="s-h">Upcoming</div>
+              {% for event in upcoming|slice:":2" %}
+                <div class="s-card"><div class="t">{{ event.title }}</div><div class="m">{{ event.starts_at|date:"D j M, g:i A" }}{% if event.venue %} · {{ event.venue }}{% endif %}</div>{% if forloop.first %}<div class="s-btn mt-1">Register</div>{% endif %}</div>
+              {% empty %}
+                <div class="s-card"><div class="t">Campus ideathon</div><div class="m">Sat 10:00 AM · Seminar hall</div><div class="s-btn mt-1">Register</div></div>
+                <div class="s-card"><div class="t">Pitch day</div><div class="m">Fri 4:00 PM · Auditorium</div></div>
+              {% endfor %}
+              <div class="s-toast s-pop">{% include "ui/icon.html" with name="check-circle" %}You're registered. Your pass is ready.</div>
+            </div>
+            <div class="screen" data-screen>
+              <div class="s-h">Your pass</div>
+              <div class="s-qr">{{ hero_qr|safe }}</div>
+              <div class="s-code">K7QM-4XPA</div>
+              <div class="s-name">Ananya Reddy</div>
+              <div class="s-toast s-pop">{% include "ui/icon.html" with name="check-circle" %}Checked in at Gate 1</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+{# ---------- Numbers (only once there is something real to show) ---------- #}
+{% if registered_total >= 100 %}
+<section class="section pb-0" aria-label="In numbers">
+  <div class="container">
+    <div class="numbers">
+      <div data-reveal><div class="n" data-count-to="{{ upcoming_count }}">{{ upcoming_count }}</div><div class="l">upcoming events</div></div>
+      <div data-reveal style="--d: 1"><div class="n" data-count-to="{{ events_run }}">{{ events_run }}</div><div class="l">events run</div></div>
+      <div data-reveal style="--d: 2"><div class="n" data-count-to="{{ registered_total }}">{{ registered_total }}</div><div class="l">registrations</div></div>
+      <div data-reveal style="--d: 3"><div class="n" data-count-to="{{ checked_in_total }}">{{ checked_in_total }}</div><div class="l">check ins at the door</div></div>
+    </div>
+  </div>
+</section>
+{% endif %}
+
+{# ---------- FAQ ---------- #}
+<section class="section" id="faq" aria-labelledby="faq-title">
+  <div class="container">
+    <div class="row gx-4 gy-5 gx-lg-5">
+      <div class="col-lg-4" data-reveal>
+        <span class="eyebrow">FAQ</span>
+        <h2 class="heading-2 mt-2" id="faq-title">Questions, answered</h2>
+        <p class="text-secondary mt-3">Something else on your mind? Write to <a href="mailto:{{ CLUB_CONTACT_EMAIL }}">{{ CLUB_CONTACT_EMAIL }}</a> and the student team will reply.</p>
+      </div>
+      <div class="col-lg-8">
+        <div class="faq" data-reveal>
+          <details>
+            <summary>Does it cost anything?<span class="pm">{% include "ui/icon.html" with name="plus" %}</span></summary>
+            <div class="answer">No. Every {{ CLUB_NAME }} event on this portal is free to join.</div>
+          </details>
+          <details>
+            <summary>Who can take part?<span class="pm">{% include "ui/icon.html" with name="plus" %}</span></summary>
+            <div class="answer">Most events are for KL students, and some are open to students from other colleges. Each event page says who can join. Events marked KL only ask you to verify your KL email once.</div>
+          </details>
+          <details>
+            <summary>Do I need a team?<span class="pm">{% include "ui/icon.html" with name="plus" %}</span></summary>
+            <div class="answer">Many events, hackathons especially, are team events. The event page and its registration form tell you whether you need a team.</div>
+          </details>
+          <details>
+            <summary>What do winners get?<span class="pm">{% include "ui/icon.html" with name="plus" %}</span></summary>
+            <div class="answer">Winning teams take home funds or certificates. Each event page explains what is on offer for that event.</div>
+          </details>
+          <details>
+            <summary>How do I sign in?<span class="pm">{% include "ui/icon.html" with name="plus" %}</span></summary>
+            <div class="answer">Type your email and we send you a sign in code. There is no password. KL students should use their KL email, so they are verified as KL in the same step.</div>
+          </details>
+          <details>
+            <summary>My code hasn't arrived. What now?<span class="pm">{% include "ui/icon.html" with name="plus" %}</span></summary>
+            <div class="answer">Codes can take a few minutes. Check your Spam or Junk folder, then ask for a new code. If it still doesn't come, write to <a href="mailto:{{ CLUB_CONTACT_EMAIL }}">{{ CLUB_CONTACT_EMAIL }}</a>.</div>
+          </details>
+          <details>
+            <summary>Can I cancel my registration?<span class="pm">{% include "ui/icon.html" with name="plus" %}</span></summary>
+            <div class="answer">Yes. Open your pass and choose Cancel my registration any time before the event starts. Your seat goes to someone else.</div>
+          </details>
+          <details>
+            <summary>How do I get in on the day?<span class="pm">{% include "ui/icon.html" with name="plus" %}</span></summary>
+            <div class="answer">Open your pass on your phone, or a screenshot of it, and show the QR at the door. A screenshot works without signal, and you can also read out your code.</div>
+          </details>
+          <details>
+            <summary>Do events give SIL points?<span class="pm">{% include "ui/icon.html" with name="plus" %}</span></summary>
+            <div class="answer">Some do. Look for the SIL points tag on the event card, and the details on the event page.</div>
+          </details>
+          <details>
+            <summary>Can I just walk in without registering?<span class="pm">{% include "ui/icon.html" with name="plus" %}</span></summary>
+            <div class="answer">The door team can sometimes add walk ins when seats are free, but registering is the only way to be sure of your seat.</div>
+          </details>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+{# ---------- Final call to action ---------- #}
+<section class="pb-0" aria-labelledby="cta-title">
+  <div class="container">
+    <div class="cta-block" data-reveal>
+      <span class="deco d1" aria-hidden="true"></span><span class="deco d2" aria-hidden="true"></span><span class="deco d3" aria-hidden="true"></span>
+      <h2 class="heading-2" id="cta-title">Your next event is one minute away</h2>
+      <p>Pick an event, register, and your pass is ready before you close the tab.</p>
+      <a class="btn btn-primary btn-lg btn-arrow" href="{% url 'event_list' %}">See upcoming events {% include "ui/icon.html" with name="arrow-right" %}</a>
+    </div>
+  </div>
+</section>
+{% endblock %}

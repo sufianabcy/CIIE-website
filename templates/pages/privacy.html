@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Privacy{% endblock %}
+{% block content %}
+<article class="page-mid">
+  <header class="page-head">
+    <span class="eyebrow">Privacy</span>
+    <h1 class="heading-2">How we use your details</h1>
+    <p>This page is a draft for the {{ CLUB_NAME }} team to check before launch. Parts marked in yellow still need an answer.</p>
+  </header>
+  <div class="prose">
+    <h2>What we collect</h2>
+    <p>When you sign in and register, we keep your email address, your name, your phone number, your institution, and for KL students your KL ID and branch. We also keep the answers you give on each event's registration form, and the time you are checked in at the door.</p>
+    <h2>Why we collect it</h2>
+    <ul>
+      <li>To send you sign in codes and your entry pass.</li>
+      <li>To check you in at the door and count attendance.</li>
+      <li>To print your name on certificates and to publish results.</li>
+      <li>To write the event report that {{ CLUB_NAME }} sends to KL University.</li>
+    </ul>
+    <h2>Who can see it</h2>
+    <p>Only the {{ CLUB_NAME }} coordinators and door team for an event you registered for, and faculty members who mark your team's work. We do not sell your details or share them with sponsors. <span class="fill-me">{% templatetag openvariable %} confirm_sponsor_sharing {% templatetag closevariable %}</span></p>
+    <h2>How long we keep it</h2>
+    <p>We keep registrations for <span class="fill-me">{% templatetag openvariable %} retention_period {% templatetag closevariable %}</span> so we can issue certificates and reports, then delete them.</p>
+    <h2>Cookies</h2>
+    <p>The portal uses one cookie to keep you signed in, and one to protect forms. There are no advertising or tracking cookies. Your choice of light or dark mode is saved in your browser only.</p>
+    <h2>Your choices</h2>
+    <p>You can see and edit your profile at any time. To have your account deleted, write to <a href="mailto:{{ CLUB_CONTACT_EMAIL }}">{{ CLUB_CONTACT_EMAIL }}</a>.</p>
+    <p class="text-secondary small">Last updated <span class="fill-me">{% templatetag openvariable %} date {% templatetag closevariable %}</span>.</p>
+  </div>
+</article>
+{% endblock %}

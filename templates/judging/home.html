@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Your students{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block navbar %}{% include "judging/_nav.html" %}{% endblock %}
+{% block content %}
+<div class="page-mid">
+  <header class="tool-head">
+    <div>
+      <span class="eyebrow">{{ judge.name }}</span>
+      <h1 class="heading-3">{{ judge.event.title }}</h1>
+      <p>{{ done }} of {{ assignments|length }} submitted{% if judge.credentials_expire_at %} · marking closes {{ judge.credentials_expire_at|date:"j M, g:i A" }}{% endif %}</p>
+    </div>
+  </header>
+  {% if assignments %}
+    <div class="seat-bar progress-line mb-4" aria-hidden="true"><span style="--p: {% widthratio done assignments|length 100 %}"></span></div>
+  {% endif %}
+  {% if not criteria_count %}<div class="alert alert-warning">The organisers haven't added the rubric yet. Check back soon.</div>{% endif %}
+  {% if assignments %}
+  <ul class="reg-list">
+    {% for a in assignments %}
+    <li>
+      <a class="reg-row mark-row" href="{% url 'judge_mark' a.pk %}">
+        <span><span class="r-title">{{ a.registration.person.display_name }}</span><br><span class="caption-2 text-secondary">{{ a.registration.person.institution }}{% if a.registration.person.branch %} · {{ a.registration.person.branch }}{% endif %}</span></span>
+        <span class="d-flex align-items-center gap-2">
+          {% if a.submitted_at %}<span class="tag tag-green">Submitted</span>{% elif a.scored %}<span class="tag tag-amber">Draft</span>{% else %}<span class="tag">To mark</span>{% endif %}
+          {% include "ui/icon.html" with name="arrow-right" %}
+        </span>
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">{% include "ui/icon.html" with name="users" %}</div>
+    <h2 class="heading-5">No students mapped to you yet</h2>
+    <p>The organisers will add them. Check back soon.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

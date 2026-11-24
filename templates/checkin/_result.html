@@ -1,0 +1,53 @@
+{% load humanize %}
+{% with r=result.registration p=result.registration.person %}
+{% if result.outcome == "search" %}
+  <div class="card mt-3 shadow-sm">
+    <div class="card-header">Found {{ result.matches|length }} match{{ result.matches|length|pluralize:"es" }}. Check the name and photo ID, then check them in.</div>
+    <ul class="list-group list-group-flush">
+      {% for m in result.matches %}
+        <li class="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-2">
+          <div>
+            <div class="fw-semibold">{{ m.person.full_name|default:m.person.email }}</div>
+            <div class="small text-secondary">{% if m.person.student_id %}KL ID {{ m.person.student_id }} · {% endif %}{{ m.person.institution }}{% if m.person.phone %} · phone ends {{ m.person.phone|slice:"-4:" }}{% endif %}</div>
+          </div>
+          {% if not m.is_confirmed %}
+            <span class="badge text-bg-secondary">Cancelled</span>
+          {% elif m.active_checkin %}
+            <span class="badge text-bg-warning">Already in, {{ m.active_checkin.checked_in_at|time:"g:i A" }}</span>
+          {% else %}
+            <button class="btn btn-success" hx-post="{% url 'door_check_in_found' event.slug m.pk %}" hx-target="#result" hx-include="#gate-field">Check in</button>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  </div>
+{% else %}
+  <div class="door-result door-{{ result.tone }}" data-tone="{{ result.tone }}" role="alert" tabindex="-1">
+    <div class="door-word">
+      {% if result.outcome == "checked_in" %}Checked in
+      {% elif result.outcome == "already" %}Already checked in
+      {% elif result.outcome == "wrong_event" %}Wrong event
+      {% elif result.outcome == "cancelled" %}Registration cancelled
+      {% else %}Not found{% endif %}
+    </div>
+    {% if p %}<div class="door-name">{{ p.full_name|default:p.email }}</div>
+      <div class="door-detail">{% if p.student_id %}KL ID {{ p.student_id }} · {% endif %}{{ p.institution }}</div>
+    {% endif %}
+    {% if result.outcome == "already" and result.checkin %}
+      <div class="door-detail">{{ result.checkin.checked_in_at|time:"g:i A" }} by {{ result.checkin.checked_in_by.full_name|default:result.checkin.checked_in_by.email }}{% if result.checkin.gate %}, {{ result.checkin.gate }}{% endif %}</div>
+    {% endif %}
+    {% if result.message %}<div class="door-detail">{{ result.message }}</div>{% endif %}
+    {% if result.outcome == "not_found" %}<div class="door-detail">Send them to the help desk.</div>{% endif %}
+    <div class="door-actions">
+      <button type="button" class="btn btn-light btn-lg" data-dismiss-result>Next (Enter)</button>
+      {% if result.outcome == "checked_in" and result.checkin %}
+        <form hx-post="{% url 'door_undo' event.slug result.checkin.pk %}" hx-target="#result" class="d-inline">
+          <input type="hidden" name="reason" value="Undone at the door">
+          <button class="btn btn-outline-light" type="submit">Undo</button>
+        </form>
+      {% endif %}
+      {% if result.outcome == "not_found" %}<a class="btn btn-outline-light" href="{% url 'door_walk_in' event.slug %}">Walk-in desk</a>{% endif %}
+    </div>
+  </div>
+{% endif %}
+{% endwith %}

@@ -1,0 +1,30 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Something went wrong · KL-CIIE</title>
+<link rel="icon" type="image/png" href="{% static 'img/favicon-32.png' %}">
+<style>
+  @font-face { font-family: "Geist"; src: url("{% static 'fonts/Geist-Variable.woff2' %}") format("woff2"); font-weight: 100 900; }
+  :root { color-scheme: light dark; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; font-family: "Geist", system-ui, sans-serif; background: #fff; color: #0b0b0b; padding: 24px; text-align: center; }
+  @media (prefers-color-scheme: dark) { body { background: #000; color: #f5f5f5; } p { color: #9b9b9b !important; } a.btn { background: #3350dc; } }
+  .shapes { display: flex; gap: 12px; justify-content: center; margin-bottom: 32px; }
+  .shapes span { width: 64px; height: 64px; display: block; }
+  .s1 { background: #d03d43; border-radius: 12px; transform: rotate(14deg); }
+  .s2 { border: 16px solid #3350dc; border-radius: 50%; box-sizing: border-box; }
+  .s3 { background: currentColor; border-radius: 50%; }
+  h1 { font-size: 30px; line-height: 36px; font-weight: 600; letter-spacing: -0.03em; margin: 0 0 12px; }
+  p { color: #666; font-size: 18px; line-height: 28px; max-width: 440px; margin: 0 auto 32px; }
+  a.btn { display: inline-block; background: #3350dc; color: #fff; text-decoration: none; font-weight: 600; padding: 12px 24px; border-radius: 999px; }
+</style>
+</head>
+<body>
+  <main>
+    <div class="shapes" aria-hidden="true"><span class="s1"></span><span class="s2"></span><span class="s3"></span></div>
+    <h1>Something went wrong on our side</h1>
+    <p>Please try again in a minute. If it keeps happening, tell the event team at klciie@kluniversity.in.</p>
+    <a class="btn" href="/">Back to the home page</a>
+  </main>
+</body>
+</html>

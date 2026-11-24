@@ -1,0 +1,183 @@
+{% load static %}<!doctype html>
+<html lang="en" data-bs-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <script>
+    /* Pick the theme before anything paints, so dark mode never flashes white. */
+    (function () {
+      var t = null;
+      try { t = localStorage.getItem("theme"); } catch (e) {}
+      if (!t) t = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      document.documentElement.setAttribute("data-bs-theme", t);
+      document.documentElement.classList.add("js");
+    })();
+  </script>
+  <title>{% block title %}{% block head_title %}Events{% endblock head_title %}{% endblock title %} · {{ CLUB_NAME }}</title>
+  <meta name="description" content="{% block meta_description %}Register for KL-CIIE hackathons, workshops and pitch days at KL University. Every event is free, and your entry pass lives on your phone.{% endblock %}">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <meta property="og:site_name" content="{{ CLUB_NAME }} events">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="{% block og_title %}{{ CLUB_NAME }} events{% endblock %}">
+  <meta property="og:description" content="{% block og_description %}Hackathons, workshops and pitch days at KL University. Free to join, with funds and certificates for the best teams.{% endblock %}">
+  <meta property="og:image" content="{{ request.scheme }}://{{ request.get_host }}{% static 'img/og-image.png' %}">
+  <meta property="og:url" content="{{ request.build_absolute_uri }}">
+  <meta name="twitter:card" content="summary_large_image">
+  {% block robots %}{% endblock %}
+  <link rel="icon" type="image/png" sizes="32x32" href="{% static 'img/favicon-32.png' %}">
+  <link rel="icon" type="image/png" sizes="192x192" href="{% static 'img/icon-192.png' %}">
+  <link rel="apple-touch-icon" href="{% static 'img/apple-touch-icon.png' %}">
+  <link rel="preload" href="{% static 'fonts/Geist-Variable.woff2' %}" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="{% static 'vendor/bootstrap.min.css' %}">
+  <link rel="stylesheet" href="{% static 'css/portal.css' %}">
+  {% block extra_head %}{% endblock extra_head %}
+</head>
+<body class="{% block body_class %}{% endblock %}{% if site.banner_text %} has-banner{% endif %}" hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+  <a class="skip-link" href="#main">Skip to content</a>
+  {% if site.banner_text %}<div class="site-banner" role="status">{{ site.banner_text }}</div>{% endif %}
+  {% with page=request.resolver_match.url_name %}
+  {% block navbar %}
+  <header class="site-header">
+    <nav class="nav-bar" aria-label="Main">
+      <a class="brand" href="{% url 'home' %}" aria-label="{{ CLUB_NAME }} home">
+        <img class="logo-light" src="{% static 'img/logo-mark-light.webp' %}" alt="{{ CLUB_NAME }}" width="139" height="26">
+        <img class="logo-dark" src="{% static 'img/logo-mark-dark.webp' %}" alt="{{ CLUB_NAME }}" width="138" height="26">
+      </a>
+      <ul class="nav-links">
+        <li><a href="{% url 'event_list' %}" {% if page == 'event_list' or page == 'event_detail' or page == 'register' %}aria-current="page"{% endif %}>Events</a></li>
+        <li><a href="{% url 'home' %}#how">How it works</a></li>
+        <li><a href="{% url 'home' %}#faq">FAQ</a></li>
+        {% if user.is_authenticated %}
+          <li><a href="{% url 'my_registrations' %}" {% if page == 'my_registrations' or page == 'pass' %}aria-current="page"{% endif %}>My passes</a></li>
+          {% if user.is_coordinator or user.door_events.exists %}
+            <li><a href="{% url 'manage' %}" {% if page == 'manage' or page == 'event_report' or page == 'judging_dashboard' %}aria-current="page"{% endif %}>Run events</a></li>
+          {% endif %}
+        {% endif %}
+      </ul>
+      <div class="nav-actions">
+        <button class="icon-btn theme-toggle" type="button" data-theme-toggle aria-label="Switch between light and dark">
+          <svg class="icon i-sun" aria-hidden="true"><use href="{% static 'img/icons.svg' %}#sun"></use></svg>
+          <svg class="icon i-moon" aria-hidden="true"><use href="{% static 'img/icons.svg' %}#moon"></use></svg>
+        </button>
+        {% if user.is_authenticated %}
+          <div class="dropdown nav-desktop">
+            <button class="account-btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Account menu">
+              <span class="avatar">{{ user.full_name|default:user.email|first }}</span>
+              {% include "ui/icon.html" with name="caret-down" %}
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end mt-2">
+              <li><h2 class="dropdown-header">{{ user.full_name|default:"Signed in" }}<br>{{ user.email }}</h2></li>
+              <li><a class="dropdown-item" href="{% url 'my_registrations' %}">{% include "ui/icon.html" with name="ticket" %}My passes</a></li>
+              <li><a class="dropdown-item" href="{% url 'profile' %}">{% include "ui/icon.html" with name="user" %}Profile</a></li>
+              {% if user.is_staff %}<li><a class="dropdown-item" href="{% url 'admin:index' %}">{% include "ui/icon.html" with name="gear" %}Admin</a></li>{% endif %}
+              <li><hr class="dropdown-divider"></li>
+              <li>
+                <form method="post" action="{% url 'account_logout' %}" data-no-busy>{% csrf_token %}
+                  <button class="dropdown-item" type="submit">{% include "ui/icon.html" with name="sign-out" %}Sign out</button>
+                </form>
+              </li>
+            </ul>
+          </div>
+        {% else %}
+          <a class="btn btn-ink btn-sm nav-desktop" href="{% url 'signin' %}?next={{ request.get_full_path|urlencode }}">Sign in</a>
+        {% endif %}
+        <button class="icon-btn menu-toggle" type="button" data-menu-toggle aria-controls="mobile-menu" aria-expanded="false" aria-label="Open menu">
+          <span class="burger" aria-hidden="true"><span></span><span></span><span></span></span>
+        </button>
+      </div>
+    </nav>
+  </header>
+  <div class="mobile-menu" id="mobile-menu">
+    <ul>
+      <li style="--i:0"><a href="{% url 'home' %}" {% if page == 'home' %}aria-current="page"{% endif %}>Home {% include "ui/icon.html" with name="arrow-right" %}</a></li>
+      <li style="--i:1"><a href="{% url 'event_list' %}" {% if page == 'event_list' %}aria-current="page"{% endif %}>Events {% include "ui/icon.html" with name="arrow-right" %}</a></li>
+      <li style="--i:2"><a href="{% url 'home' %}#how">How it works {% include "ui/icon.html" with name="arrow-right" %}</a></li>
+      <li style="--i:3"><a href="{% url 'home' %}#faq">FAQ {% include "ui/icon.html" with name="arrow-right" %}</a></li>
+      {% if user.is_authenticated %}
+        <li style="--i:4"><a href="{% url 'my_registrations' %}" {% if page == 'my_registrations' %}aria-current="page"{% endif %}>My passes {% include "ui/icon.html" with name="arrow-right" %}</a></li>
+        {% if user.is_coordinator or user.door_events.exists %}<li style="--i:5"><a href="{% url 'manage' %}" {% if page == 'manage' %}aria-current="page"{% endif %}>Run events {% include "ui/icon.html" with name="arrow-right" %}</a></li>{% endif %}
+      {% endif %}
+    </ul>
+    <ul class="menu-small">
+      {% if user.is_authenticated %}
+        <li style="--i:6"><a href="{% url 'profile' %}">Profile</a></li>
+        {% if user.is_staff %}<li style="--i:7"><a href="{% url 'admin:index' %}">Admin</a></li>{% endif %}
+        <li style="--i:7">
+          <form method="post" action="{% url 'account_logout' %}" data-no-busy>{% csrf_token %}<button class="menu-link" type="submit">Sign out</button></form>
+        </li>
+      {% else %}
+        <li style="--i:5"><a class="btn btn-primary btn-lg" href="{% url 'signin' %}?next={{ request.get_full_path|urlencode }}">Sign in</a></li>
+      {% endif %}
+    </ul>
+  </div>
+  {% endblock navbar %}
+  {% endwith %}
+
+  {% if messages %}
+    <div class="toast-stack" role="status" aria-live="polite">
+      {% for message in messages %}
+        <div class="alert alert-{% if message.tags == 'error' %}danger{% elif message.tags %}{{ message.tags }}{% else %}info{% endif %} alert-dismissible fade show" role="alert">
+          {{ message }}<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <main id="main" class="{% block main_class %}container{% endblock %}" tabindex="-1">
+    {% block main %}{% block content %}{% endblock content %}{% endblock main %}
+  </main>
+
+  {% block footer %}
+  <footer class="site-footer">
+    <div class="container">
+      <div class="row gx-4 gy-5 gx-lg-5">
+        <div class="col-lg-5">
+          <img class="footer-logo logo-light" src="{% static 'img/logo-full-light.webp' %}" alt="{{ CLUB_NAME }}, KL University's Center for Innovation, Incubation and Entrepreneurship" width="242" height="52" loading="lazy">
+          <img class="footer-logo logo-dark" src="{% static 'img/logo-full-dark.webp' %}" alt="{{ CLUB_NAME }}, KL University's Center for Innovation, Incubation and Entrepreneurship" width="230" height="52" loading="lazy">
+          <p class="text-secondary mt-4 mb-3" style="max-width: 400px">Hackathons, workshops and pitch days, run by {{ CLUB_NAME }}'s student team at KL University. Free for every student who registers.</p>
+          <div class="brand-stripe" aria-hidden="true"><span></span><span></span><span></span></div>
+        </div>
+        <div class="col-6 col-md-4 col-lg-2 offset-lg-1">
+          <h2>Explore</h2>
+          <ul>
+            <li><a href="{% url 'event_list' %}">Upcoming events</a></li>
+            <li><a href="{% url 'event_list' %}?tab=completed">Past events</a></li>
+            <li><a href="{% url 'home' %}#how">How it works</a></li>
+            <li><a href="{% url 'home' %}#faq">FAQ</a></li>
+          </ul>
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+          <h2>Your account</h2>
+          <ul>
+            {% if user.is_authenticated %}
+              <li><a href="{% url 'my_registrations' %}">My passes</a></li>
+              <li><a href="{% url 'profile' %}">Profile</a></li>
+            {% else %}
+              <li><a href="{% url 'signin' %}">Sign in</a></li>
+            {% endif %}
+            <li><a href="{% url 'judge_signin' %}">Faculty sign in</a></li>
+          </ul>
+        </div>
+        <div class="col-md-4 col-lg-2">
+          <h2>Help</h2>
+          <ul>
+            <li><a href="mailto:{{ CLUB_CONTACT_EMAIL }}">{{ CLUB_CONTACT_EMAIL }}</a></li>
+            <li><a href="{% url 'privacy' %}">Privacy</a></li>
+            <li><a href="{% url 'terms' %}">Terms</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>© {% now "Y" %} {{ CLUB_NAME }}, KL University</span>
+        <span>Run by the {{ CLUB_NAME }} student team</span>
+      </div>
+    </div>
+  </footer>
+  {% endblock footer %}
+  <script src="{% static 'vendor/bootstrap.bundle.min.js' %}" defer></script>
+  <script src="{% static 'vendor/htmx.min.js' %}" defer></script>
+  <script src="{% static 'js/site.js' %}" defer></script>
+  {% block extra_body %}{% endblock extra_body %}
+</body>
+</html>

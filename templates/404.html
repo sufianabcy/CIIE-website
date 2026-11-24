@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Page not found{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block content %}
+<div class="error-page">
+  <div class="code" aria-hidden="true">4<span class="o"></span><span class="c"></span></div>
+  <h1 class="heading-3">This page isn't here</h1>
+  <p>The link may be old or mistyped. The event you are looking for is probably on the events page.</p>
+  <div class="d-flex flex-wrap gap-2 justify-content-center">
+    <a class="btn btn-primary btn-arrow" href="{% url 'event_list' %}">See all events {% include "ui/icon.html" with name="arrow-right" %}</a>
+    <a class="btn btn-quiet" href="{% url 'home' %}">Go home</a>
+  </div>
+</div>
+{% endblock %}

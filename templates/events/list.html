@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}{% if tab == 'completed' %}Past events{% else %}Upcoming events{% endif %}{% endblock %}
+{% block content %}
+<header class="page-head">
+  <span class="eyebrow">Events</span>
+  <h1 class="heading-2">{% if tab == 'completed' %}Past events{% else %}Upcoming events{% endif %}</h1>
+  <p>{% if tab == 'completed' %}Everything {{ CLUB_NAME }} has run so far, with results where they are published.{% else %}Register here, then show your pass at the door. Every event is free.{% endif %}</p>
+</header>
+<div class="list-toolbar">
+  <ul class="nav nav-tabs" aria-label="Which events">
+    <li class="nav-item"><a class="nav-link {% if tab != 'completed' %}active{% endif %}" {% if tab != 'completed' %}aria-current="page"{% endif %} href="?tab=upcoming{% if q %}&q={{ q|urlencode }}{% endif %}">Upcoming</a></li>
+    <li class="nav-item"><a class="nav-link {% if tab == 'completed' %}active{% endif %}" {% if tab == 'completed' %}aria-current="page"{% endif %} href="?tab=completed{% if q %}&q={{ q|urlencode }}{% endif %}">Past</a></li>
+  </ul>
+  <form method="get" class="search-pill" role="search" data-no-busy>
+    <input type="hidden" name="tab" value="{{ tab }}">
+    {% include "ui/icon.html" with name="search" %}
+    <input class="form-control" type="search" name="q" value="{{ q }}" placeholder="Search by name, topic or venue" aria-label="Search events">
+  </form>
+</div>
+{% if events %}
+  <div class="event-grid">
+    {% for event in events %}{% include "events/_card.html" %}{% endfor %}
+  </div>
+{% else %}
+  <div class="empty-state">
+    <div class="empty-icon">{% include "ui/icon.html" with name=q|yesno:"search,calendar" %}</div>
+    {% if q %}
+      <h2>No events match "{{ q }}"</h2>
+      <p>Try a shorter word, or clear the search to see every event.</p>
+      <a class="btn btn-quiet" href="?tab={{ tab }}">Clear search</a>
+    {% elif tab == 'completed' %}
+      <h2>No past events yet</h2>
+      <p>Once the first event is over, it shows up here with its results.</p>
+      <a class="btn btn-quiet" href="?tab=upcoming">See upcoming events</a>
+    {% else %}
+      <h2>New events are on the way</h2>
+      <p>Nothing is open for registration right now. Sign in today so you can register the minute the next one opens.</p>
+      <div class="d-flex flex-wrap gap-2 justify-content-center">
+        {% if not user.is_authenticated %}<a class="btn btn-primary" href="{% url 'signin' %}">Sign in</a>{% endif %}
+        <a class="btn btn-quiet" href="?tab=completed">See past events</a>
+      </div>
+    {% endif %}
+  </div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,32 @@
+# Local run with Docker: docker compose up --build, then open http://localhost:8000
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: ciie
+      POSTGRES_PASSWORD: ciie
+      POSTGRES_DB: ciie
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ciie"]
+      interval: 5s
+      retries: 10
+
+  web:
+    build: .
+    environment:
+      DATABASE_URL: postgres://ciie:ciie@db:5432/ciie
+      DEBUG: "1"
+      SECRET_KEY: local-only-not-secret
+      ALLOWED_HOSTS: localhost,127.0.0.1
+      SECURE_COOKIES: "0"
+      EMAIL_URL: consolemail://
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

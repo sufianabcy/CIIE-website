@@ -1,0 +1,15 @@
+Hi {{ person.full_name|default:"there" }},
+
+You're registered for {{ event.title }}.
+
+When: {{ event.starts_at|date:"l j F Y, g:i A" }}{% if event.venue %}
+Where: {{ event.venue }}{% endif %}
+Your pass code: {{ registration.pass_code_display }}
+
+Your pass with its QR code: {{ pass_url }}
+All your registrations: {{ my_url }}
+
+Show the QR at the door, or read out the code. A screenshot works too.
+
+{{ club_name }} student team
+Questions: {{ contact_email }}

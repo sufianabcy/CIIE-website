@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Terms{% endblock %}
+{% block content %}
+<article class="page-mid">
+  <header class="page-head">
+    <span class="eyebrow">Terms</span>
+    <h1 class="heading-2">Taking part in {{ CLUB_NAME }} events</h1>
+    <p>This page is a draft for the {{ CLUB_NAME }} team to check before launch. Parts marked in yellow still need an answer.</p>
+  </header>
+  <div class="prose">
+    <h2>Registering</h2>
+    <p>Registration is free. One person registers once per event, using their own details. A pass belongs to the person named on it and cannot be passed on.</p>
+    <h2>At the event</h2>
+    <p>Bring your pass and your college ID. The door team may check your ID against your pass. Follow KL University's campus rules and the instructions of the event team.</p>
+    <h2>Cancelling</h2>
+    <p>You can cancel your registration at any time before the event starts, from your pass. {{ CLUB_NAME }} may change or cancel an event, and will email everyone registered if it does.</p>
+    <h2>Prizes and certificates</h2>
+    <p>Prizes, funds and certificates are decided by each event's judges, and their decision is final. <span class="fill-me">{% templatetag openvariable %} prize_rules {% templatetag closevariable %}</span></p>
+    <h2>Photos</h2>
+    <p><span class="fill-me">{% templatetag openvariable %} photo_policy {% templatetag closevariable %}</span></p>
+    <h2>Questions</h2>
+    <p>Write to <a href="mailto:{{ CLUB_CONTACT_EMAIL }}">{{ CLUB_CONTACT_EMAIL }}</a>.</p>
+  </div>
+</article>
+{% endblock %}

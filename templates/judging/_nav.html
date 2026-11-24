@@ -1,0 +1,21 @@
+{% load static %}
+<header class="site-header">
+  <nav class="nav-bar" aria-label="Faculty">
+    <a class="brand" href="{% if judge %}{% url 'judge_home' %}{% else %}{% url 'judge_signin' %}{% endif %}" aria-label="{{ CLUB_NAME }} faculty marking">
+      <img class="logo-light" src="{% static 'img/logo-mark-light.webp' %}" alt="{{ CLUB_NAME }}" width="139" height="26">
+      <img class="logo-dark" src="{% static 'img/logo-mark-dark.webp' %}" alt="{{ CLUB_NAME }}" width="138" height="26">
+    </a>
+    <span class="nav-label">Faculty marking</span>
+    <div class="nav-actions">
+      <button class="icon-btn theme-toggle" type="button" data-theme-toggle aria-label="Switch between light and dark">
+        <svg class="icon i-sun" aria-hidden="true"><use href="{% static 'img/icons.svg' %}#sun"></use></svg>
+        <svg class="icon i-moon" aria-hidden="true"><use href="{% static 'img/icons.svg' %}#moon"></use></svg>
+      </button>
+      {% if judge %}
+      <form method="post" action="{% url 'judge_signout' %}" data-no-busy>{% csrf_token %}
+        <button class="btn btn-quiet btn-sm" type="submit" aria-label="Sign out">{% include "ui/icon.html" with name="sign-out" %}<span class="d-none d-sm-inline">Sign out</span></button>
+      </form>
+      {% endif %}
+    </div>
+  </nav>
+</header>

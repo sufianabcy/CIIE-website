@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Status{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block content %}
+<header class="tool-head">
+  <div>
+    <span class="eyebrow">Admins</span>
+    <h1 class="heading-3">Status</h1>
+    <p>As of {{ now|date:"j M Y, g:i:s A" }}.</p>
+  </div>
+</header>
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="stat-card">
+      <div class="stat-label">Emails sent in the last 24 hours</div>
+      <div class="stat-value">{{ budget.sent_last_day }} <span class="stat-of">of {{ cap }}</span></div>
+      <div class="caption-2 text-secondary mt-1">{{ reserve }} always kept for sign-in codes.{% if not budget.other %} <span class="text-danger">Non-code mail is held (cap reached or paused).</span>{% endif %}</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="stat-card">
+      <div class="stat-label">Email queue</div>
+      <div class="queue-nums"><span>Queued <strong>{{ queued }}</strong></span><span>Failed <strong class="{% if failed %}text-danger{% endif %}">{{ failed }}</strong></span><span>Stuck <strong class="{% if stuck %}text-danger{% endif %}">{{ stuck }}</strong></span></div>
+      <div class="caption-2 text-secondary mt-1">Sender: {{ email_backend }}{% if mail_inline %}, sending straight after each page{% else %}, sent by the worker{% endif %}</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="stat-card{% if backup_overdue or not last_good_backup %} stat-red{% endif %}">
+      <div class="stat-label">Last good backup</div>
+      {% if last_good_backup %}<div class="stat-value stat-sm">{{ last_good_backup.started_at|timesince }} ago</div>{% else %}<div class="stat-value stat-sm text-danger">None yet</div>{% endif %}
+      {% if backup_overdue %}<div class="caption-2 text-danger mt-1">Overdue: more than 26 hours.</div>{% endif %}
+    </div>
+  </div>
+</div>
+<div class="row g-3">
+  <div class="col-md-6">
+    <div class="panel h-100">
+      <h2 class="panel-title">Last hour</h2>
+      <table class="table table-sm mb-0">
+        <tr><td>Sign-in codes requested</td><td class="text-end num">{{ codes_last_hour }}</td></tr>
+        <tr><td>Check-ins</td><td class="text-end num">{{ checkins_last_hour }}</td></tr>
+        <tr><td>Scans and searches at the door</td><td class="text-end num">{{ scans_last_hour }}</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="panel h-100">
+      <h2 class="panel-title">Recent failed emails</h2>
+      <div class="table-responsive">
+        <table class="table table-sm mb-0 caption-2">
+          {% for e in recent_failures %}<tr><td class="text-nowrap">{{ e.created_at|date:"j M g:i A" }}</td><td>{{ e.to_email }}</td><td>{{ e.last_error|truncatechars:80 }}</td></tr>
+          {% empty %}<tr><td class="text-secondary">None.</td></tr>{% endfor %}
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

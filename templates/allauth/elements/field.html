@@ -1,0 +1,19 @@
+{% load allauth %}
+<div class="mb-3">
+  {% if attrs.type == "checkbox" or attrs.type == "radio" %}
+    <div class="form-check">
+      <input class="form-check-input" {% if attrs.required %}required{% endif %} {% if attrs.checked %}checked{% endif %} {% if attrs.name %}name="{{ attrs.name }}"{% endif %} {% if attrs.id %}id="{{ attrs.id }}"{% endif %} {% if attrs.value is not None %}value="{{ attrs.value }}"{% endif %} type="{{ attrs.type }}">
+      <label class="form-check-label" for="{{ attrs.id }}">{% slot label %}{% endslot %}</label>
+    </div>
+  {% elif attrs.type == "textarea" %}
+    <label class="form-label" for="{{ attrs.id }}">{% slot label %}{% endslot %}</label>
+    <textarea class="form-control" {% if attrs.required %}required{% endif %} {% if attrs.rows %}rows="{{ attrs.rows }}"{% endif %} {% if attrs.name %}name="{{ attrs.name }}"{% endif %} {% if attrs.id %}id="{{ attrs.id }}"{% endif %}>{% slot value %}{% endslot %}</textarea>
+  {% elif attrs.type == "hidden" %}
+    <input type="hidden" {% if attrs.name %}name="{{ attrs.name }}"{% endif %} {% if attrs.value is not None %}value="{{ attrs.value }}"{% endif %}>
+  {% else %}
+    <label class="form-label" for="{{ attrs.id }}">{% slot label %}{% endslot %}</label>
+    <input class="form-control form-control-lg{% if attrs.errors %} is-invalid{% endif %}" {% if attrs.required %}required{% endif %} {% if attrs.disabled %}disabled{% endif %} {% if attrs.readonly %}readonly{% endif %} {% if attrs.name %}name="{{ attrs.name }}"{% endif %} {% if attrs.id %}id="{{ attrs.id }}"{% endif %} {% if attrs.placeholder %}placeholder="{{ attrs.placeholder }}"{% endif %} {% if attrs.autocomplete %}autocomplete="{{ attrs.autocomplete }}"{% endif %} {% if attrs.value is not None %}value="{{ attrs.value }}"{% endif %} type="{{ attrs.type }}" {% if attrs.name == "code" %}inputmode="text" autocapitalize="characters" autofocus{% endif %}>
+  {% endif %}
+  {% if attrs.errors %}<div class="text-danger small mt-1">{% for e in attrs.errors %}{{ e }} {% endfor %}</div>{% endif %}
+  {% if slots.help_text %}<div class="form-text">{% slot help_text %}{% endslot %}</div>{% endif %}
+</div>

@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Run events{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block content %}
+<header class="tool-head">
+  <div>
+    <span class="eyebrow">Coordinators</span>
+    <h1 class="heading-2">Run events</h1>
+    <p>Everything for the day: the door, live counts, judging, the report and the Excel files.</p>
+  </div>
+  {% if user.is_staff %}<a class="btn btn-ink" href="{% url 'admin:events_event_add' %}">{% include "ui/icon.html" with name="plus" %}New event</a>{% endif %}
+</header>
+
+{% if events %}
+<div class="run-list">
+  {% for e in events %}
+  <article class="run-card">
+    <div class="run-main">
+      <div class="date-block" aria-hidden="true">
+        <span class="m">{{ e.starts_at|date:"M" }}</span>
+        <span class="d">{{ e.starts_at|date:"j" }}</span>
+        <span class="w">{{ e.starts_at|date:"D" }}</span>
+      </div>
+      <div class="run-title">
+        <div class="tags mb-2">
+          {% if e.is_practice %}<span class="tag tag-blue">practice</span>{% endif %}
+          {% if e.status != 'published' %}<span class="tag">{{ e.get_status_display }}</span>{% endif %}
+          {% if e.is_over %}<span class="tag">Finished</span>{% endif %}
+        </div>
+        <h2 class="heading-6 mb-1"><a href="{{ e.get_absolute_url }}">{{ e.title }}</a></h2>
+        <div class="meta"><span>{% include "ui/icon.html" with name="clock" %}{{ e.starts_at|date:"D j M Y, g:i A" }}</span></div>
+      </div>
+      <dl class="run-nums">
+        <div><dt>Registered</dt><dd>{{ e.registered }}</dd></div>
+        <div><dt>Checked in</dt><dd>{{ e.checked_in }}</dd></div>
+      </dl>
+    </div>
+    <div class="run-links">
+      <div>
+        <div class="run-k">On the day</div>
+        <div class="link-row">
+          <a href="{% url 'door' e.slug %}">{% include "ui/icon.html" with name="scan" %}Door</a>
+          <a href="{% url 'door_walk_in' e.slug %}">{% include "ui/icon.html" with name="user" %}Walk-in desk</a>
+          <a href="{% url 'door_counts' e.slug %}">{% include "ui/icon.html" with name="chart" %}Counts</a>
+          <a href="{% url 'door_list' e.slug %}">{% include "ui/icon.html" with name="printer" %}Door list</a>
+        </div>
+      </div>
+      <div>
+        <div class="run-k">Set up and after</div>
+        <div class="link-row">
+          <a href="{% url 'admin:events_event_change' e.pk %}">{% include "ui/icon.html" with name="gear" %}Setup</a>
+          <a href="{% url 'judging_dashboard' e.slug %}">{% include "ui/icon.html" with name="gavel" %}Judging</a>
+          <a href="{% url 'admin:results_result_changelist' %}?event__id__exact={{ e.pk }}">{% include "ui/icon.html" with name="trophy" %}Results</a>
+          <a href="{% url 'event_report' e.slug %}">{% include "ui/icon.html" with name="clipboard" %}Report</a>
+        </div>
+      </div>
+      <div>
+        <div class="run-k">Excel files</div>
+        <div class="link-row">
+          <a href="{% url 'event_export' e.slug 'registrations' %}">{% include "ui/icon.html" with name="download" %}Registrations</a>
+          <a href="{% url 'event_export' e.slug 'attendance' %}">{% include "ui/icon.html" with name="download" %}Attendance</a>
+          <a href="{% url 'event_export' e.slug 'results' %}">{% include "ui/icon.html" with name="download" %}Results</a>
+          <a href="{% url 'event_export' e.slug 'marks' %}">{% include "ui/icon.html" with name="download" %}Marks</a>
+          <a href="{% url 'event_export' e.slug 'attendance-handoff' %}">{% include "ui/icon.html" with name="download" %}Hand-off</a>
+        </div>
+      </div>
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% elif not door_events %}
+<div class="empty-state">
+  <div class="empty-icon">{% include "ui/icon.html" with name="calendar" %}</div>
+  <h2 class="heading-5">No events assigned to you yet</h2>
+  <p>An admin adds coordinators on each event's setup page.</p>
+</div>
+{% endif %}
+
+{% if door_events %}
+  <h2 class="heading-5 mt-5 mb-3">Door team</h2>
+  <ul class="reg-list">
+    {% for e in door_events %}
+      <li class="reg-row">
+        <span><a class="r-title" href="{% url 'door' e.slug %}">{{ e.title }}</a><br><span class="caption-2 text-secondary">{{ e.starts_at|date:"D j M, g:i A" }}{% if e.venue %} · {{ e.venue }}{% endif %}</span></span>
+        <a class="btn btn-primary btn-sm" href="{% url 'door' e.slug %}">{% include "ui/icon.html" with name="scan" %}Open the door</a>
+      </li>
+    {% endfor %}
+  </ul>
+{% endif %}
+{% endblock %}

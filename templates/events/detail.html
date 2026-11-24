@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}{{ event.title }}{% endblock %}
+{% block meta_description %}{{ event.summary|default:event.title }} · {{ event.starts_at|date:"D j M Y" }}{% if event.venue %}, {{ event.venue }}{% endif %}. Free to register on the {{ CLUB_NAME }} portal.{% endblock %}
+{% block og_title %}{{ event.title }} · {{ CLUB_NAME }}{% endblock %}
+{% block og_description %}{{ event.summary|default:"Free to register on the KL-CIIE portal." }}{% endblock %}
+{% block robots %}{% if event.status != 'published' or event.is_practice %}<meta name="robots" content="noindex">{% endif %}{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'event_list' %}{% if event.is_over %}?tab=completed{% endif %}">{% include "ui/icon.html" with name="arrow-left" %}All events</a>
+{% if event.status != 'published' %}<div class="alert alert-warning">Only coordinators can see this page: the event is {{ event.get_status_display|lower }}.</div>{% endif %}
+{% if event.is_practice %}<div class="alert alert-info">Practice event: hidden from the public list and kept out of reports.</div>{% endif %}
+
+<section class="event-hero" aria-labelledby="event-title">
+  <span class="deco-cube" aria-hidden="true"></span><span class="deco-ring" aria-hidden="true"></span>
+  <div class="d-flex flex-wrap gap-2">
+    <span class="chip">{% include "ui/icon.html" with name="calendar" %}{{ event.starts_at|date:"D j M Y" }}</span>
+    {% if event.kl_only %}<span class="tag tag-ink">KL only</span>{% else %}<span class="tag">Open to all</span>{% endif %}
+    {% if event.earns_points %}<span class="tag tag-blue">SIL points</span>{% endif %}
+    {% if event.is_over %}<span class="tag">Finished</span>{% elif event.is_full %}<span class="tag tag-red">Full</span>{% endif %}
+  </div>
+  <h1 class="heading-2" id="event-title">{{ event.title }}</h1>
+  {% if event.summary %}<p class="lead-text">{{ event.summary }}</p>{% endif %}
+</section>
+
+<div class="row g-4 gx-lg-5">
+  <div class="col-lg-8">
+    <div class="facts">
+      <div class="fact wide">{% include "ui/icon.html" with name="clock" %}<div><div class="k">When</div><div class="v">{{ event.starts_at|date:"D j M Y, g:i A" }} to {% if event.ends_at.date == event.starts_at.date %}{{ event.ends_at|time:"g:i A" }}{% else %}{{ event.ends_at|date:"D j M Y, g:i A" }}{% endif %}</div></div></div>
+      {% if event.venue %}<div class="fact">{% include "ui/icon.html" with name="pin" %}<div><div class="k">Where</div><div class="v">{{ event.venue }}</div></div></div>{% endif %}
+      <div class="fact">{% include "ui/icon.html" with name="users" %}<div><div class="k">Seats</div><div class="v">{% if event.seats %}{{ event.seats_left }} of {{ event.seats }} left{% else %}No limit{% endif %}</div></div></div>
+      <div class="fact">{% include "ui/icon.html" with name="student" %}<div><div class="k">Who can join</div><div class="v">{% if event.kl_only %}KL students only{% else %}Everyone{% endif %}</div></div></div>
+      {% if event.earns_points %}<div class="fact">{% include "ui/icon.html" with name="seal-check" %}<div><div class="k">Points</div><div class="v">Earns SIL points{% if event.points_note %}: {{ event.points_note }}{% endif %}</div></div></div>{% endif %}
+    </div>
+
+    {% if event.description %}
+      <h2 class="heading-6 mb-3">About this event</h2>
+      <div class="event-description">{{ event.description|linebreaks }}</div>
+    {% endif %}
+
+    {% if results %}
+      <h2 class="heading-6 mt-5 mb-3">Results</h2>
+      <ol class="podium">
+        {% for r in results %}<li class="place"><span class="pos">{{ r.position }}</span><span><strong>{{ r.registration.person.full_name }}</strong>{% if r.registration.person.institution %}<span class="text-secondary">, {{ r.registration.person.institution }}</span>{% endif %}</span></li>{% endfor %}
+      </ol>
+    {% endif %}
+  </div>
+
+  <aside class="col-lg-4" aria-label="Registration">
+    <div class="ticket" id="ticket">
+      <div class="t-top">
+        {% if registration and registration.is_confirmed %}
+          <span class="pass-status">{% include "ui/icon.html" with name="check-circle" %}You're registered</span>
+          <p class="text-secondary mt-3 mb-0">Your pass is ready. Show its QR at the door.</p>
+        {% else %}
+          <div class="eyebrow mb-1">Entry</div>
+          <div class="price">Free</div>
+          <p class="text-secondary mb-0 mt-1">{% if event.seats %}{{ event.seats_left }} seat{{ event.seats_left|pluralize }} left{% else %}No seat limit{% endif %}{% if open_now %} · closes {{ event.registration_closes|date:"j M, g:i A" }}{% endif %}</p>
+          {% if event.seats %}<div class="seat-bar mt-3{% if event.seats_left <= 10 %} is-tight{% endif %}" aria-hidden="true"><span style="--p: {% widthratio event.seats_taken event.seats 100 %}"></span></div>{% endif %}
+        {% endif %}
+      </div>
+      <div class="t-perf" aria-hidden="true"></div>
+      <div class="t-bottom">
+        {% if registration and registration.is_confirmed %}
+          <a class="btn btn-primary btn-lg w-100" href="{{ registration.get_pass_url }}">{% include "ui/icon.html" with name="qr" %}Show my pass</a>
+        {% elif open_now %}
+          <a class="btn btn-primary btn-lg w-100 btn-arrow" href="{% url 'register' event.slug %}">Register for free {% include "ui/icon.html" with name="arrow-right" %}</a>
+          <p class="small text-secondary text-center mt-2 mb-0">Takes about a minute.{% if not user.is_authenticated %} You'll sign in with an email code first.{% endif %}</p>
+        {% else %}
+          <p class="mb-0 body-5">{{ closed_reason }}</p>
+        {% endif %}
+      </div>
+    </div>
+    {% if is_coordinator %}
+      <div class="coord-box">
+        <div class="eyebrow mb-2">For coordinators</div>
+        <div class="link-row">
+          <a href="{% url 'door' event.slug %}">{% include "ui/icon.html" with name="scan" %}Door</a>
+          <a href="{% url 'door_counts' event.slug %}">{% include "ui/icon.html" with name="chart" %}Counts</a>
+          <a href="{% url 'event_report' event.slug %}">{% include "ui/icon.html" with name="clipboard" %}Report</a>
+          <a href="{% url 'admin:events_event_change' event.pk %}">{% include "ui/icon.html" with name="gear" %}Edit</a>
+        </div>
+      </div>
+    {% endif %}
+  </aside>
+</div>
+
+{% if registration and registration.is_confirmed %}
+  <div class="sticky-cta" data-sticky-cta="ticket">
+    <div><strong>You're registered</strong><span>{{ event.starts_at|date:"D j M, g:i A" }}</span></div>
+    <a class="btn btn-primary" href="{{ registration.get_pass_url }}">{% include "ui/icon.html" with name="qr" %}My pass</a>
+  </div>
+{% elif open_now %}
+  <div class="sticky-cta" data-sticky-cta="ticket">
+    <div><strong>Free entry</strong><span>{% if event.seats %}{{ event.seats_left }} seat{{ event.seats_left|pluralize }} left{% else %}{{ event.starts_at|date:"D j M, g:i A" }}{% endif %}</span></div>
+    <a class="btn btn-primary" href="{% url 'register' event.slug %}">Register {% include "ui/icon.html" with name="arrow-right" %}</a>
+  </div>
+{% endif %}
+{% endblock %}

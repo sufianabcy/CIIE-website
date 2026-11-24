@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Walk-in desk: {{ event.title }}{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block content %}
+<div class="page-narrow">
+  <a class="back-link" href="{% url 'door' event.slug %}">{% include "ui/icon.html" with name="arrow-left" %}Door</a>
+  <header class="tool-head">
+    <div>
+      <span class="eyebrow">{{ event.title }}</span>
+      <h1 class="heading-3">Walk-in desk</h1>
+      <p>Every entry here is labelled and stamped with your name, so the report can tell walk-ins and manual adds apart from scans.</p>
+    </div>
+  </header>
+  {% if result %}
+    <div class="alert {% if result.outcome == 'checked_in' %}alert-success{% elif result.outcome == 'already' %}alert-warning{% else %}alert-danger{% endif %}">
+      {% if result.outcome == 'checked_in' %}Checked in: <strong>{{ result.registration.person.full_name }}</strong>
+      {% elif result.outcome == 'already' %}Already checked in: <strong>{{ result.registration.person.full_name }}</strong>
+      {% else %}{{ result.message|default:"Could not check in." }}{% endif %}
+    </div>
+  {% endif %}
+  <form method="post" class="form-card" novalidate>
+    {% csrf_token %}
+    <fieldset class="mb-4">
+      <legend class="form-label">{{ form.kind.label }}</legend>
+      <div class="choice-row">
+        {% for radio in form.kind %}
+          <label class="choice" for="{{ radio.id_for_label }}">{{ radio.tag }}<span>{{ radio.choice_label }}</span></label>
+        {% endfor %}
+      </div>
+    </fieldset>
+    {% for field in form %}{% if field.name != "kind" %}
+      <div class="mb-3">
+        <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }}
+        {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+        {% for e in field.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+      </div>
+    {% endif %}{% endfor %}
+    <button class="btn btn-primary btn-lg w-100 mt-2" type="submit">{% include "ui/icon.html" with name="check-circle" %}Check in</button>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,31 @@
+<div class="tilt-wrap"{% if not no_reveal %} data-reveal style="--d: {{ forloop.counter0|default:0 }}"{% endif %}>
+  <a class="event-card" href="{{ event.get_absolute_url }}" data-tilt="6">
+    <div class="ec-top">
+      <div class="date-block" aria-hidden="true">
+        <span class="m">{{ event.starts_at|date:"M" }}</span>
+        <span class="d">{{ event.starts_at|date:"j" }}</span>
+        <span class="w">{{ event.starts_at|date:"D" }}</span>
+      </div>
+      <div class="tags">
+        {% if event.is_over %}<span class="tag">Finished</span>{% elif event.is_full %}<span class="tag tag-red">Full</span>{% endif %}
+        {% if event.kl_only %}<span class="tag tag-ink">KL only</span>{% else %}<span class="tag">Open to all</span>{% endif %}
+        {% if event.earns_points %}<span class="tag tag-blue">SIL points</span>{% endif %}
+      </div>
+    </div>
+    <h3>{{ event.title }}</h3>
+    {% if event.summary %}<p class="summary">{{ event.summary }}</p>{% endif %}
+    <div class="ec-foot">
+      <div class="meta">
+        <span><span class="visually-hidden">Starts </span>{% include "ui/icon.html" with name="clock" %}{{ event.starts_at|date:"D j M" }}, {{ event.starts_at|time:"g:i A" }}</span>
+        {% if event.venue %}<span><span class="visually-hidden">Venue </span>{% include "ui/icon.html" with name="pin" %}{{ event.venue }}</span>{% endif %}
+      </div>
+      {% if event.seats %}
+        <div class="seat-line"><span>{% if event.is_full %}All {{ event.seats }} seats taken{% else %}{{ event.seats_left }} of {{ event.seats }} seats left{% endif %}</span></div>
+        <div class="seat-bar{% if event.seats_left <= 10 %} is-tight{% endif %}" aria-hidden="true"><span style="--p: {% widthratio event.seats_taken event.seats 100 %}"></span></div>
+      {% else %}
+        <div class="seat-line"><span>{{ event.seats_taken }} registered · no seat limit</span></div>
+      {% endif %}
+    </div>
+    <span class="ec-go" aria-hidden="true">{% include "ui/icon.html" with name="arrow-right" %}</span>
+  </a>
+</div>

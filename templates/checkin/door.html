@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Door: {{ event.title }}{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block body_class %}door{% endblock %}
+{% block footer %}{% endblock %}
+{% block content %}
+<header class="tool-head tool-head-tight">
+  <div>
+    <span class="eyebrow">Door{% if event.is_practice %} · practice event{% endif %}</span>
+    <h1 class="heading-4">{{ event.title }}</h1>
+  </div>
+  <div class="tool-actions">
+    <label class="gate-pill" for="gate"><span>Gate</span><input id="gate" value="{{ gate }}" placeholder="e.g. Gate 1" maxlength="30"></label>
+    <a class="btn btn-quiet btn-sm" href="{% url 'door_walk_in' event.slug %}">{% include "ui/icon.html" with name="user" %}Walk-in desk</a>
+    {% if is_coordinator %}<a class="btn btn-quiet btn-sm" href="{% url 'door_counts' event.slug %}">{% include "ui/icon.html" with name="chart" %}Counts</a>{% endif %}
+  </div>
+</header>
+
+<section class="scan-panel" aria-label="Check people in">
+  <form id="scan-form" class="scan-box" hx-post="{% url 'door_scan' event.slug %}" hx-target="#result" hx-swap="innerHTML" hx-disabled-elt="find button" autocomplete="off">
+    <input type="hidden" name="gate" id="gate-field" value="{{ gate }}">
+    <div class="scan-row">
+      <span class="scan-icon" aria-hidden="true">{% include "ui/icon.html" with name="scan" %}</span>
+      <input id="q" name="q" class="form-control" autofocus required placeholder="Scan or search" aria-label="Pass code, or a name, phone or KL ID to search">
+      <button class="btn btn-primary" type="submit">Go</button>
+    </div>
+  </form>
+  <div class="scan-foot">
+    <button id="camera-btn" type="button" class="btn btn-ink">Use camera</button>
+    <p>A handheld scanner types into the box by itself. You can also type a pass code, or search a name, phone number or KL ID.</p>
+  </div>
+  <div id="camera-wrap" class="camera-wrap" hidden>
+    <video id="camera" playsinline muted></video>
+    <canvas id="camera-canvas" hidden></canvas>
+  </div>
+</section>
+
+<div id="result" aria-live="assertive"></div>
+{% endblock %}
+{% block extra_body %}
+<script src="{% static 'vendor/jsQR.js' %}" defer></script>
+<script src="{% static 'js/door.js' %}" defer></script>
+{% endblock %}

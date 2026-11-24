@@ -1,0 +1,37 @@
+# Render Blueprint for the free trial: one free web service.
+# The database lives on Neon's free plan (Render's free Postgres is deleted after 30 days).
+# In Render: New > Blueprint > pick this repository, then fill in the values marked sync: false.
+services:
+  - type: web
+    name: klciie-portal
+    runtime: docker
+    plan: free
+    region: singapore
+    healthCheckPath: /ops/healthz/
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false # Neon's direct (not "pooled") connection string
+      - key: DEFAULT_FROM_EMAIL
+        sync: false # e.g. KL-CIIE <events@your-verified-domain>
+      - key: ANYMAIL_ESP
+        value: brevo # free hosts block SMTP, so mail goes over the provider's HTTPS API
+      - key: ANYMAIL_API_KEY
+        sync: false
+      - key: MAIL_DAILY_CAP
+        value: "280" # Brevo's free plan allows 300 a day
+      - key: MAIL_CODE_RESERVE
+        value: "80"
+      - key: OPS_TICK_TOKEN
+        generateValue: true
+      - key: FIRST_ADMIN_EMAIL
+        sync: false # made admin on first start if there is no admin yet
+      - key: SECURE_SSL_REDIRECT
+        value: "1"
+      - key: WEB_CONCURRENCY
+        value: "2"
+      - key: GOOGLE_CLIENT_ID
+        sync: false # optional
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false # optional

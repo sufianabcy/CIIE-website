@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Join the door team{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block content %}
+<div class="page-narrow">
+  <div class="form-card text-center">
+    <span class="code-icon-lg" aria-hidden="true">{% include "ui/icon.html" with name="door" %}</span>
+    <h1 class="heading-4 mt-3">Join the door team</h1>
+    <p class="mb-2">For <strong>{{ event.title }}</strong> on {{ event.starts_at|date:"j F, g:i A" }}.</p>
+    <p class="text-secondary caption-1">You'll be able to check people in until the event ends. Every check-in you make is stamped with your own name ({{ user.full_name|default:user.email }}), so never share your login.</p>
+    <form method="post" class="mt-4">{% csrf_token %}<button class="btn btn-primary btn-lg w-100" type="submit">Join</button></form>
+  </div>
+</div>
+{% endblock %}

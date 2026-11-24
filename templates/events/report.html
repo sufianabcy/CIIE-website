@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Report: {{ event.title }}{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'manage' %}">{% include "ui/icon.html" with name="arrow-left" %}Run events</a>
+<header class="tool-head">
+  <div>
+    <span class="eyebrow">Event report</span>
+    <h1 class="heading-3">{{ event.title }}</h1>
+    <p>Counts come from check-ins, never typed in. Status: <strong class="text-body">{{ event.get_report_status_display }}</strong>{% if event.is_practice %} <span class="tag tag-blue ms-1">practice event, keep out of reports</span>{% endif %}</p>
+  </div>
+  <div class="tool-actions">
+    <a class="btn btn-quiet btn-sm" href="{% url 'admin:events_event_change' event.pk %}">{% include "ui/icon.html" with name="gear" %}Edit report fields</a>
+    <a class="btn btn-quiet btn-sm" href="{% url 'door_counts' event.slug %}">{% include "ui/icon.html" with name="chart" %}Counts</a>
+  </div>
+</header>
+
+<div class="stat-grid mb-4">
+  <div class="stat-card stat-blue"><div class="stat-value">{{ numbers.attended }}</div><div class="stat-label">attended</div></div>
+  <div class="stat-card"><div class="stat-value">{{ numbers.kl_attended }}</div><div class="stat-label">KL students attended</div></div>
+  <div class="stat-card"><div class="stat-value">{{ numbers.registered_online }}</div><div class="stat-label">registered online</div></div>
+  <div class="stat-card"><div class="stat-value">{{ numbers.results_published }}</div><div class="stat-label">results published</div></div>
+</div>
+
+<div class="row g-4">
+  <div class="col-lg-5">
+    <div class="panel h-100">
+      <h2 class="panel-title">{% if missing %}{% include "ui/icon.html" with name="warning" %}Still missing{% else %}{% include "ui/icon.html" with name="check-circle" %}Nothing missing{% endif %}</h2>
+      {% if missing %}
+        <ul class="missing-list">{% for m in missing %}<li>{{ m }}</li>{% endfor %}</ul>
+        <a class="btn btn-primary btn-sm mt-3" href="{% url 'admin:events_event_change' event.pk %}">Fill in report fields</a>
+      {% else %}
+        <p class="text-secondary mb-0">Every field the report needs is filled in.</p>
+      {% endif %}
+    </div>
+  </div>
+  <div class="col-lg-7">
+    <div class="panel">
+      <h2 class="panel-title">Preview</h2>
+      <table class="table table-sm kv-table mb-0">
+        <tr><th>Event</th><td>{{ event.title }}</td></tr>
+        <tr><th>Date and time</th><td>{{ event.starts_at|date:"j F Y" }}, {{ event.time_slot|default:"(time slot missing)" }}</td></tr>
+        <tr><th>Venue</th><td>{{ event.venue|default:"-" }}</td></tr>
+        <tr><th>Organising unit</th><td>{{ event.unit|default:"-" }}</td></tr>
+        <tr><th>Academic year</th><td>{{ event.academic_year|default:"-" }}</td></tr>
+        <tr><th>Faculty in charge</th><td>{{ event.faculty_in_charge_name|default:"-" }} {% if event.faculty_in_charge_id %}({{ event.faculty_in_charge_id }}){% endif %}</td></tr>
+        <tr><th>Student lead</th><td>{{ event.student_lead_name|default:"-" }} {% if event.student_lead_id %}({{ event.student_lead_id }}){% endif %}</td></tr>
+        <tr><th>Registered online</th><td>{{ numbers.registered_online }}</td></tr>
+        <tr><th>Attended</th><td>{{ numbers.attended }} (KL students: {{ numbers.kl_attended }})</td></tr>
+        <tr><th>How they were checked in</th><td>Scans {{ numbers.scanned }}, search {{ numbers.found_by_search }}, walk-ins {{ numbers.walk_ins }}, manual adds {{ numbers.manual_adds }}, outage backfill {{ numbers.backfilled }}</td></tr>
+        <tr><th>Results published</th><td>{{ numbers.results_published }}</td></tr>
+      </table>
+    </div>
+    <p class="caption-2 text-secondary mt-3">A scan proves a pass was shown, not that its owner attended, so the report calls them scans.</p>
+  </div>
+</div>
+{% endblock %}
