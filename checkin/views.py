@@ -16,7 +16,7 @@ from .models import CheckIn, ScanLog
 
 
 def _door_event(request, slug) -> Event:
-    event = get_object_or_404(Event, slug=slug)
+    event = get_object_or_404(Event.objects.exclude(kind=Event.Kind.HACKATHON), slug=slug)
     if not event.door_open_for(request.user):
         raise PermissionDenied("You are not on this event's door team.")
     return event
@@ -122,7 +122,7 @@ def counts_for(event: Event) -> dict:
 
 @login_required
 def counts(request, slug):
-    event = get_object_or_404(Event, slug=slug)
+    event = get_object_or_404(Event.objects.exclude(kind=Event.Kind.HACKATHON), slug=slug)
     if not event.coordinated_by(request.user):
         raise PermissionDenied
     template = "checkin/_counts_panel.html" if request.headers.get("HX-Request") else "checkin/counts.html"
@@ -131,7 +131,7 @@ def counts(request, slug):
 
 @login_required
 def join_door_team(request, slug, token):
-    event = get_object_or_404(Event, slug=slug, door_token=token)
+    event = get_object_or_404(Event.objects.exclude(kind=Event.Kind.HACKATHON), slug=slug, door_token=token)
     if event.ends_at < timezone.now():
         messages.error(request, "This event is over, so its door-team link no longer works.")
         return redirect("event_list")
@@ -145,7 +145,7 @@ def join_door_team(request, slug, token):
 @login_required
 def door_list(request, slug):
     """A printable list per gate, for when the network fails."""
-    event = get_object_or_404(Event, slug=slug)
+    event = get_object_or_404(Event.objects.exclude(kind=Event.Kind.HACKATHON), slug=slug)
     if not event.coordinated_by(request.user):
         raise PermissionDenied
     registrations = (

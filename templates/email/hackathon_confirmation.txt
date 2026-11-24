@@ -1,0 +1,12 @@
+Hi {{ person.full_name|default:"there" }},
+
+You're registered for {{ event.title }}.
+
+When: {{ event.starts_at|date:"l j F Y, g:i A" }}{% if event.venue %}
+Where: {{ event.venue }}{% endif %}
+
+Your hackathon page: {{ home_url }}
+It shows your team, room, round timings and mentor as the organisers set them up. There's no pass to show for a hackathon.
+
+{{ club_name }} student team
+Questions: {{ contact_email }}

@@ -49,7 +49,7 @@
       <div class="t-top">
         {% if registration and registration.is_confirmed %}
           <span class="pass-status">{% include "ui/icon.html" with name="check-circle" %}You're registered</span>
-          <p class="text-secondary mt-3 mb-0">Your pass is ready. Show its QR at the door.</p>
+          <p class="text-secondary mt-3 mb-0">{% if event.is_hackathon %}Your team, room and timings are on your hackathon page.{% else %}Your pass is ready. Show its QR at the door.{% endif %}</p>
         {% else %}
           <div class="eyebrow mb-1">Entry</div>
           <div class="price">Free</div>
@@ -60,7 +60,8 @@
       <div class="t-perf" aria-hidden="true"></div>
       <div class="t-bottom">
         {% if registration and registration.is_confirmed %}
-          <a class="btn btn-primary btn-lg w-100" href="{{ registration.get_pass_url }}">{% include "ui/icon.html" with name="qr" %}Show my pass</a>
+          {% if event.is_hackathon %}<a class="btn btn-primary btn-lg w-100" href="{% url 'my_hackathon' event.slug %}">{% include "ui/icon.html" with name="users" %}My hackathon</a>
+          {% else %}<a class="btn btn-primary btn-lg w-100" href="{{ registration.get_pass_url }}">{% include "ui/icon.html" with name="qr" %}Show my pass</a>{% endif %}
         {% elif open_now %}
           <a class="btn btn-primary btn-lg w-100 btn-arrow" href="{% url 'register' event.slug %}">Register for free {% include "ui/icon.html" with name="arrow-right" %}</a>
           <p class="small text-secondary text-center mt-2 mb-0">Takes about a minute.{% if not user.is_authenticated %} You'll sign in with an email code first.{% endif %}</p>
@@ -73,8 +74,9 @@
       <div class="coord-box">
         <div class="eyebrow mb-2">For coordinators</div>
         <div class="link-row">
-          <a href="{% url 'door' event.slug %}">{% include "ui/icon.html" with name="scan" %}Door</a>
-          <a href="{% url 'door_counts' event.slug %}">{% include "ui/icon.html" with name="chart" %}Counts</a>
+          {% if event.is_hackathon %}<a href="{% url 'hackathon_dashboard' event.slug %}">{% include "ui/icon.html" with name="gavel" %}Hackathon</a>
+          {% else %}<a href="{% url 'door' event.slug %}">{% include "ui/icon.html" with name="scan" %}Door</a>
+          <a href="{% url 'door_counts' event.slug %}">{% include "ui/icon.html" with name="chart" %}Counts</a>{% endif %}
           <a href="{% url 'event_report' event.slug %}">{% include "ui/icon.html" with name="clipboard" %}Report</a>
           <a href="{% url 'admin:events_event_change' event.pk %}">{% include "ui/icon.html" with name="gear" %}Edit</a>
         </div>
@@ -86,7 +88,8 @@
 {% if registration and registration.is_confirmed %}
   <div class="sticky-cta" data-sticky-cta="ticket">
     <div><strong>You're registered</strong><span>{{ event.starts_at|date:"D j M, g:i A" }}</span></div>
-    <a class="btn btn-primary" href="{{ registration.get_pass_url }}">{% include "ui/icon.html" with name="qr" %}My pass</a>
+    {% if event.is_hackathon %}<a class="btn btn-primary" href="{% url 'my_hackathon' event.slug %}">{% include "ui/icon.html" with name="users" %}My hackathon</a>
+    {% else %}<a class="btn btn-primary" href="{{ registration.get_pass_url }}">{% include "ui/icon.html" with name="qr" %}My pass</a>{% endif %}
   </div>
 {% elif open_now %}
   <div class="sticky-cta" data-sticky-cta="ticket">

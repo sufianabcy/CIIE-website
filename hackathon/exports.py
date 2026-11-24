@@ -44,13 +44,13 @@ def teams_workbook(event, wb):
     )
     _sheet(
         wb, "Students",
-        ["Team", "Project title", "Room", "Mentor", "Pass code"] + PERSON_HEADERS + answer_headers,
+        ["Team", "Project title", "Room", "Mentor", "Registration ID"] + PERSON_HEADERS + answer_headers,
         [
             [m.team.name, m.team.project_title, m.team.room.name if m.team.room else "", m.team.mentor_display,
              m.registration.pass_code_display] + _person_columns(m.registration.person) + answer_values(m.registration)
             for m in members
         ],
-        text_columns=["Phone", "KL ID", "Pass code"],
+        text_columns=["Phone", "KL ID", "Registration ID"],
     )
     teams = Team.objects.filter(event=event).select_related("room", "mentor").prefetch_related("members__registration__person")
     _sheet(

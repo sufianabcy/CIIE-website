@@ -10,7 +10,6 @@
       <h1 class="heading-3">{{ event.title }}</h1>
       <p>{{ event.starts_at|date:"D j M, g:i A" }} – {{ event.ends_at|date:"D j M, g:i A" }}{% if event.venue %} · {{ event.venue }}{% endif %}</p>
     </div>
-    <a class="btn btn-primary" href="{{ registration.get_pass_url }}">{% include "ui/icon.html" with name="qr" %}My pass</a>
   </header>
 
   <div class="row g-4">
@@ -38,7 +37,6 @@
           {% if person.email %}<div><dt>Email</dt><dd>{{ person.email }}</dd></div>{% endif %}
           {% if person.student_id %}<div><dt>KL ID</dt><dd>{{ person.student_id }}</dd></div>{% endif %}
           {% if person.branch %}<div><dt>Branch</dt><dd>{{ person.branch }}{% if person.year_of_study %} · Year {{ person.year_of_study }}{% endif %}</dd></div>{% endif %}
-          <div><dt>Pass code</dt><dd class="font-monospace">{{ registration.pass_code_display }}</dd></div>
         </dl>
         <a class="btn btn-quiet btn-sm mt-3" href="{% url 'profile' %}">{% include "ui/icon.html" with name="gear" %}Fix my details</a>
       </section>

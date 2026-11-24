@@ -34,10 +34,11 @@
       </div>
       <dl class="run-nums">
         <div><dt>Registered</dt><dd>{{ e.registered }}</dd></div>
-        <div><dt>Checked in</dt><dd>{{ e.checked_in }}</dd></div>
+        {% if not e.is_hackathon %}<div><dt>Checked in</dt><dd>{{ e.checked_in }}</dd></div>{% endif %}
       </dl>
     </div>
     <div class="run-links">
+      {% if not e.is_hackathon %}
       <div>
         <div class="run-k">On the day</div>
         <div class="link-row">
@@ -47,6 +48,7 @@
           <a href="{% url 'door_list' e.slug %}">{% include "ui/icon.html" with name="printer" %}Door list</a>
         </div>
       </div>
+      {% endif %}
       <div>
         <div class="run-k">Set up and after</div>
         <div class="link-row">
@@ -60,11 +62,11 @@
         <div class="run-k">Excel files</div>
         <div class="link-row">
           <a href="{% url 'event_export' e.slug 'registrations' %}">{% include "ui/icon.html" with name="download" %}Registrations</a>
-          <a href="{% url 'event_export' e.slug 'attendance' %}">{% include "ui/icon.html" with name="download" %}Attendance</a>
+          {% if not e.is_hackathon %}<a href="{% url 'event_export' e.slug 'attendance' %}">{% include "ui/icon.html" with name="download" %}Attendance</a>{% endif %}
           <a href="{% url 'event_export' e.slug 'results' %}">{% include "ui/icon.html" with name="download" %}Results</a>
           {% if e.is_hackathon %}<a href="{% url 'event_export' e.slug 'teams' %}">{% include "ui/icon.html" with name="download" %}Teams</a>
           <a href="{% url 'event_export' e.slug 'marks' %}">{% include "ui/icon.html" with name="download" %}Marks</a>{% endif %}
-          <a href="{% url 'event_export' e.slug 'attendance-handoff' %}">{% include "ui/icon.html" with name="download" %}Hand-off</a>
+          {% if not e.is_hackathon %}<a href="{% url 'event_export' e.slug 'attendance-handoff' %}">{% include "ui/icon.html" with name="download" %}Hand-off</a>{% endif %}
         </div>
       </div>
     </div>

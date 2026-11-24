@@ -21,7 +21,7 @@ def register_view(request, slug):
     person = request.user
     existing = Registration.objects.filter(event=event, person=person, status=Registration.Status.CONFIRMED).first()
     if existing:
-        return redirect(existing.get_pass_url())
+        return redirect(existing.get_home_url())
     open_now, reason = event.registration_state()
     needs_kl = event.kl_only and not person.is_kl_verified
     questions = event.questions.filter(is_hidden=False)
@@ -34,8 +34,11 @@ def register_view(request, slug):
             return redirect(event)
         if created:
             send_confirmation(registration)
-            messages.success(request, "You're registered. This is your pass: show it at the door.")
-        return redirect(registration.get_pass_url())
+            if event.is_hackathon:
+                messages.success(request, "You're registered. Your team, room and timings will show here.")
+            else:
+                messages.success(request, "You're registered. This is your pass: show it at the door.")
+        return redirect(registration.get_home_url())
     return render(
         request,
         "registrations/register.html",
@@ -88,6 +91,10 @@ def _owned_registration(request, code) -> Registration:
 @login_required
 def pass_view(request, code):
     registration = _owned_registration(request, code)
+    if registration.event.is_hackathon:
+        if registration.person_id != request.user.pk:
+            raise Http404
+        return redirect(registration.get_home_url())  # hackathons have no pass
     # The QR holds only the random pass code, so nothing breaks when keys change.
     qr_svg = segno.make_qr(registration.pass_code, error="m").svg_inline(scale=8, border=4, omitsize=True)
     can_cancel = (

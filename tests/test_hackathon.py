@@ -738,3 +738,67 @@ def test_existing_faculty_and_supervisors_cannot_self_register_as_supervisors(cl
 
     with pytest.raises(NoReverseMatch):
         reverse("supervisor_register")
+
+
+# --- Hackathons have no passes and no door ------------------------------------------
+
+
+def test_hackathon_registration_goes_to_my_hackathon_not_a_pass(client, hack, make_person):
+    from mailer.models import OutboxEmail
+
+    student = make_person(email="reg@example.com")
+    client.force_login(student)
+    response = client.post(reverse("register", args=[hack.slug]), {"q_track": "Open"})
+    assert response["Location"] == reverse("my_hackathon", args=[hack.slug])
+    reg = Registration.objects.get(event=hack, person=student)
+    # The pass page and its QR send them to My hackathon instead.
+    assert client.get(reverse("pass", args=[reg.pass_code]))["Location"] == reverse("my_hackathon", args=[hack.slug])
+    for url in (reverse("my_hackathon", args=[hack.slug]), reverse("my_registrations"), reverse("event_detail", args=[hack.slug])):
+        body = client.get(url).content
+        assert reg.pass_code_display.encode() not in body and reg.get_pass_url().encode() not in body, url
+        assert b"Show my pass" not in body and b"My pass<" not in body, url
+    mail = OutboxEmail.objects.filter(to_email="reg@example.com").latest("pk")
+    assert reg.pass_code_display not in mail.text_body and "/pass/" not in mail.text_body
+    assert reverse("my_hackathon", args=[hack.slug]) in mail.text_body
+    # Someone else's hackathon registration code is still a 404.
+    client.force_login(make_person())
+    assert client.get(reverse("pass", args=[reg.pass_code])).status_code == 404
+
+
+def test_hackathons_have_no_door(client, hack, admin_user, make_person):
+    reg, _ = register(event=hack, person=make_person())
+    client.force_login(admin_user)
+    for name, args in (("door", [hack.slug]), ("door_walk_in", [hack.slug]), ("door_counts", [hack.slug]),
+                       ("door_list", [hack.slug]), ("door_join", [hack.slug, hack.door_token])):
+        assert client.get(reverse(name, args=args)).status_code == 404, name
+    assert client.post(reverse("door_scan", args=[hack.slug]), {"q": reg.pass_code}).status_code == 404
+    for kind in ("attendance", "attendance-handoff"):
+        assert client.get(reverse("event_export", args=[hack.slug, kind])).status_code == 404
+    manage = client.get(reverse("manage")).content.decode()
+    assert reverse("door", args=[hack.slug]) not in manage and reverse("door_list", args=[hack.slug]) not in manage
+    assert reverse("event_export", args=[hack.slug, "attendance"]) not in manage
+    admin_page = client.get(reverse("admin:events_event_change", args=[hack.pk])).content.decode()
+    assert "Door-team link" not in admin_page and reverse("door", args=[hack.slug]) not in admin_page
+    registrations = sheet(build_export(hack, "registrations", admin_user)[1], "Registrations")
+    assert registrations[0][0] == "Registration ID"
+
+
+def test_normal_events_keep_passes_and_the_door(client, event, admin_user, make_person):
+    from mailer.models import OutboxEmail
+
+    student = make_person(email="normal@example.com")
+    client.force_login(student)
+    response = client.post(reverse("register", args=[event.slug]), {"submit": "1"})
+    reg = Registration.objects.get(event=event, person=student)
+    assert response["Location"] == reg.get_pass_url()
+    page = client.get(reg.get_pass_url())
+    assert page.status_code == 200 and reg.pass_code_display.encode() in page.content
+    assert b"Show my pass" in client.get(reverse("my_registrations")).content
+    assert reg.pass_code_display in OutboxEmail.objects.filter(to_email="normal@example.com").latest("pk").text_body
+    client.force_login(admin_user)
+    for name in ("door", "door_walk_in", "door_counts", "door_list"):
+        assert client.get(reverse(name, args=[event.slug])).status_code == 200, name
+    assert client.get(reverse("event_export", args=[event.slug, "attendance"])).status_code == 200
+    assert reverse("door", args=[event.slug]) in client.get(reverse("manage")).content.decode()
+    assert "Door-team link" in client.get(reverse("admin:events_event_change", args=[event.pk])).content.decode()
+    assert sheet(build_export(event, "registrations", admin_user)[1], "Registrations")[0][0] == "Pass code"

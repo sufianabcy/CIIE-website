@@ -112,15 +112,17 @@ def send_confirmation(registration: Registration) -> None:
         "event": registration.event,
         "person": person,
         "pass_url": settings.SITE_URL + registration.get_pass_url(),
+        "home_url": settings.SITE_URL + registration.get_home_url(),
         "my_url": settings.SITE_URL + "/me/",
         "club_name": settings.CLUB_NAME,
         "contact_email": settings.CLUB_CONTACT_EMAIL,
     }
+    template = "hackathon_confirmation" if registration.event.is_hackathon else "registration_confirmation"
     enqueue_email(
         to=person.email,
         subject=f"[{settings.CLUB_NAME}] You're registered: {registration.event.title}",
-        text=render_to_string("email/registration_confirmation.txt", context),
-        html=render_to_string("email/registration_confirmation.html", context),
+        text=render_to_string(f"email/{template}.txt", context),
+        html=render_to_string(f"email/{template}.html", context),
         kind=OutboxEmail.Kind.CONFIRMATION,
         person=person,
     )

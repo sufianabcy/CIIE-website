@@ -1,0 +1,12 @@
+<!doctype html>
+<html><body style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; color:#1f2328; line-height:1.5">
+<p>Hi {{ person.full_name|default:"there" }},</p>
+<p>You're registered for <strong>{{ event.title }}</strong>.</p>
+<table cellpadding="4" style="border-collapse:collapse">
+  <tr><td style="color:#57606a">When</td><td>{{ event.starts_at|date:"l j F Y, g:i A" }}</td></tr>
+  {% if event.venue %}<tr><td style="color:#57606a">Where</td><td>{{ event.venue }}</td></tr>{% endif %}
+</table>
+<p><a href="{{ home_url }}" style="display:inline-block; background:#0b5ed7; color:#fff; padding:10px 18px; border-radius:6px; text-decoration:none">Open my hackathon page</a></p>
+<p style="color:#57606a">It shows your team, room, round timings and mentor as the organisers set them up. There's no pass to show for a hackathon.</p>
+<p>{{ club_name }} student team<br><span style="color:#57606a">Questions: {{ contact_email }}</span></p>
+</body></html>

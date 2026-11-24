@@ -70,6 +70,15 @@ class EventAdmin(admin.ModelAdmin):
         qs = super().get_queryset(request)
         return qs if request.user.is_portal_admin else qs.filter(coordinators=request.user)
 
+    def get_fieldsets(self, request, obj=None):
+        fieldsets = super().get_fieldsets(request, obj)
+        if obj and obj.is_hackathon:  # no door at hackathons
+            fieldsets = [
+                (name, {**opts, "fields": [f for f in opts["fields"] if f not in ("door_link", "door_team_list")]})
+                for name, opts in fieldsets
+            ]
+        return fieldsets
+
     def get_readonly_fields(self, request, obj=None):
         fields = list(super().get_readonly_fields(request, obj))
         if not request.user.is_portal_admin:
@@ -106,8 +115,7 @@ class EventAdmin(admin.ModelAdmin):
             return "-"
         links = [
             ("Event page", reverse("event_detail", args=[obj.slug])),
-            ("Door", reverse("door", args=[obj.slug])),
-            ("Counts", reverse("door_counts", args=[obj.slug])),
+            *([] if obj.is_hackathon else [("Door", reverse("door", args=[obj.slug])), ("Counts", reverse("door_counts", args=[obj.slug]))]),
             ("Report", reverse("event_report", args=[obj.slug])),
         ]
         if obj.is_hackathon:

@@ -85,5 +85,11 @@ class Registration(models.Model):
     def get_pass_url(self):
         return reverse("pass", args=[self.pass_code])
 
+    def get_home_url(self):
+        """Where this registration lives for the student: the pass, or for hackathons (no passes) My hackathon."""
+        if self.event.kind == "hackathon":
+            return reverse("my_hackathon", args=[self.event.slug])
+        return self.get_pass_url()
+
     def active_checkin(self):
         return self.checkins.filter(undone_at__isnull=True).first()

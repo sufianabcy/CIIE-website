@@ -71,6 +71,11 @@ def _about(wb, event, kind, user):
     ws.column_dimensions["B"].width = 40
 
 
+def id_label(event) -> str:
+    """Hackathons have no passes; the same unique code is shown as a registration ID."""
+    return "Registration ID" if event.is_hackathon else "Pass code"
+
+
 def _person_columns(p):
     return [p.full_name, p.email or "", p.phone, p.institution, p.branch, p.year_of_study, p.student_id, "Yes" if p.is_kl_verified else "No"]
 
@@ -80,7 +85,8 @@ PERSON_HEADERS = ["Name", "Email", "Phone", "Institution", "Branch", "Year", "KL
 
 def registrations_workbook(event, wb):
     questions = list(event.questions.all())
-    headers = ["Pass code", "Status", "Source", "Registered at"] + PERSON_HEADERS + ["Form version"]
+    code = id_label(event)
+    headers = [code, "Status", "Source", "Registered at"] + PERSON_HEADERS + ["Form version"]
     headers += [f"{q.label} [{q.key}]" for q in questions]
     rows = []
     for r in event.registrations.select_related("person").order_by("created_at"):
@@ -91,7 +97,7 @@ def registrations_workbook(event, wb):
             value = answers.get(q.key, "")
             row.append(", ".join(value) if isinstance(value, list) else value)
         rows.append(row)
-    _sheet(wb, "Registrations", headers, rows, text_columns=["Phone", "KL ID", "Pass code"])
+    _sheet(wb, "Registrations", headers, rows, text_columns=["Phone", "KL ID", code])
 
 
 def attendance_workbook(event, wb):
@@ -171,6 +177,7 @@ EXPORTS = {
 
 
 HACKATHON_EXPORTS = {"teams", "allocations", "marks"}
+DOOR_EXPORTS = {"attendance", "attendance-handoff"}  # no door check-in at hackathons
 
 
 def build_export(event: Event, kind: str, user) -> tuple[str, bytes]:
@@ -193,6 +200,8 @@ def export(request, slug, kind):
     if not (event.coordinated_by(request.user) or (event.is_hackathon and oversees(request.user, event))):
         raise PermissionDenied
     if kind in HACKATHON_EXPORTS and not event.is_hackathon:
+        raise Http404
+    if kind in DOOR_EXPORTS and event.is_hackathon:
         raise Http404
     if kind not in EXPORTS:
         raise Http404
