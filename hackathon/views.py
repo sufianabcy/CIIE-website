@@ -327,3 +327,53 @@ def mark(request, pk):
             "editable": is_open and not assignment.is_submitted,
         },
     )
+
+
+# --- Students ---------------------------------------------------------------------
+
+
+def team_marks(team, round_):
+    """A team's marks for one round: per criterion, the average of submitted marks. Only for published rounds."""
+    criteria = list(round_.criteria.all())
+    submitted = list(
+        Assignment.objects.filter(round=round_, team=team, submitted_at__isnull=False).prefetch_related("scores")
+    )
+    if not submitted:
+        return None
+    rows = []
+    for c in criteria:
+        given = [s.marks for a in submitted for s in a.scores.all() if s.criterion_id == c.pk]
+        rows.append((c, (sum(given, Decimal("0")) / len(given)).quantize(Decimal("0.01")) if given else None))
+    totals = [a.total() for a in submitted]
+    return {"rows": rows, "total": (sum(totals, Decimal("0")) / len(totals)).quantize(Decimal("0.01")), "judges": len(submitted)}
+
+
+@never_cache
+@login_required
+def my_hackathon(request, slug):
+    """A student's own hackathon page. Never shows another team's data."""
+    registration = get_object_or_404(
+        Registration.objects.select_related("event", "person"),
+        event__slug=slug, event__kind="hackathon", person=request.user, status=Registration.Status.CONFIRMED,
+    )
+    event = registration.event
+    membership = TeamMember.objects.filter(registration=registration).select_related("team__room", "team__mentor").first()
+    team = membership.team if membership else None
+    members = (
+        [m.registration.person for m in team.members.select_related("registration__person").order_by("registration__person__full_name")]
+        if team else [request.user]
+    )
+    rounds = []
+    for round_ in Round.objects.filter(event=event).prefetch_related("criteria"):
+        jury = []
+        if team and event.show_jury_to_students:
+            jury = [
+                a.faculty.person.display_name
+                for a in Assignment.objects.filter(round=round_, team=team).select_related("faculty__person").order_by("faculty__person__full_name")
+            ]
+        marks = team_marks(team, round_) if team and round_.results_published_at else None
+        rounds.append({"round": round_, "jury": jury, "marks": marks})
+    return render(
+        request, "hackathon/my_hackathon.html",
+        {"event": event, "registration": registration, "person": request.user, "team": team, "members": members, "rounds": rounds},
+    )

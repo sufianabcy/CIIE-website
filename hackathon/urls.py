@@ -12,6 +12,7 @@ urlpatterns = [
     path("manage/<slug:slug>/hackathon/solo-teams/", views.solo_teams, name="hackathon_solo_teams"),
     path("manage/<slug:slug>/hackathon/logins/", views.logins, name="hackathon_logins"),
     path("manage/<slug:slug>/hackathon/marks/", views.marks, name="hackathon_marks"),
+    path("me/hackathon/<slug:slug>/", views.my_hackathon, name="my_hackathon"),
     path("faculty/", views.staff_home, name="staff_home"),
     path("faculty/<slug:slug>/", views.judge_event, name="hackathon_judge_event"),
     path("faculty/marks/<int:pk>/", views.mark, name="hackathon_mark"),

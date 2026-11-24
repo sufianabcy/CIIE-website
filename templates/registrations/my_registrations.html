@@ -23,6 +23,7 @@
         <div class="countdown" data-countdown="{{ next_up.event.starts_at|date:'c' }}">{{ next_up.event.starts_at|timeuntil }}</div>
       </div>
       <a class="btn btn-light btn-lg" href="{{ next_up.get_pass_url }}">{% include "ui/icon.html" with name="qr" %}Show my pass</a>
+      {% if next_up.event.is_hackathon %}<a class="btn btn-light btn-lg" href="{% url 'my_hackathon' next_up.event.slug %}">{% include "ui/icon.html" with name="users" %}My hackathon</a>{% endif %}
     </div>
   </section>
 {% endif %}
@@ -33,7 +34,10 @@
     {% for r in upcoming %}
       <li class="reg-row">
         <span><a class="r-title" href="{{ r.event.get_absolute_url }}">{{ r.event.title }}</a><br><span class="caption-2 text-secondary">{{ r.event.starts_at|date:"D j M, g:i A" }}{% if r.event.venue %} · {{ r.event.venue }}{% endif %}</span></span>
-        <a class="btn btn-quiet btn-sm" href="{{ r.get_pass_url }}">{% include "ui/icon.html" with name="qr" %}Pass</a>
+        <span class="d-flex gap-2">
+          {% if r.event.is_hackathon %}<a class="btn btn-quiet btn-sm" href="{% url 'my_hackathon' r.event.slug %}">{% include "ui/icon.html" with name="users" %}My hackathon</a>{% endif %}
+          <a class="btn btn-quiet btn-sm" href="{{ r.get_pass_url }}">{% include "ui/icon.html" with name="qr" %}Pass</a>
+        </span>
       </li>
     {% endfor %}
   </ul>
@@ -50,6 +54,7 @@
     {% for r in past %}
       <li class="reg-row">
         <span><span class="r-title">{{ r.event.title }}</span><br><span class="caption-2 text-secondary">{{ r.event.starts_at|date:"j M Y" }}</span></span>
+        {% if r.is_confirmed and r.event.is_hackathon %}<a class="btn btn-quiet btn-sm" href="{% url 'my_hackathon' r.event.slug %}">My hackathon</a>{% endif %}
         {% if not r.is_confirmed %}<span class="tag">Cancelled</span>{% elif r.active_checkin %}<span class="tag tag-blue">Attended</span>{% else %}<span class="tag">Registered</span>{% endif %}
       </li>
     {% endfor %}

@@ -516,3 +516,108 @@ def test_seed_demo_builds_the_demo_hackathon_and_can_run_twice(db):
     assert (event.rooms.count(), event.teams.count(), event.rounds.count(), event.faculty.count(), event.supervisors.count()) == (2, 4, 2, 3, 1)
     assert not Assignment.objects.filter(team__name="Team Pulse", faculty__person__employee_id="KLF102").exists()
     assert services.room_rule_warnings(event) == [] and services.mentor_conflicts(event) == []
+
+
+# --- Students: My hackathon --------------------------------------------------------
+
+
+def _student(team):
+    return team.members.first().registration.person
+
+
+def test_student_page_shows_own_team_and_nothing_of_other_teams(client, setup):
+    event = setup["event"]
+    gamma = setup["teams"]["Gamma"]
+    gamma.project_description = "Gamma secret plan"
+    gamma.save()
+    alpha = setup["teams"]["Alpha"]
+    alpha.mentor_name = "Prof. Outside"
+    alpha.save()
+    client.force_login(_student(alpha))
+    page = client.get(reverse("my_hackathon", args=[event.slug]))
+    assert page.status_code == 200
+    body = page.content
+    assert b"Alpha project" in body and b"Alpha student" in body and b"R1" in body and b"Prof. Outside" in body
+    assert b"Round 1" in body and b"Round 2" in body
+    for other in (b"Beta", b"Gamma", b"Gamma secret plan", b"Beta student"):
+        assert other not in body
+    # It's linked from My passes.
+    assert reverse("my_hackathon", args=[event.slug]).encode() in client.get(reverse("my_registrations")).content
+
+
+def test_student_page_needs_your_own_confirmed_hackathon_registration(client, setup, event, make_person):
+    hack = setup["event"]
+    outsider = make_person()
+    client.force_login(outsider)
+    assert client.get(reverse("my_hackathon", args=[hack.slug])).status_code == 404
+    register(event=event, person=outsider)  # a normal event: no hackathon page
+    assert client.get(reverse("my_hackathon", args=[event.slug])).status_code == 404
+    reg, _ = register(event=hack, person=outsider)
+    page = client.get(reverse("my_hackathon", args=[hack.slug]))
+    assert b"haven't put you in a team yet" in page.content
+    reg.status = Registration.Status.CANCELLED
+    reg.save()
+    assert client.get(reverse("my_hackathon", args=[hack.slug])).status_code == 404
+
+
+def test_jury_shows_only_when_switched_on_and_only_for_own_team(client, setup):
+    event = setup["event"]
+    r1, r2 = setup["rooms"]
+    a, b, c = setup["faculty"]
+    round1 = setup["rounds"][0]
+    services.allocate_room(round1, a, r1)
+    services.allocate_room(round1, b, r2)
+    client.force_login(_student(setup["teams"]["Alpha"]))
+    url = reverse("my_hackathon", args=[event.slug])
+    assert b"Dr. A" not in client.get(url).content
+    event.show_jury_to_students = True
+    event.save()
+    body = client.get(url).content
+    assert b"Your jury:</strong> Dr. A" in body and b"Dr. B" not in body
+
+
+def test_marks_show_only_after_publishing_and_only_own_submitted_marks(client, setup, admin_user):
+    event = setup["event"]
+    r1, r2 = setup["rooms"]
+    a, b, _ = setup["faculty"]
+    round1 = setup["rounds"][0]
+    idea, demo = round1.criteria.all()
+    services.allocate_room(round1, a, r1)
+    services.allocate_room(round1, b, r1)
+    services.allocate_room(round1, setup["faculty"][0].__class__.objects.create(
+        event=event, person=Person.objects.create_user(email="d@kluniversity.in", full_name="Dr. D")), r2)
+    services.save_marks(a.assignments.get(team__name="Alpha"), {idea: 8, demo: 12}, "", submit=True)
+    services.save_marks(b.assignments.get(team__name="Alpha"), {idea: 6, demo: 15}, "", submit=True)
+    services.save_marks(a.assignments.get(team__name="Beta"), {idea: 9.75, demo: 19.25}, "", submit=True)
+    gamma = Assignment.objects.get(team__name="Gamma")
+    services.save_marks(gamma, {idea: 3.25, demo: 4.75}, "", submit=True)
+    client.force_login(_student(setup["teams"]["Alpha"]))
+    url = reverse("my_hackathon", args=[event.slug])
+    hidden = client.get(url).content
+    assert b"Your marks" not in hidden and b"20.5" not in hidden and b"publish" in hidden
+
+    client.force_login(admin_user)
+    client.post(reverse("hackathon_round_action", args=[event.slug, round1.pk, "publish"]))
+    client.force_login(_student(setup["teams"]["Alpha"]))
+    body = client.get(url).content
+    assert b"Your marks" in body and b"20.5 / 30" in body and b"7 / 10" in body and b"Average of 2 judges" in body
+    for other in (b"9.75", b"19.25", b"29", b"3.25", b"4.75"):
+        assert other not in body  # Beta's and Gamma's marks never show
+
+    # Drafts never show, even after publishing.
+    client.force_login(_student(setup["teams"]["Beta"]))
+    b_beta = b.assignments.get(team__name="Beta")
+    services.open_round_now(round1)
+    services.save_marks(b_beta, {idea: 1, demo: 1}, "", submit=False)
+    beta = client.get(url).content
+    assert b"29 / 30" in beta and b"Average of" not in beta
+
+
+def test_only_admins_publish_results(client, setup, make_person):
+    event = setup["event"]
+    round1 = setup["rounds"][0]
+    sup = services.add_supervisor(event, make_person())[0].person
+    client.force_login(sup)
+    assert client.post(reverse("hackathon_round_action", args=[event.slug, round1.pk, "publish"])).status_code == 403
+    round1.refresh_from_db()
+    assert round1.results_published_at is None

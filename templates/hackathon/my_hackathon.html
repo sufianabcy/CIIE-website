@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}My hackathon · {{ event.title }}{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block content %}
+<div class="page-mid">
+  <a class="back-link" href="{% url 'my_registrations' %}">{% include "ui/icon.html" with name="arrow-left" %}My passes</a>
+  <header class="tool-head">
+    <div>
+      <span class="eyebrow">My hackathon</span>
+      <h1 class="heading-3">{{ event.title }}</h1>
+      <p>{{ event.starts_at|date:"D j M, g:i A" }} – {{ event.ends_at|date:"D j M, g:i A" }}{% if event.venue %} · {{ event.venue }}{% endif %}</p>
+    </div>
+    <a class="btn btn-primary" href="{{ registration.get_pass_url }}">{% include "ui/icon.html" with name="qr" %}My pass</a>
+  </header>
+
+  <div class="row g-4">
+    <div class="col-lg-6">
+      <section class="panel h-100">
+        <h2 class="panel-title">{% include "ui/icon.html" with name="users" %}{% if team %}{{ team.name }}{% else %}Your team{% endif %}</h2>
+        {% if team %}
+        <dl class="detail-list mb-0">
+          {% if team.project_title %}<div><dt>Project</dt><dd>{{ team.project_title }}</dd></div>{% endif %}
+          {% if team.project_description %}<div><dt>Description</dt><dd style="white-space:pre-wrap">{{ team.project_description }}</dd></div>{% endif %}
+          <div><dt>Room</dt><dd>{% if team.room %}{{ team.room.name }}{% if team.room.building %} · {{ team.room.building }}{% endif %}{% else %}Not allocated yet{% endif %}</dd></div>
+          {% if team.mentor_display %}<div><dt>Mentor</dt><dd>{{ team.mentor_display }}</dd></div>{% endif %}
+          <div><dt>Members</dt><dd>{% for p in members %}{{ p.display_name }}{% if p.pk == person.pk %} (you){% endif %}{% if not forloop.last %}<br>{% endif %}{% endfor %}</dd></div>
+        </dl>
+        {% else %}
+        <p class="text-secondary mb-0">The organisers haven't put you in a team yet. Your team, room and mentor show up here once they do.</p>
+        {% endif %}
+      </section>
+    </div>
+    <div class="col-lg-6">
+      <section class="panel h-100">
+        <h2 class="panel-title">{% include "ui/icon.html" with name="user" %}Your details</h2>
+        <dl class="detail-list mb-0">
+          <div><dt>Name</dt><dd>{{ person.display_name }}</dd></div>
+          {% if person.email %}<div><dt>Email</dt><dd>{{ person.email }}</dd></div>{% endif %}
+          {% if person.student_id %}<div><dt>KL ID</dt><dd>{{ person.student_id }}</dd></div>{% endif %}
+          {% if person.branch %}<div><dt>Branch</dt><dd>{{ person.branch }}{% if person.year_of_study %} · Year {{ person.year_of_study }}{% endif %}</dd></div>{% endif %}
+          <div><dt>Pass code</dt><dd class="font-monospace">{{ registration.pass_code_display }}</dd></div>
+        </dl>
+        <a class="btn btn-quiet btn-sm mt-3" href="{% url 'profile' %}">{% include "ui/icon.html" with name="gear" %}Fix my details</a>
+      </section>
+    </div>
+  </div>
+
+  <h2 class="heading-5 mt-5 mb-3">Rounds</h2>
+  {% for r in rounds %}
+  <section class="panel mb-3">
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+      <h3 class="heading-6 mb-0">{{ r.round.name }}</h3>
+      {% if r.round.state == 'open' %}<span class="tag tag-green">On now</span>{% elif r.round.state == 'upcoming' %}<span class="tag tag-blue">Upcoming</span>{% elif r.round.opens_at %}<span class="tag">Done</span>{% endif %}
+    </div>
+    <p class="caption-2 text-secondary mb-2">{% include "ui/icon.html" with name="clock" %}{% if r.round.opens_at %}{{ r.round.opens_at|date:"D j M, g:i A" }}{% if r.round.closes_at %} – {{ r.round.closes_at|date:"g:i A" }}{% endif %}{% else %}Time to be announced{% endif %}</p>
+    {% if r.jury %}<p class="mb-2"><strong>Your jury:</strong> {{ r.jury|join:", " }}</p>{% endif %}
+    {% if r.marks %}
+      <div class="table-responsive" style="max-width: 460px"><table class="table table-sm mb-0">
+        <thead><tr><th>Criterion</th><th class="text-end">Your marks</th></tr></thead>
+        <tbody>{% for c, value in r.marks.rows %}<tr><td>{{ c.label }}</td><td class="text-end num">{% if value is not None %}{{ value.normalize }}{% else %}—{% endif %} / {{ c.max_marks.normalize }}</td></tr>{% endfor %}
+        <tr><td><strong>Total</strong></td><td class="text-end num"><strong>{{ r.marks.total.normalize }} / {{ r.round.out_of.normalize }}</strong></td></tr></tbody>
+      </table></div>
+      {% if r.marks.judges > 1 %}<p class="caption-2 text-secondary mt-2 mb-0">Average of {{ r.marks.judges }} judges.</p>{% endif %}
+    {% elif r.round.results_published_at %}
+      <p class="caption-2 text-secondary mb-0">Results are out, but your team has no submitted marks for this round.</p>
+    {% else %}
+      <p class="caption-2 text-secondary mb-0">Marks appear here when the organisers publish this round's results.</p>
+    {% endif %}
+  </section>
+  {% empty %}
+  <p class="text-secondary">The organisers haven't set the rounds yet.</p>
+  {% endfor %}
+</div>
+{% endblock %}
