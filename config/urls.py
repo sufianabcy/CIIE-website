@@ -17,5 +17,5 @@ urlpatterns = [
     path("", include("registrations.urls")),
     path("door/", include("checkin.urls")),
     path("ops/", include("ops.urls")),
-    path("", include("judging.urls")),
+    path("", include("hackathon.urls")),
 ]

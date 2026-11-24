@@ -73,11 +73,15 @@ def event_detail(request, slug):
 
 @login_required
 def manage(request):
+    from hackathon.access import overseen_events
+
     person = request.user
-    if not person.is_coordinator and not person.door_events.exists():
+    supervised = overseen_events(person)
+    if not person.is_coordinator and not person.door_events.exists() and not supervised.exists():
         raise PermissionDenied
     events = Event.objects.coordinated_by(person) if person.is_coordinator else Event.objects.none()
-    events = events.annotate(
+    events = Event.objects.filter(pk__in=events.values("pk")) | Event.objects.filter(pk__in=supervised.values("pk"))
+    events = events.distinct().annotate(
         registered=Count("registrations", filter=Q(registrations__status=Registration.Status.CONFIRMED), distinct=True),
         checked_in=Count("checkins", filter=Q(checkins__undone_at__isnull=True), distinct=True),
     ).order_by("-starts_at")

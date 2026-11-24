@@ -142,25 +142,35 @@ def handoff_workbook(event, wb):
 
 
 def marks_workbook(event, wb):
-    from judging.exports import marks_workbook as build
+    from hackathon.exports import marks_workbook as build
 
     build(event, wb)
 
 
-def faculty_workbook(event, wb):
-    from judging.exports import faculty_workbook as build
+def allocations_workbook(event, wb):
+    from hackathon.exports import allocations_workbook as build
+
+    build(event, wb)
+
+
+def teams_workbook(event, wb):
+    from hackathon.exports import teams_workbook as build
 
     build(event, wb)
 
 
 EXPORTS = {
     "registrations": ("Registrations", registrations_workbook),
-    "marks": ("Faculty marks", marks_workbook),
-    "faculty": ("Faculty and student mapping", faculty_workbook),
+    "teams": ("Teams, rooms and mentors", teams_workbook),
+    "allocations": ("Faculty allocations", allocations_workbook),
+    "marks": ("Faculty marks by round", marks_workbook),
     "attendance": ("Attendance", attendance_workbook),
     "results": ("Results", results_workbook),
     "attendance-handoff": ("Attendance hand-off", handoff_workbook),
 }
+
+
+HACKATHON_EXPORTS = {"teams", "allocations", "marks"}
 
 
 def build_export(event: Event, kind: str, user) -> tuple[str, bytes]:
@@ -177,9 +187,13 @@ def build_export(event: Event, kind: str, user) -> tuple[str, bytes]:
 
 @login_required
 def export(request, slug, kind):
+    from hackathon.access import oversees
+
     event = get_object_or_404(Event, slug=slug)
-    if not event.coordinated_by(request.user):
+    if not (event.coordinated_by(request.user) or (event.is_hackathon and oversees(request.user, event))):
         raise PermissionDenied
+    if kind in HACKATHON_EXPORTS and not event.is_hackathon:
+        raise Http404
     if kind not in EXPORTS:
         raise Http404
     filename, content = build_export(event, kind, request.user)

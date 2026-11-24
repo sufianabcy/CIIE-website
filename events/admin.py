@@ -30,20 +30,23 @@ class QuestionInline(admin.StackedInline):
 
 @admin.register(Event)
 class EventAdmin(admin.ModelAdmin):
-    list_display = ["title", "starts_at", "status", "tools"]
-    list_filter = ["status"]
+    list_display = ["title", "kind", "starts_at", "status", "tools"]
+    list_filter = ["kind", "status"]
     search_fields = ["title", "slug", "venue"]
     prepopulated_fields = {"slug": ["title"]}
     autocomplete_fields = ["coordinators"]
     readonly_fields = ["seats_taken", "form_version", "door_team_list", "door_link", "tools"]
     inlines = [QuestionInline]
 
-    def get_inlines(self, request, obj):
-        from judging.admin import CriterionInline
-
-        return [QuestionInline, CriterionInline]
     fieldsets = [
-        (None, {"fields": ["title", "slug", "status", "summary", "description", "venue"]}),
+        (None, {"fields": ["title", "slug", "kind", "status", "summary", "description", "venue"]}),
+        (
+            "Hackathon",
+            {
+                "fields": ["show_jury_to_students"],
+                "description": "Only for hackathons. Students, teams, rooms, faculty, rounds and marks are on the event's Hackathon page.",
+            },
+        ),
         ("When", {"fields": [("starts_at", "ends_at"), ("registration_opens_at", "registration_closes_at")]}),
         ("Team", {"fields": ["coordinators", "door_link", "door_team_list"]}),
         (
@@ -106,6 +109,7 @@ class EventAdmin(admin.ModelAdmin):
             ("Door", reverse("door", args=[obj.slug])),
             ("Counts", reverse("door_counts", args=[obj.slug])),
             ("Report", reverse("event_report", args=[obj.slug])),
-            ("Judging", reverse("judging_dashboard", args=[obj.slug])),
         ]
+        if obj.is_hackathon:
+            links.append(("Hackathon", reverse("hackathon_dashboard", args=[obj.slug])))
         return format_html_join(" · ", '<a href="{}">{}</a>', ((url, label) for label, url in links))

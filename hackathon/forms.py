@@ -1,5 +1,7 @@
 from django import forms
 
+from .models import EventFaculty, Room, Round
+
 
 class UploadForm(forms.Form):
     file = forms.FileField(
@@ -18,32 +20,34 @@ class UploadForm(forms.Form):
 
 class CredentialsForm(forms.Form):
     which = forms.ChoiceField(
-        choices=[("new", "Only faculty who have no code yet"), ("all", "Everyone (old codes stop working)")],
+        choices=[("new", "Only people who have no password yet"), ("all", "Everyone (old passwords stop working)")],
         widget=forms.RadioSelect,
         initial="new",
     )
     expires_at = forms.DateTimeField(
-        label="Codes stop working at",
+        label="Temporary passwords stop working at",
         widget=forms.DateTimeInput(attrs={"type": "datetime-local", "class": "form-control"}, format="%Y-%m-%dT%H:%M"),
     )
 
 
-class AutoAssignForm(forms.Form):
-    per_student = forms.IntegerField(
-        label="Faculty per student", min_value=1, max_value=10, initial=1,
-        widget=forms.NumberInput(attrs={"class": "form-control", "style": "max-width:6rem"}),
-    )
+class AllocateForm(forms.Form):
+    round = forms.ModelChoiceField(queryset=Round.objects.none(), widget=forms.Select(attrs={"class": "form-select"}))
+    faculty = forms.ModelChoiceField(queryset=EventFaculty.objects.none(), widget=forms.Select(attrs={"class": "form-select"}))
+    room = forms.ModelChoiceField(queryset=Room.objects.none(), widget=forms.Select(attrs={"class": "form-select"}))
+
+    def __init__(self, *args, event, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["round"].queryset = Round.objects.filter(event=event)
+        self.fields["faculty"].queryset = EventFaculty.objects.filter(event=event, is_active=True).select_related("person")
+        self.fields["room"].queryset = Room.objects.filter(event=event)
 
 
-class JudgeSignInForm(forms.Form):
-    login_id = forms.CharField(
-        label="Login ID", max_length=20,
-        widget=forms.TextInput(attrs={"class": "form-control form-control-lg", "autocomplete": "username", "autocapitalize": "characters"}),
-    )
-    code = forms.CharField(
-        label="Access code", max_length=20,
-        widget=forms.PasswordInput(attrs={"class": "form-control form-control-lg", "autocomplete": "current-password"}),
-    )
+class MoveTeamForm(forms.Form):
+    room = forms.ModelChoiceField(queryset=Room.objects.none(), required=False, empty_label="No room")
+
+    def __init__(self, *args, event, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["room"].queryset = Room.objects.filter(event=event)
 
 
 class MarksForm(forms.Form):
@@ -63,6 +67,9 @@ class MarksForm(forms.Form):
 
     def rows(self):
         return [(c, self[f"c_{c.pk}"]) for c in self.criteria]
+
+    def marks(self):
+        return {c: self.cleaned_data.get(f"c_{c.pk}") for c in self.criteria}
 
     def require_all(self):
         missing = [c for c in self.criteria if self.cleaned_data.get(f"c_{c.pk}") is None]

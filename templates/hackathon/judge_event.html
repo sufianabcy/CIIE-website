@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Your teams · {{ event.title }}{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block content %}
+<div class="page-mid">
+  <a class="back-link" href="{% url 'staff_home' %}">{% include "ui/icon.html" with name="arrow-left" %}Your hackathons</a>
+  <header class="tool-head">
+    <div>
+      <span class="eyebrow">{{ role.person.display_name }}</span>
+      <h1 class="heading-3">{{ event.title }}</h1>
+      <p>The teams allocated to you, round by round. You see only your own marks.</p>
+    </div>
+  </header>
+  {% for round, rooms, mine, done in rounds %}
+  <section class="mb-5">
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+      <h2 class="heading-5 mb-0">{{ round.name }}</h2>
+      {% if round.state == 'open' %}<span class="tag tag-green">Open{% if round.closes_at %} until {{ round.closes_at|date:"j M, g:i A" }}{% endif %}</span>
+      {% elif round.state == 'upcoming' %}<span class="tag tag-blue">Opens {{ round.opens_at|date:"j M, g:i A" }}</span>
+      {% else %}<span class="tag">Marking closed</span>{% endif %}
+    </div>
+    <p class="caption-2 text-secondary">{% if rooms %}{% include "ui/icon.html" with name="pin" %}{{ rooms|join:", " }} · {% endif %}{{ done }} of {{ mine|length }} submitted</p>
+    <ul class="reg-list">
+      {% for a in mine %}
+      <li><a class="reg-row mark-row" href="{% url 'hackathon_mark' a.pk %}">
+        <span><span class="r-title">{{ a.team.name }}</span>{% if a.team.project_title %} · {{ a.team.project_title }}{% endif %}<br>
+          <span class="caption-2 text-secondary">{% for m in a.team.members.all %}{{ m.registration.person.display_name }}{% if not forloop.last %}, {% endif %}{% endfor %}{% if a.team.room %} · {{ a.team.room.name }}{% endif %}</span></span>
+        <span class="d-flex align-items-center gap-2">
+          {% if a.submitted_at %}<span class="tag tag-green">Submitted · {{ a.total.normalize }}</span>{% elif a.scores.all %}<span class="tag tag-amber">Draft</span>{% else %}<span class="tag">To mark</span>{% endif %}
+          {% include "ui/icon.html" with name="arrow-right" %}
+        </span>
+      </a></li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% empty %}
+  <div class="empty-state">
+    <div class="empty-icon">{% include "ui/icon.html" with name="users" %}</div>
+    <h2 class="heading-5">No teams allocated to you yet</h2>
+    <p>The organisers allocate faculty to rooms for each round. Check back soon.</p>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

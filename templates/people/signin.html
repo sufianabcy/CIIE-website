@@ -51,7 +51,8 @@
     {% if not routes.email_code and not routes.google and not routes.microsoft %}
       <div class="alert alert-warning mb-0">Sign in is paused for a few minutes. Please try again shortly.</div>
     {% endif %}
-    <p class="small text-secondary mt-4 mb-0">Codes come from {{ CLUB_NAME }}. If one doesn't arrive in a few minutes, check Spam or Junk, then ask for a new one.</p>
+    <p class="small text-secondary mt-4 mb-2">Faculty or hackathon supervisor? <a href="{% url 'staff_signin' %}">Sign in with your password</a></p>
+    <p class="small text-secondary mb-0">Codes come from {{ CLUB_NAME }}. If one doesn't arrive in a few minutes, check Spam or Junk, then ask for a new one.</p>
   </div>
 </div>
 {% endblock %}

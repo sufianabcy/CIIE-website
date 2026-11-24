@@ -1,4 +1,8 @@
-"""The two roles an admin can give: Coordinator and Admin (participant is everyone)."""
+"""Roles: Admin, Coordinator, Supervisor and Faculty (student is everyone).
+
+Supervisor and Faculty are scoped to events by hackathon.Supervisor and
+hackathon.EventFaculty rows; the groups give the model permissions.
+"""
 
 from django.apps import apps as global_apps
 from django.contrib.auth.management import create_permissions
@@ -15,22 +19,65 @@ COORDINATOR_PERMS = [
     "results.view_result",
     "results.add_result",
     "results.change_result",
-    "judging.view_judge",
-    "judging.add_judge",
-    "judging.change_judge",
-    "judging.view_criterion",
-    "judging.add_criterion",
-    "judging.change_criterion",
-    "judging.delete_criterion",
-    "judging.view_assignment",
-    "judging.add_assignment",
-    "judging.change_assignment",
-    "judging.delete_assignment",
-    "judging.view_score",
-    "judging.change_score",
+    # Coordinators run hackathons they are added to like a supervisor: details yes, marks no.
+    "hackathon.view_eventfaculty",
+    "hackathon.add_eventfaculty",
+    "hackathon.change_eventfaculty",
+    "hackathon.view_supervisor",
+    "hackathon.view_room",
+    "hackathon.add_room",
+    "hackathon.change_room",
+    "hackathon.delete_room",
+    "hackathon.view_team",
+    "hackathon.add_team",
+    "hackathon.change_team",
+    "hackathon.view_teammember",
+    "hackathon.add_teammember",
+    "hackathon.change_teammember",
+    "hackathon.delete_teammember",
+    "hackathon.view_round",
+    "hackathon.add_round",
+    "hackathon.change_round",
+    "hackathon.view_criterion",
+    "hackathon.add_criterion",
+    "hackathon.change_criterion",
+    "hackathon.delete_criterion",
+    "hackathon.view_assignment",
+    "hackathon.add_assignment",
+    "hackathon.change_assignment",
+    "hackathon.delete_assignment",
+    "hackathon.view_score",
 ]
 
-ADMIN_APPS = ["people", "events", "registrations", "checkin", "results", "judging", "mailer", "ops", "pghistory", "account", "socialaccount", "auth"]
+# Supervisors: everything about their hackathon except marks and the rubric; they never add supervisors.
+SUPERVISOR_PERMS = [
+    "events.view_event",
+    "events.view_question",
+    "registrations.view_registration",
+    "hackathon.view_eventfaculty",
+    "hackathon.change_eventfaculty",
+    "hackathon.view_supervisor",
+    "hackathon.view_room",
+    "hackathon.add_room",
+    "hackathon.change_room",
+    "hackathon.view_team",
+    "hackathon.add_team",
+    "hackathon.change_team",
+    "hackathon.view_teammember",
+    "hackathon.add_teammember",
+    "hackathon.change_teammember",
+    "hackathon.delete_teammember",
+    "hackathon.view_round",
+    "hackathon.change_round",
+    "hackathon.view_criterion",
+    "hackathon.view_assignment",
+    "hackathon.add_assignment",
+    "hackathon.change_assignment",
+    "hackathon.delete_assignment",
+    "hackathon.view_score",
+]
+
+ADMIN_APPS = ["people", "events", "registrations", "checkin", "results", "judging", "hackathon", "mailer", "ops", "pghistory", "account", "socialaccount", "auth"]
 # Rows that are never deleted, even by admins: they deactivate, cancel or undo instead.
 NEVER_DELETE = {"person", "registration", "checkin", "scanlog", "result", "event", "outboxemail", "backuprun", "sitesettings"}
 
@@ -50,6 +97,11 @@ def ensure_roles(apps=global_apps, **kwargs) -> None:
 
     coordinator, _ = Group.objects.get_or_create(name="Coordinator")
     coordinator.permissions.set(perms(COORDINATOR_PERMS))
+
+    supervisor, _ = Group.objects.get_or_create(name="Supervisor")
+    supervisor.permissions.set(perms(SUPERVISOR_PERMS))
+
+    Group.objects.get_or_create(name="Faculty")  # no admin permissions: faculty use the judging pages
 
     admin, _ = Group.objects.get_or_create(name="Admin")
     admin_perms = Permission.objects.filter(content_type__app_label__in=ADMIN_APPS).exclude(

@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} upload · {{ event.title }}{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'hackathon_dashboard' event.slug %}">{% include "ui/icon.html" with name="arrow-left" %}Back to {{ event.title }}</a>
+<header class="tool-head">
+  <div>
+    <span class="eyebrow">{{ title }} upload</span>
+    <h1 class="heading-3">{{ summary }}</h1>
+    <p>{% if report.problems %}Rows listed under "Not done" were skipped. Fix them in the Excel and upload it again: rows already done are matched, not duplicated.{% else %}Every row went in.{% endif %}</p>
+  </div>
+</header>
+{% if report.problems %}
+<section class="panel mb-4">
+  <h2 class="panel-title">{% include "ui/icon.html" with name="x-circle" %}Not done ({{ report.problems|length }})</h2>
+  <ul class="mb-0">{% for p in report.problems %}<li class="text-danger">{{ p }}</li>{% endfor %}</ul>
+</section>
+{% endif %}
+{% if report.warnings %}
+<section class="panel mb-4">
+  <h2 class="panel-title">{% include "ui/icon.html" with name="warning" %}Done, but check ({{ report.warnings|length }})</h2>
+  <ul class="mb-0">{% for w in report.warnings %}<li>{{ w }}</li>{% endfor %}</ul>
+</section>
+{% endif %}
+<a class="btn btn-primary" href="{% url 'hackathon_dashboard' event.slug %}">Back to the hackathon page</a>
+{% endblock %}

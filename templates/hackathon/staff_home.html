@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Judging{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block content %}
+<div class="page-mid">
+  <header class="tool-head">
+    <div>
+      <span class="eyebrow">{{ user.display_name }}</span>
+      <h1 class="heading-3">Your hackathons</h1>
+      <p>Where you judge, and where you supervise.</p>
+    </div>
+  </header>
+  {% if roles %}
+  <h2 class="heading-6 mb-3">Judging</h2>
+  <ul class="reg-list mb-5">
+    {% for r in roles %}
+    <li><a class="reg-row mark-row" href="{% url 'hackathon_judge_event' r.event.slug %}">
+      <span><span class="r-title">{{ r.event.title }}</span><br><span class="caption-2 text-secondary">{{ r.event.starts_at|date:"D j M Y" }}</span></span>
+      {% include "ui/icon.html" with name="arrow-right" %}
+    </a></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if overseen %}
+  <h2 class="heading-6 mb-3">Supervising</h2>
+  <ul class="reg-list mb-5">
+    {% for e in overseen %}
+    <li><a class="reg-row mark-row" href="{% url 'hackathon_dashboard' e.slug %}">
+      <span><span class="r-title">{{ e.title }}</span><br><span class="caption-2 text-secondary">{{ e.starts_at|date:"D j M Y" }}</span></span>
+      {% include "ui/icon.html" with name="arrow-right" %}
+    </a></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if not roles and not overseen %}
+  <div class="empty-state">
+    <div class="empty-icon">{% include "ui/icon.html" with name="gavel" %}</div>
+    <h2 class="heading-5">Nothing assigned to you yet</h2>
+    <p>The organisers add faculty and supervisors to each hackathon. Check back soon.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

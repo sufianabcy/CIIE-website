@@ -10,7 +10,6 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from events.models import Event, Question
-from judging.models import Criterion, Judge
 from people.models import Person
 from registrations.models import Registration
 from registrations.services import register
@@ -82,7 +81,11 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"Demo ready. Sign in as {boss.email} at /signin/ (the code appears in this terminal)."))
 
     def seed_hackathon(self, ten_am, now, coordinators):
-        """A hackathon with questions, a rubric, two faculty and a few demo participants."""
+        """A hackathon with 2 rooms, 4 teams, 2 rounds with rubrics, 3 faculty, a supervisor and allocations."""
+        from hackathon import services
+        from hackathon.models import Criterion, Round, Team, TeamMember
+        from people.staff import issue_temp_password
+
         event, created = Event.objects.get_or_create(
             slug="demo-hackathon",
             defaults=dict(
@@ -94,27 +97,90 @@ class Command(BaseCommand):
                 status=Event.Status.PUBLISHED,
             ),
         )
+        if event.kind != Event.Kind.HACKATHON:
+            event.kind = Event.Kind.HACKATHON
+            event.save(update_fields=["kind"])
         event.coordinators.add(*coordinators)
-        if not created:
-            return
-        Question.objects.create(event=event, key="team_name", label="Team name", required=True, position=1)
-        Question.objects.create(event=event, key="members", label="Team members (names and KL IDs)", kind=Question.Kind.LONG_TEXT, position=2)
-        Question.objects.create(
-            event=event, key="track", label="Track", kind=Question.Kind.CHOICE,
-            options=["HealthTech", "FinTech", "Open"], required=True, position=3,
-        )
-        Question.objects.create(event=event, key="repo", label="GitHub link", kind=Question.Kind.LINK, position=4)
-        for i, (label, top) in enumerate([("Innovation", 10), ("Technical execution", 20), ("Presentation", 10)], start=1):
-            Criterion.objects.create(event=event, label=label, max_marks=top, position=i)
-        Judge.objects.create(event=event, name="Dr. Demo Faculty One", email="faculty1@example.com", department="CSE")
-        Judge.objects.create(event=event, name="Dr. Demo Faculty Two", email="faculty2@example.com", department="ECE")
+        if created:
+            Question.objects.create(event=event, key="team_name", label="Team name", required=True, position=1)
+            Question.objects.create(
+                event=event, key="track", label="Track", kind=Question.Kind.CHOICE,
+                options=["HealthTech", "EdTech", "FinTech", "Open"], required=True, position=2,
+            )
+        students = []
         for i in range(1, 7):
             person = Person.objects.filter(email=f"student{i}@example.com").first() or Person.objects.create_user(
                 email=f"student{i}@example.com", full_name=f"Demo Student {i}", phone=f"90000001{i:02d}",
                 institution="KL University", branch="CSE", year_of_study="3", profile_completed_at=now,
             )
-            if not Registration.objects.filter(event=event, person=person).exists():
-                register(event=event, person=person, answers={
-                    "team_name": f"Team {i}", "members": f"Demo Student {i}", "track": "Open",
-                    "repo": f"https://github.com/example/team-{i}",
-                })
+            registration = Registration.objects.filter(event=event, person=person).first() or register(
+                event=event, person=person, answers={"team_name": f"Team {i}", "track": "Open"},
+                source=Registration.Source.IMPORT,
+            )[0]
+            students.append(registration)
+
+        faculty = {}
+        for name, emp, dept in [("Dr. Kavya Reddy", "KLF101", "CSE"), ("Dr. Arjun Rao", "KLF102", "ECE"), ("Dr. Meera Nair", "KLF103", "AI&DS")]:
+            email = name.split()[1].lower() + "@example.com"
+            person = (
+                Person.objects.filter(employee_id=emp).first()
+                or Person.objects.filter(email=email).first()
+                or Person.objects.create_user(email=email, full_name=name, source=Person.Source.IMPORT, profile_completed_at=now)
+            )
+            person.employee_id, person.branch, person.full_name = emp, dept, name
+            person.save()
+            faculty[emp] = services.add_faculty(event, person)[0]
+        sup_person = Person.objects.filter(email="supervisor@example.com").first() or Person.objects.create_user(
+            email="supervisor@example.com", full_name="Prof. Sita Verma", employee_id="KLF100", branch="CSE",
+            source=Person.Source.IMPORT, profile_completed_at=now,
+        )
+        services.add_supervisor(event, sup_person, "faculty")
+
+        lab1, lab2 = services.get_room(event, "Lab 101"), services.get_room(event, "Lab 102")
+        lab1.building, lab2.building = "R&D Block, 1st floor", "R&D Block, 1st floor"
+        lab1.save()
+        lab2.save()
+        plan = [
+            ("Team Nova", "Smart attendance", "Face-based attendance for labs, with an offline mode.", lab1, None, students[0:2]),
+            ("Team Byte", "Canteen queue", "Pre-order and pick-up slots to cut the lunch queue.", lab1, None, students[2:4]),
+            ("Team Pulse", "Clinic finder", "Find the nearest open campus clinic and its wait time.", lab2, faculty["KLF102"], students[4:5]),
+            ("Team Solo", "Lab booking", "Book lab benches by the hour.", lab2, None, students[5:6]),
+        ]
+        for name, title, description, room, mentor, members in plan:
+            team = Team.objects.filter(event=event, name=name).first() or Team.objects.create(event=event, name=name)
+            team.project_title, team.project_description, team.room = title, description, room
+            team.mentor = mentor.person if mentor else None
+            team.save()
+            for registration in members:
+                if not TeamMember.objects.filter(registration=registration).exists():
+                    TeamMember.objects.create(team=team, registration=registration)
+
+        round1, _ = Round.objects.get_or_create(
+            event=event, position=1, defaults=dict(name="Round 1: Idea and demo", opens_at=now - timedelta(hours=1), closes_at=now + timedelta(days=3))
+        )
+        round2, _ = Round.objects.get_or_create(
+            event=event, position=2, defaults=dict(name="Round 2: Final pitch", opens_at=ten_am + timedelta(days=11), closes_at=ten_am + timedelta(days=11, hours=4))
+        )
+        if not round1.criteria.exists():
+            for i, (label, top) in enumerate([("Problem and idea", 10), ("Working demo", 15), ("Technical depth", 10), ("Presentation", 5)], start=1):
+                Criterion.objects.create(round=round1, label=label, max_marks=top, position=i)
+        if not round2.criteria.exists():
+            for i, (label, top) in enumerate([("Final pitch", 20), ("Impact", 10)], start=1):
+                Criterion.objects.create(round=round2, label=label, max_marks=top, position=i)
+
+        for round_, emp, room in [(round1, "KLF101", lab1), (round1, "KLF103", lab2), (round1, "KLF102", lab2), (round2, "KLF102", lab1), (round2, "KLF101", lab2)]:
+            try:
+                made, notes = services.allocate_room(round_, faculty[emp], room)
+            except services.AllocationError as exc:
+                notes = [str(exc)]
+            for note in notes:
+                self.stdout.write(f"  {round_}: {note}")
+
+        expires = now + timedelta(days=7)
+        self.stdout.write("Demo hackathon staff (local demo data only). Sign in at /signin/password/:")
+        for person in [f.person for f in faculty.values()] + [sup_person]:
+            if person.has_usable_password():
+                self.stdout.write(f"  {person.full_name}: {person.email} / login ID {person.login_id} (already has a password)")
+                continue
+            password = issue_temp_password(person, expires)
+            self.stdout.write(f"  {person.full_name}: {person.email} / login ID {person.login_id}, temporary password {password}")

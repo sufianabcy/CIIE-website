@@ -58,7 +58,8 @@ INSTALLED_APPS = [
     "registrations",
     "checkin",
     "results",
-    "judging",
+    "judging",  # the first judging version; its tables are kept but no longer used
+    "hackathon",
 ]
 
 MIDDLEWARE = [
@@ -72,6 +73,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "allauth.account.middleware.AccountMiddleware",
+    "people.middleware.PasswordChangeRequiredMiddleware",
     "pghistory.middleware.HistoryMiddleware",
 ]
 
@@ -155,6 +157,14 @@ SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = "DENY"
 
 # --- Sign-in (django-allauth) ----------------------------------------------
+# Only staff (faculty, supervisors) ever set a password; students sign in by emailed code.
+AUTH_PASSWORD_VALIDATORS = [
+    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator", "OPTIONS": {"min_length": 10}},
+    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
+    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
+]
+
 LOGIN_URL = "signin"
 LOGIN_REDIRECT_URL = "my_registrations"
 ACCOUNT_LOGOUT_REDIRECT_URL = "event_list"

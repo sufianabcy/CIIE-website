@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% block title %}Hackathon · {{ event.title }}{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'manage' %}">{% include "ui/icon.html" with name="arrow-left" %}Run events</a>
+<header class="tool-head">
+  <div>
+    <span class="eyebrow">Hackathon</span>
+    <h1 class="heading-3">{{ event.title }}</h1>
+    <p>Students and teams, faculty and supervisors, rounds and rubrics, then allocate one faculty member per room for each round. {% if not is_admin %}You can change details here; only admins change marks.{% endif %}</p>
+  </div>
+  <a class="btn btn-quiet" href="{% url 'hackathon_marks' event.slug %}">{% include "ui/icon.html" with name="chart" %}All marks</a>
+</header>
+
+<div class="stat-grid mb-4">
+  <div class="stat-card"><div class="stat-value">{{ students }}</div><div class="stat-label">students</div></div>
+  <div class="stat-card"><div class="stat-value">{{ teams|length }}</div><div class="stat-label">teams in {{ rooms|length }} room{{ rooms|length|pluralize }}</div></div>
+  <div class="stat-card"><div class="stat-value">{{ faculty|length }}</div><div class="stat-label">faculty</div></div>
+  <div class="stat-card stat-blue"><div class="stat-value">{{ submitted }} / {{ allocated }}</div><div class="stat-label">marks submitted</div></div>
+</div>
+
+{% if warnings or without_team or teams_without_room %}
+<section class="panel mb-4" aria-label="Things to check">
+  <h2 class="panel-title">{% include "ui/icon.html" with name="warning" %}Check these</h2>
+  <ul class="mb-0">
+    {% for w in warnings %}<li class="text-danger">{{ w }}</li>{% endfor %}
+    {% if teams_without_room %}<li>{{ teams_without_room }} team{{ teams_without_room|pluralize }} without a room. Room allocation only reaches teams in a room.</li>{% endif %}
+    {% if without_team %}<li>{{ without_team }} registered student{{ without_team|pluralize }} without a team.
+      <form method="post" action="{% url 'hackathon_solo_teams' event.slug %}" class="d-inline">{% csrf_token %}<button class="btn btn-link btn-sm p-0 align-baseline" type="submit">Make each a team of one</button></form></li>{% endif %}
+  </ul>
+</section>
+{% endif %}
+
+<section class="panel step-panel">
+  <h2 class="panel-title"><span class="step-num">1</span>Students and teams</h2>
+  <form method="post" action="{% url 'hackathon_upload' event.slug 'students' %}" enctype="multipart/form-data" class="file-row mb-2">{% csrf_token %}
+    {{ upload_form.file }}
+    <button class="btn btn-primary" type="submit">{% include "ui/icon.html" with name="plus" %}Upload students Excel</button>
+  </form>
+  <p class="caption-2 text-secondary">Columns are matched by name: <strong>Name</strong>, <strong>Email</strong>, Phone, <strong>KL ID</strong>, Branch, Year, Team name, Project title, Project description, Room, Mentor, plus any registration question by its label. A row with no team becomes a team of one. Uploading again updates people and teams. <a href="{% url 'hackathon_template' event.slug 'students' %}">Sample file</a>. Online registration also works while the event is open.</p>
+  {% if teams %}
+  <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+    <thead><tr><th>Team</th><th>Project</th><th>Mentor</th><th class="text-end">Size</th><th>Room</th></tr></thead>
+    <tbody>{% for t in teams %}<tr>
+      <td><a href="{% url 'admin:hackathon_team_change' t.pk %}">{{ t.name }}</a></td>
+      <td>{{ t.project_title|default:"—" }}</td>
+      <td>{{ t.mentor_display|default:"—" }}</td>
+      <td class="text-end num">{{ t.size }}</td>
+      <td><form method="post" action="{% url 'hackathon_move_team' event.slug t.pk %}" class="d-flex gap-1">{% csrf_token %}
+        <select name="room" class="form-select form-select-sm" style="max-width: 12rem" aria-label="Room for {{ t.name }}">
+          <option value="">No room</option>
+          {% for r in rooms %}<option value="{{ r.pk }}"{% if r.pk == t.room_id %} selected{% endif %}>{{ r.name }}</option>{% endfor %}
+        </select>
+        <button class="btn btn-quiet btn-sm" type="submit">Move</button></form></td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% endif %}
+  <div class="d-flex flex-wrap gap-2 mt-3">
+    <a class="btn btn-quiet btn-sm" href="{% url 'event_export' event.slug 'teams' %}">{% include "ui/icon.html" with name="download" %}Teams and rooms (Excel)</a>
+    <a class="btn btn-quiet btn-sm" href="{% url 'admin:hackathon_room_changelist' %}?event__id__exact={{ event.pk }}">{% include "ui/icon.html" with name="gear" %}Edit rooms</a>
+  </div>
+</section>
+
+<section class="panel step-panel">
+  <h2 class="panel-title"><span class="step-num">2</span>Faculty and supervisors</h2>
+  <form method="post" action="{% url 'hackathon_upload' event.slug 'faculty' %}" enctype="multipart/form-data" class="file-row mb-2">{% csrf_token %}
+    {{ upload_form.file }}
+    <button class="btn btn-primary" type="submit">{% include "ui/icon.html" with name="plus" %}Upload faculty Excel</button>
+  </form>
+  <p class="caption-2 text-secondary">Reads <strong>Name</strong>, <strong>Email</strong>, <strong>Employee ID</strong>, Department and Phone, and keeps other columns. People are matched by email, then employee ID, so uploading again updates them. <a href="{% url 'hackathon_template' event.slug 'faculty' %}">Sample file</a>.</p>
+  {% if is_admin %}
+  <form method="post" action="{% url 'hackathon_upload' event.slug 'supervisors' %}" enctype="multipart/form-data" class="file-row mb-2">{% csrf_token %}
+    {{ upload_form.file }}
+    <button class="btn btn-quiet" type="submit">Upload supervisors Excel</button>
+  </form>
+  <p class="caption-2 text-secondary">Same columns plus <strong>Type</strong> (Faculty or Student). Supervisors see everything for this hackathon and edit details, but can't change marks. <a href="{% url 'hackathon_template' event.slug 'supervisors' %}">Sample file</a>. To add one by hand, use <a href="{% url 'admin:hackathon_supervisor_add' %}">Add supervisor</a>.</p>
+  {% endif %}
+  {% if faculty or supervisors %}
+  <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+    <thead><tr><th>Name</th><th>Role</th><th>Email / login ID</th><th>Department</th><th class="text-end">Submitted</th></tr></thead>
+    <tbody>
+    {% for f in faculty %}<tr{% if not f.is_active %} class="text-secondary"{% endif %}><td>{{ f.person.display_name }}{% if not f.is_active %} (off){% endif %}</td><td>Faculty</td><td>{{ f.person.email|default:"" }}{% if f.person.login_id %} <code>{{ f.person.login_id }}</code>{% endif %}</td><td>{{ f.person.branch }}</td><td class="text-end num">{{ f.done }} / {{ f.total }}</td></tr>{% endfor %}
+    {% for s in supervisors %}<tr><td>{{ s.person.display_name }}</td><td>Supervisor ({{ s.get_kind_display }})</td><td>{{ s.person.email|default:"" }}{% if s.person.login_id %} <code>{{ s.person.login_id }}</code>{% endif %}</td><td>{{ s.person.branch }}</td><td></td></tr>{% endfor %}
+    </tbody></table></div>
+  {% endif %}
+</section>
+
+<section class="panel step-panel">
+  <h2 class="panel-title"><span class="step-num">3</span>Rounds and rubric</h2>
+  {% if rounds %}
+  <div class="table-responsive mb-3"><table class="table table-sm align-middle mb-0">
+    <thead><tr><th>Round</th><th>Marking window</th><th>Rubric</th><th>State</th><th></th></tr></thead>
+    <tbody>{% for r, rooms_row, unroomed in rounds %}<tr>
+      <td><a href="{% url 'admin:hackathon_round_change' r.pk %}">{{ r.name }}</a></td>
+      <td class="caption-2">{% if r.opens_at %}{{ r.opens_at|date:"j M, g:i A" }} – {% if r.closes_at %}{{ r.closes_at|date:"j M, g:i A" }}{% else %}until closed{% endif %}{% else %}not scheduled{% endif %}</td>
+      <td class="caption-2">{% for c in r.criteria.all %}{{ c.label }} /{{ c.max_marks.normalize }}{% if not forloop.last %}, {% endif %}{% empty %}<span class="text-danger">no criteria yet</span>{% endfor %}</td>
+      <td>{% if r.state == 'open' %}<span class="tag tag-green">Open</span>{% elif r.state == 'upcoming' %}<span class="tag tag-blue">Upcoming</span>{% else %}<span class="tag">{{ r.state|capfirst }}</span>{% endif %}{% if r.results_published_at %} <span class="tag tag-ink">Results out</span>{% endif %}</td>
+      <td class="text-end"><div class="d-flex flex-wrap justify-content-end gap-1">
+        {% if r.state != 'open' %}<form method="post" action="{% url 'hackathon_round_action' event.slug r.pk 'open' %}">{% csrf_token %}<button class="btn btn-quiet btn-sm" type="submit">Open now</button></form>
+        {% else %}<form method="post" action="{% url 'hackathon_round_action' event.slug r.pk 'close' %}">{% csrf_token %}<button class="btn btn-quiet btn-sm" type="submit">Close now</button></form>{% endif %}
+        {% if is_admin %}<form method="post" action="{% url 'hackathon_round_action' event.slug r.pk r.results_published_at|yesno:'unpublish,publish' %}">{% csrf_token %}<button class="btn btn-quiet btn-sm" type="submit">{{ r.results_published_at|yesno:"Hide results,Publish results" }}</button></form>{% endif %}
+      </div></td>
+    </tr>{% endfor %}</tbody></table></div>
+  {% else %}
+    <p class="text-danger">No rounds yet. Faculty can't mark until a round has a rubric and is open.</p>
+  {% endif %}
+  <div class="d-flex flex-wrap align-items-center gap-2">
+    <a class="btn btn-quiet btn-sm" href="{% url 'admin:hackathon_round_add' %}?event={{ event.pk }}">{% include "ui/icon.html" with name="plus" %}Add a round with its rubric</a>
+    <span class="caption-2 text-secondary">Marks can only be entered while a round is open. "Publish results" lets each team see its own marks for that round.</span>
+  </div>
+</section>
+
+<section class="panel step-panel">
+  <h2 class="panel-title"><span class="step-num">4</span>Allocate faculty to rooms</h2>
+  {% if rounds and rooms and faculty %}
+  <form method="post" action="{% url 'hackathon_allocate' event.slug %}" class="mb-3">{% csrf_token %}
+    <div class="d-flex flex-wrap align-items-end gap-2">
+      <div><label class="form-label" for="{{ allocate_form.round.id_for_label }}">Round</label>{{ allocate_form.round }}</div>
+      <div><label class="form-label" for="{{ allocate_form.faculty.id_for_label }}">Faculty</label>{{ allocate_form.faculty }}</div>
+      <div><label class="form-label" for="{{ allocate_form.room.id_for_label }}">Room</label>{{ allocate_form.room }}</div>
+      <button class="btn btn-primary" type="submit" name="action" value="allocate">{% include "ui/icon.html" with name="users" %}Allocate</button>
+      <button class="btn btn-quiet" type="submit" name="action" value="remove">Remove</button>
+    </div>
+    <div class="caption-2 text-secondary mt-2">The faculty member judges every team in that room in that round. One faculty member judges one room per round, and never a team they mentor (those are skipped).</div>
+  </form>
+  {% for r, rooms_row, unroomed in rounds %}
+    <h3 class="heading-6 mt-3">{{ r.name }}</h3>
+    <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+      <thead><tr><th>Room</th><th class="text-end">Teams</th><th>Faculty (submitted / teams)</th></tr></thead>
+      <tbody>{% for room, cells in rooms_row %}<tr>
+        <td>{{ room }}</td><td class="text-end num">{{ room.team_count }}</td>
+        <td>{% for f, counts in cells %}<span class="chip">{{ f.person.display_name }} · {{ counts.0 }}/{{ counts.1 }}</span> {% empty %}<span class="text-secondary">nobody yet</span>{% endfor %}</td>
+      </tr>{% endfor %}
+      {% if unroomed %}<tr><td class="text-secondary">No room</td><td></td><td>{% for f, counts in unroomed %}<span class="chip">{{ f.person.display_name }} · {{ counts.0 }}/{{ counts.1 }}</span> {% endfor %}</td></tr>{% endif %}
+      </tbody></table></div>
+  {% endfor %}
+  {% else %}
+    <p class="text-secondary">Add rounds, rooms (from the students Excel or "Edit rooms") and faculty first.</p>
+  {% endif %}
+  <form method="post" action="{% url 'hackathon_upload' event.slug 'allocations' %}" enctype="multipart/form-data" class="file-row mt-3 mb-2">{% csrf_token %}
+    {{ upload_form.file }}
+    <button class="btn btn-quiet" type="submit">Upload allocations Excel</button>
+  </form>
+  <p class="caption-2 text-secondary">Columns: <strong>Round</strong>, <strong>Faculty</strong> (email, employee ID, login ID or name), and <strong>Room</strong> or <strong>Team</strong>. Rows that put one faculty member in two rooms are allowed but listed as warnings; a mentor is never allocated to their own team. <a href="{% url 'hackathon_template' event.slug 'allocations' %}">Sample file</a>.</p>
+  <a class="btn btn-quiet btn-sm" href="{% url 'event_export' event.slug 'allocations' %}">{% include "ui/icon.html" with name="download" %}Allocations (Excel)</a>
+</section>
+
+{% if is_admin %}
+<section class="panel step-panel">
+  <h2 class="panel-title"><span class="step-num">5</span>Logins for faculty and supervisors</h2>
+  <p class="caption-2 text-secondary">Each person gets a login ID and a temporary password for <code>{{ request.scheme }}://{{ request.get_host }}{% url 'staff_signin' %}</code>. They must choose their own password the first time they sign in. Passwords are shown only once, in the Excel file you download now. Send each person their own row.</p>
+  <form method="post" action="{% url 'hackathon_logins' event.slug %}" data-no-busy>{% csrf_token %}
+    <div class="choice-row mb-3">{% for radio in credentials_form.which %}<label class="choice" for="{{ radio.id_for_label }}">{{ radio.tag }}<span>{{ radio.choice_label }}</span></label>{% endfor %}</div>
+    <div class="d-flex flex-wrap align-items-end gap-2">
+      <div class="flex-grow-1" style="max-width: 320px"><label class="form-label" for="{{ credentials_form.expires_at.id_for_label }}">{{ credentials_form.expires_at.label }}</label>{{ credentials_form.expires_at }}</div>
+      <button class="btn btn-primary" type="submit">{% include "ui/icon.html" with name="download" %}Make passwords and download</button>
+    </div>
+  </form>
+</section>
+{% endif %}
+
+<section class="panel step-panel">
+  <h2 class="panel-title"><span class="step-num step-done">{% include "ui/icon.html" with name="trophy" %}</span>Results</h2>
+  <div class="d-flex flex-wrap gap-2">
+    <a class="btn btn-primary" href="{% url 'event_export' event.slug 'marks' %}">{% include "ui/icon.html" with name="download" %}Marks by round (Excel)</a>
+    <a class="btn btn-quiet" href="{% url 'hackathon_marks' event.slug %}">See all marks</a>
+    <a class="btn btn-quiet" href="{% url 'event_export' event.slug 'registrations' %}">{% include "ui/icon.html" with name="download" %}Registrations (Excel)</a>
+  </div>
+  <p class="caption-2 text-secondary mt-3 mb-0">The marks file has, for each round, one row per team per faculty member and a summary ranking teams by their average, plus an overall sheet. {% if is_admin %}To change a submitted mark, open the allocation in <a href="{% url 'admin:hackathon_assignment_changelist' %}?round__event__id__exact={{ event.pk }}">the admin</a>.{% else %}Only admins can change marks.{% endif %}</p>
+</section>
+{% endblock %}

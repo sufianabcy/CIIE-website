@@ -55,3 +55,15 @@ class ProfileForm(forms.ModelForm):
         if not 10 <= len(digits) <= 15:
             raise forms.ValidationError("Enter a phone number with 10 to 15 digits.")
         return phone
+
+
+class StaffSignInForm(forms.Form):
+    login = forms.CharField(
+        label="Email or login ID", max_length=254,
+        widget=forms.TextInput(attrs={"class": "form-control form-control-lg", "autocomplete": "username", "autofocus": True}),
+    )
+    password = forms.CharField(
+        label="Password", max_length=128, strip=False,
+        widget=forms.PasswordInput(attrs={"class": "form-control form-control-lg", "autocomplete": "current-password"}),
+    )
+    next = forms.CharField(required=False, widget=forms.HiddenInput)

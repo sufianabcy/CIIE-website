@@ -23,6 +23,7 @@
       </div>
       <div class="run-title">
         <div class="tags mb-2">
+          {% if e.is_hackathon %}<span class="tag tag-amber">hackathon</span>{% endif %}
           {% if e.is_practice %}<span class="tag tag-blue">practice</span>{% endif %}
           {% if e.status != 'published' %}<span class="tag">{{ e.get_status_display }}</span>{% endif %}
           {% if e.is_over %}<span class="tag">Finished</span>{% endif %}
@@ -49,7 +50,7 @@
         <div class="run-k">Set up and after</div>
         <div class="link-row">
           <a href="{% url 'admin:events_event_change' e.pk %}">{% include "ui/icon.html" with name="gear" %}Setup</a>
-          <a href="{% url 'judging_dashboard' e.slug %}">{% include "ui/icon.html" with name="gavel" %}Judging</a>
+          {% if e.is_hackathon %}<a href="{% url 'hackathon_dashboard' e.slug %}">{% include "ui/icon.html" with name="gavel" %}Hackathon</a>{% endif %}
           <a href="{% url 'admin:results_result_changelist' %}?event__id__exact={{ e.pk }}">{% include "ui/icon.html" with name="trophy" %}Results</a>
           <a href="{% url 'event_report' e.slug %}">{% include "ui/icon.html" with name="clipboard" %}Report</a>
         </div>
@@ -60,7 +61,8 @@
           <a href="{% url 'event_export' e.slug 'registrations' %}">{% include "ui/icon.html" with name="download" %}Registrations</a>
           <a href="{% url 'event_export' e.slug 'attendance' %}">{% include "ui/icon.html" with name="download" %}Attendance</a>
           <a href="{% url 'event_export' e.slug 'results' %}">{% include "ui/icon.html" with name="download" %}Results</a>
-          <a href="{% url 'event_export' e.slug 'marks' %}">{% include "ui/icon.html" with name="download" %}Marks</a>
+          {% if e.is_hackathon %}<a href="{% url 'event_export' e.slug 'teams' %}">{% include "ui/icon.html" with name="download" %}Teams</a>
+          <a href="{% url 'event_export' e.slug 'marks' %}">{% include "ui/icon.html" with name="download" %}Marks</a>{% endif %}
           <a href="{% url 'event_export' e.slug 'attendance-handoff' %}">{% include "ui/icon.html" with name="download" %}Hand-off</a>
         </div>
       </div>

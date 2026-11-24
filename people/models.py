@@ -56,7 +56,7 @@ class PersonManager(BaseUserManager):
         return person
 
 
-@pghistory.track(exclude=["password", "last_login"])
+@pghistory.track(exclude=["password", "last_login", "failed_password_signins"])
 class Person(AbstractBaseUser, PermissionsMixin):
     """One row per human, however they signed in (brief B6).
 
@@ -75,6 +75,24 @@ class Person(AbstractBaseUser, PermissionsMixin):
     institution = models.CharField(max_length=200, blank=True)
     branch = models.CharField(max_length=100, blank=True)
     year_of_study = models.CharField("year", max_length=20, blank=True)
+
+    employee_id = models.CharField(
+        "employee ID", max_length=50, blank=True, help_text="For faculty. Used to match faculty in Excel uploads."
+    )
+
+    # Staff (faculty and supervisors) can also sign in with a password. Students never need one.
+    login_id = models.CharField(
+        "login ID", max_length=20, null=True, blank=True, unique=True,
+        help_text="Short ID for password sign-in, for people without an email. Made when a temporary password is issued.",
+    )
+    must_change_password = models.BooleanField(
+        default=False, help_text="On next sign-in they must choose their own password before anything else."
+    )
+    temp_password_expires_at = models.DateTimeField(
+        "temporary password expires", null=True, blank=True,
+        help_text="A temporary password stops working after this, unless they have already changed it.",
+    )
+    failed_password_signins = models.PositiveSmallIntegerField(default=0, editable=False)
 
     kl_email = models.EmailField("verified KL email", null=True, blank=True)
     student_id = models.CharField("KL student ID", max_length=20, blank=True)
@@ -102,6 +120,9 @@ class Person(AbstractBaseUser, PermissionsMixin):
             ),
             models.UniqueConstraint(
                 fields=["student_id"], condition=~Q(student_id=""), name="person_student_id_unique"
+            ),
+            models.UniqueConstraint(
+                fields=["employee_id"], condition=~Q(employee_id=""), name="person_employee_id_unique"
             ),
         ]
 
@@ -154,3 +175,11 @@ class Person(AbstractBaseUser, PermissionsMixin):
     @property
     def is_portal_admin(self) -> bool:
         return self.in_group("Admin")
+
+    @property
+    def is_faculty(self) -> bool:
+        return self.in_group("Faculty")
+
+    @property
+    def is_supervisor(self) -> bool:
+        return self.in_group("Supervisor")

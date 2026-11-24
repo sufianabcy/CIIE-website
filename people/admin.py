@@ -3,26 +3,35 @@ from django.contrib.auth.models import Group
 
 from .models import Person
 
-ROLE_GROUPS = {"Coordinator", "Admin"}
+# Roles that open the admin. Faculty is a role too, but faculty only use the judging pages.
+ROLE_GROUPS = {"Coordinator", "Admin", "Supervisor"}
 
 
 @admin.register(Person)
 class PersonAdmin(admin.ModelAdmin):
     list_display = ["display_name", "email", "student_id", "kl_verified", "roles", "source", "is_active", "date_joined"]
     list_filter = ["is_active", "groups", "source", "is_staff"]
-    search_fields = ["full_name", "email", "kl_email", "student_id", "phone"]
+    search_fields = ["full_name", "email", "kl_email", "student_id", "phone", "employee_id", "login_id"]
     ordering = ["-date_joined"]
-    readonly_fields = ["date_joined", "last_login", "profile_completed_at", "source"]
+    readonly_fields = ["date_joined", "last_login", "profile_completed_at", "source", "login_id", "failed_password_signins"]
     filter_horizontal = ["groups"]
-    actions = ["deactivate", "reactivate"]
+    actions = ["deactivate", "reactivate", "unlock_password"]
     fieldsets = [
         (None, {"fields": ["email", "full_name", "phone", "institution", "branch", "year_of_study"]}),
         ("KL status", {"fields": ["kl_email", "student_id", "kl_verified_at"]}),
         (
+            "Staff sign-in (faculty and supervisors)",
+            {
+                "fields": ["employee_id", "login_id", "must_change_password", "temp_password_expires_at", "failed_password_signins"],
+                "description": "Temporary passwords are made on each hackathon's page and shown once, in an Excel file.",
+            },
+        ),
+        (
             "Roles",
             {
                 "fields": ["is_active", "groups", "is_superuser"],
-                "description": "Give the Coordinator or Admin role here. Keep two admins at all times. "
+                "description": "Roles: Admin (everything), Coordinator (runs normal events), Supervisor and Faculty "
+                "(hackathons; usually given by the hackathon's uploads). Keep two admins at all times. "
                 "Coordinators also need to be added to each event they run.",
             },
         ),
@@ -35,7 +44,7 @@ class PersonAdmin(admin.ModelAdmin):
 
     @admin.display(description="Roles")
     def roles(self, obj):
-        return ", ".join(g.name for g in obj.groups.all()) or "Participant"
+        return ", ".join(g.name for g in obj.groups.all()) or "Student"
 
     def get_queryset(self, request):
         return super().get_queryset(request).prefetch_related("groups")
@@ -61,6 +70,11 @@ class PersonAdmin(admin.ModelAdmin):
     def deactivate(self, request, queryset):
         n = queryset.exclude(pk=request.user.pk).update(is_active=False)
         self.message_user(request, f"{n} person(s) deactivated.")
+
+    @admin.action(description="Unlock password sign-in after too many wrong tries")
+    def unlock_password(self, request, queryset):
+        n = queryset.update(failed_password_signins=0)
+        self.message_user(request, f"{n} person(s) unlocked.")
 
     @admin.action(description="Reactivate")
     def reactivate(self, request, queryset):

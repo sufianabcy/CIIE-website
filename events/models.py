@@ -36,6 +36,10 @@ class Event(models.Model):
         PUBLISHED = "published", "Published"
         CANCELLED = "cancelled", "Cancelled"
 
+    class Kind(models.TextChoices):
+        NORMAL = "normal", "Normal event"
+        HACKATHON = "hackathon", "Hackathon (teams, rooms, rounds, faculty marking)"
+
     class ReportStatus(models.TextChoices):
         DRAFT = "draft", "Draft"
         READY = "ready", "Ready for sign-off"
@@ -68,6 +72,10 @@ class Event(models.Model):
         help_text="For rehearsals and training. Hidden from the public list and kept out of reports.",
     )
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
+    kind = models.CharField(max_length=20, choices=Kind.choices, default=Kind.NORMAL)
+    show_jury_to_students = models.BooleanField(
+        default=False, help_text="Hackathons: let each team see which faculty are judging them."
+    )
     coordinators = models.ManyToManyField(
         settings.AUTH_USER_MODEL, blank=True, related_name="coordinated_events"
     )
@@ -171,6 +179,10 @@ class Event(models.Model):
             return True
         grace = self.ends_at + timezone.timedelta(hours=6)
         return timezone.now() <= grace and self.door_team.filter(pk=person.pk).exists()
+
+    @property
+    def is_hackathon(self) -> bool:
+        return self.kind == self.Kind.HACKATHON
 
     def coordinated_by(self, person) -> bool:
         if not person.is_authenticated:
