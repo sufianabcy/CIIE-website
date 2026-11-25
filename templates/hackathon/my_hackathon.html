@@ -54,7 +54,7 @@
     <p class="caption-2 text-secondary mb-2">{% include "ui/icon.html" with name="clock" %}{% if r.round.opens_at %}{{ r.round.opens_at|date:"D j M, g:i A" }}{% if r.round.closes_at %} – {{ r.round.closes_at|date:"g:i A" }}{% endif %}{% else %}Time to be announced{% endif %}</p>
     {% if r.jury %}<p class="mb-2"><strong>Your jury:</strong> {{ r.jury|join:", " }}</p>{% endif %}
     {% if r.marks %}
-      <div class="table-responsive" style="max-width: 460px"><table class="table table-sm mb-0">
+      <div class="table-responsive" style="max-width: 460px" data-testid="round-marks"><table class="table table-sm mb-0">
         <thead><tr><th>Criterion</th><th class="text-end">Your marks</th></tr></thead>
         <tbody>{% for c, value in r.marks.rows %}<tr><td>{{ c.label }}</td><td class="text-end num">{% if value is not None %}{{ value.normalize }}{% else %}—{% endif %} / {{ c.max_marks.normalize }}</td></tr>{% endfor %}
         <tr><td><strong>Total</strong></td><td class="text-end num"><strong>{{ r.marks.total.normalize }} / {{ r.round.out_of.normalize }}</strong></td></tr></tbody>

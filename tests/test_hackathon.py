@@ -1,3 +1,4 @@
+import re
 from datetime import timedelta
 from decimal import Decimal
 from io import BytesIO, StringIO
@@ -613,10 +614,16 @@ def test_marks_show_only_after_publishing_and_only_own_submitted_marks(client, s
     client.force_login(admin_user)
     client.post(reverse("hackathon_round_action", args=[event.slug, round1.pk, "publish"]))
     client.force_login(_student(setup["teams"]["Alpha"]))
-    body = client.get(url).content
+    response = client.get(url)
+    body = response.content
     assert b"Your marks" in body and b"20.5 / 30" in body and b"7 / 10" in body and b"Average of 2 judges" in body
-    for other in (b"9.75", b"19.25", b"29", b"3.25", b"4.75"):
-        assert other not in body  # Beta's and Gamma's marks never show
+    # Only Alpha's own marks: the context holds Alpha's averages, and the marks blocks show nothing of Beta's or Gamma's.
+    marks = [r["marks"] for r in response.context["rounds"] if r["marks"]]
+    assert len(marks) == 1 and marks[0]["total"] == Decimal("20.5") and marks[0]["judges"] == 2
+    blocks = " ".join(re.findall(r'data-testid="round-marks".*?</table>', body.decode(), re.S))
+    assert blocks
+    for other in ("9.75", "19.25", "29", "3.25", "4.75"):
+        assert other not in blocks  # Beta's (29) and Gamma's (8) marks never show
 
     # Drafts never show, even after publishing.
     client.force_login(_student(setup["teams"]["Beta"]))
