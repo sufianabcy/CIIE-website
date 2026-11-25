@@ -1,0 +1,7 @@
+# SITE_ADDRESS (from /opt/klciie/.env): ":80" serves plain HTTP on the server's IP;
+# a domain name makes Caddy get and renew a Let's Encrypt certificate and redirect to HTTPS.
+
+{$SITE_ADDRESS} {
+	encode zstd gzip
+	reverse_proxy web:8000
+}

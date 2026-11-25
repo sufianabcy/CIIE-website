@@ -17,14 +17,15 @@ age-key*.txt
 .idea/
 .vscode/
 
-# Server-side secrets: never committed (they live on the server and in the password manager)
+# Server-side secrets (never commit)
 deploy/.env
 deploy/rclone/
 rclone.conf
 *.pem
 
-
-
-
 # Local database backups (never commit)
 local-backups/
+
+# Local-only notes and docs (never commit)
+/*.md
+docs/

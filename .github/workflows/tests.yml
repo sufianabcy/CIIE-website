@@ -1,0 +1,33 @@
+# Runs the test suite (PostgreSQL 17) on every pull request and on pushes to other branches.
+# Pushes to main run it through the deploy workflow, which only deploys when it passes.
+name: tests
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: ciie
+          POSTGRES_PASSWORD: ciie
+          POSTGRES_DB: ciie
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ciie"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked
+      - run: uv run pytest --create-db
+        env:
+          DATABASE_URL: postgres://ciie:ciie@localhost:5432/ciie

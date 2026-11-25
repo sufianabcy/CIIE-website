@@ -16,4 +16,4 @@ tests
 docs
 deploy
 docker-compose.yml
-
+*.md
