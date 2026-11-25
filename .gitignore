@@ -25,3 +25,6 @@ rclone.conf
 
 
 
+
+# Local database backups (never commit)
+local-backups/
