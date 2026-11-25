@@ -1,5 +1,5 @@
 {% load static %}<!doctype html>
-<html lang="en" data-bs-theme="light">
+<html lang="en" data-bs-theme="light"{% block html_attrs %}{% endblock %}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -8,15 +8,22 @@
     (function () {
       var t = null;
       try { t = localStorage.getItem("theme"); } catch (e) {}
+      if (t !== "light" && t !== "dark") t = null; /* the admin stores "auto" under the same key */
       if (!t) t = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
       document.documentElement.setAttribute("data-bs-theme", t);
       document.documentElement.classList.add("js");
+      /* Landing page intro: once per browser session, never for people who ask for less motion. */
+      try {
+        if (document.documentElement.hasAttribute("data-intro") &&
+            (document.documentElement.hasAttribute("data-intro-force") || !sessionStorage.getItem("kl-intro")) &&
+            !window.matchMedia("(prefers-reduced-motion: reduce)").matches) document.documentElement.classList.add("is-preloading");
+      } catch (e) {}
     })();
   </script>
   <title>{% block title %}{% block head_title %}Events{% endblock head_title %}{% endblock title %} · {{ CLUB_NAME }}</title>
   <meta name="description" content="{% block meta_description %}Register for KL-CIIE hackathons, workshops and pitch days at KL University. Every event is free, and your entry pass lives on your phone.{% endblock %}">
-  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#fdf0d5" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="rgb(0, 27, 41)" media="(prefers-color-scheme: dark)">
   <meta property="og:site_name" content="{{ CLUB_NAME }} events">
   <meta property="og:type" content="website">
   <meta property="og:title" content="{% block og_title %}{{ CLUB_NAME }} events{% endblock %}">
@@ -33,8 +40,9 @@
   <link rel="stylesheet" href="{% static 'css/portal.css' %}">
   {% block extra_head %}{% endblock extra_head %}
 </head>
-<body class="{% block body_class %}{% endblock %}{% if site.banner_text %} has-banner{% endif %}" hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+<body class="{% block body_class %}{% endblock %}{% if site.banner_text %} has-banner{% endif %}" hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'{% block body_attrs %}{% endblock %}>
   <a class="skip-link" href="#main">Skip to content</a>
+  <div class="scroll-progress" data-progress aria-hidden="true"></div>
   {% if site.banner_text %}<div class="site-banner" role="status">{{ site.banner_text }}</div>{% endif %}
   {% with page=request.resolver_match.url_name %}
   {% block navbar %}
@@ -52,6 +60,8 @@
           <li><a href="{% url 'my_registrations' %}" {% if page == 'my_registrations' or page == 'pass' %}aria-current="page"{% endif %}>My passes</a></li>
           {% if user.is_faculty or user.is_supervisor %}
             <li><a href="{% url 'staff_home' %}" {% if page == 'staff_home' or page == 'hackathon_judge_event' or page == 'hackathon_mark' %}aria-current="page"{% endif %}>Judging</a></li>
+          {% elif user.volunteer_roles.exists %}
+            <li><a href="{% url 'staff_home' %}" {% if page == 'staff_home' or page == 'hackathon_volunteer_today' %}aria-current="page"{% endif %}>Volunteering</a></li>
           {% endif %}
           {% if user.is_coordinator or user.is_supervisor or user.door_events.exists %}
             <li><a href="{% url 'manage' %}" {% if page == 'manage' or page == 'event_report' or page == 'hackathon_dashboard' %}aria-current="page"{% endif %}>Run events</a></li>
@@ -100,7 +110,7 @@
       <li style="--i:3"><a href="{% url 'home' %}#faq">FAQ {% include "ui/icon.html" with name="arrow-right" %}</a></li>
       {% if user.is_authenticated %}
         <li style="--i:4"><a href="{% url 'my_registrations' %}" {% if page == 'my_registrations' %}aria-current="page"{% endif %}>My passes {% include "ui/icon.html" with name="arrow-right" %}</a></li>
-        {% if user.is_faculty or user.is_supervisor %}<li style="--i:5"><a href="{% url 'staff_home' %}">Judging {% include "ui/icon.html" with name="arrow-right" %}</a></li>{% endif %}
+        {% if user.is_faculty or user.is_supervisor %}<li style="--i:5"><a href="{% url 'staff_home' %}">Judging {% include "ui/icon.html" with name="arrow-right" %}</a></li>{% elif user.volunteer_roles.exists %}<li style="--i:5"><a href="{% url 'staff_home' %}">Volunteering {% include "ui/icon.html" with name="arrow-right" %}</a></li>{% endif %}
         {% if user.is_coordinator or user.is_supervisor or user.door_events.exists %}<li style="--i:5"><a href="{% url 'manage' %}" {% if page == 'manage' %}aria-current="page"{% endif %}>Run events {% include "ui/icon.html" with name="arrow-right" %}</a></li>{% endif %}
       {% endif %}
     </ul>
@@ -175,14 +185,19 @@
       </div>
       <div class="footer-bottom">
         <span>© {% now "Y" %} {{ CLUB_NAME }}, KL University</span>
+        <span class="footer-clock" aria-hidden="true">India time <time data-clock>--:--:--</time></span>
         <span>Run by the {{ CLUB_NAME }} student team</span>
       </div>
+      <div class="footer-mark" aria-hidden="true">{% for ch in CLUB_NAME %}<span{% if ch == "-" %} class="dash"{% endif %}>{{ ch }}</span>{% endfor %}</div>
     </div>
   </footer>
   {% endblock footer %}
   <script src="{% static 'vendor/bootstrap.bundle.min.js' %}" defer></script>
   <script src="{% static 'vendor/htmx.min.js' %}" defer></script>
   <script src="{% static 'js/site.js' %}" defer></script>
+  <script src="{% static 'vendor/anime.slim.min.js' %}" defer></script>
+  <script src="{% static 'vendor/lenis.min.js' %}" defer></script>
+  <script src="{% static 'js/motion.js' %}" defer></script>
   {% block extra_body %}{% endblock extra_body %}
 </body>
 </html>

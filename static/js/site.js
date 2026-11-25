@@ -22,7 +22,8 @@
     });
   });
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function (e) {
-    if (!store("theme")) root.setAttribute("data-bs-theme", e.matches ? "dark" : "light");
+    var saved = store("theme");
+    if (saved !== "light" && saved !== "dark") root.setAttribute("data-bs-theme", e.matches ? "dark" : "light");
   });
 
   // Mobile menu: full height panel, links arrive one after another.

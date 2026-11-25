@@ -1,0 +1,46 @@
+{% load admin_nav %}{% admin_nav as nav %}
+{% comment %}The admin's side menu: the task groups from ops/admin_home.py with icons and red counts (ops/templatetags/admin_nav.py).
+Styles: static/css/admin.css ("Side menu"). Behaviour: static/js/admin-nav.js (find box, "/" shortcut, phone drawer).{% endcomment %}
+<button class="sticky toggle-nav-sidebar" id="toggle-nav-sidebar" aria-label="Show or hide the menu"></button>
+<nav class="sticky{% if nav.groups %} kl-nav{% endif %}" id="nav-sidebar" aria-label="Admin menu">
+  {% if nav.groups %}
+  <input type="hidden" id="nav-filter">{# Django's own script looks for this box; the one below does the finding #}
+  <div class="kl-nav-find">
+    {% include "ui/icon.html" with name="search" %}
+    <input type="search" id="kl-nav-find" placeholder="Find a page" aria-label="Find a page" autocomplete="off" data-kl-nav-find>
+    <kbd aria-hidden="true">/</kbd>
+  </div>
+  <ul class="kl-nav-list kl-nav-top">
+    <li data-kl-nav-item><a class="kl-nav-item{% if nav.home.current %} is-current{% endif %}" href="{{ nav.home.url }}"{% if nav.home.current %} aria-current="page"{% endif %}>{% include "ui/icon.html" with name="home" %}<span class="kl-nav-text">Home</span></a></li>
+  </ul>
+  {% for g in nav.groups %}
+  <div class="kl-nav-group" data-kl-nav-group>
+    <p class="kl-nav-label">{{ g.title }}</p>
+    <ul class="kl-nav-list">
+      {% for it in g.entries %}
+      <li data-kl-nav-item><a class="kl-nav-item{% if it.current %} is-current{% endif %}" href="{{ it.url }}"{% if it.current %} aria-current="page"{% endif %}>{% include "ui/icon.html" with name=it.icon %}<span class="kl-nav-text">{{ it.name }}</span>{% if it.badge %}<span class="kl-nav-badge" title="{{ it.badge }} {{ it.badge_title }}">{{ it.badge }}</span>{% endif %}</a></li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endfor %}
+  {% if nav.advanced %}
+  <details class="kl-nav-group kl-nav-more" data-kl-nav-group{% if nav.advanced_open %} open{% endif %}>
+    <summary class="kl-nav-label">Advanced <span class="kl-nav-hint">superusers only</span></summary>
+    <ul class="kl-nav-list">
+      {% for it in nav.advanced %}
+      <li data-kl-nav-item><a class="kl-nav-item{% if it.current %} is-current{% endif %}" href="{{ it.url }}"{% if it.current %} aria-current="page"{% endif %}>{% include "ui/icon.html" with name=it.icon %}<span class="kl-nav-text">{{ it.name }}</span></a></li>
+      {% endfor %}
+    </ul>
+  </details>
+  {% endif %}
+  <p class="kl-nav-none" data-kl-nav-none hidden>No page matches that. Try another word.</p>
+  {% if nav.status_url %}
+  <ul class="kl-nav-list kl-nav-foot" data-kl-nav-group>
+    <li data-kl-nav-item><a class="kl-nav-item" href="{{ nav.status_url }}">{% include "ui/icon.html" with name="chart" %}<span class="kl-nav-text">Status page</span></a></li>
+  </ul>
+  {% endif %}
+  {% else %}
+  <input type="search" id="nav-filter" placeholder="Start typing to filter…" aria-label="Filter navigation items">
+  {% include 'admin/app_list.html' with app_list=available_apps show_changelinks=False %}
+  {% endif %}
+</nav>

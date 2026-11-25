@@ -3,6 +3,8 @@
 {% block title %}Hackathons, workshops and pitch days at KL{% endblock %}
 {% block og_title %}{{ CLUB_NAME }}: hackathons, workshops and pitch days at KL{% endblock %}
 {% block main_class %}main-flush{% endblock %}
+{% block html_attrs %} data-intro{% if request.GET.intro %} data-intro-force{% endif %}{% endblock %}
+{% block body_attrs %} data-smooth{% endblock %}
 {% block extra_head %}
 <script type="application/ld+json">
 {"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [
@@ -16,8 +18,21 @@
 {% endblock %}
 {% block content %}
 
+{# ---------- First visit intro: the KL-CIIE logo assembles big, then flies into the header (static/js/logo-intro.js) ---------- #}
+{% include "events/_logo_intro.html" %}
+
 {# ---------- Hero ---------- #}
 <section class="hero" aria-labelledby="hero-title">
+  <svg class="hero-paths" data-paths viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false">
+    <path d="M-40 640 C 240 520, 420 760, 720 620 S 1180 420, 1480 520"/>
+    <path d="M-40 690 C 260 580, 460 800, 760 660 S 1200 470, 1480 580"/>
+    <path class="p-extra" d="M-40 740 C 280 640, 500 840, 800 700 S 1220 520, 1480 640"/>
+    <path d="M-40 200 C 300 120, 520 320, 860 220 S 1260 60, 1480 140"/>
+    <path class="p-extra" d="M-40 250 C 320 170, 540 370, 880 270 S 1280 110, 1480 200"/>
+    <path class="p-extra" d="M-40 820 C 340 740, 640 900, 960 780 S 1300 660, 1480 720"/>
+    <path class="comet" d="M-40 640 C 240 520, 420 760, 720 620 S 1180 420, 1480 520"/>
+    <path class="comet" d="M-40 200 C 300 120, 520 320, 860 220 S 1260 60, 1480 140"/>
+  </svg>
   <div class="container">
     <div class="hero-grid">
       <div class="hero-in">
@@ -25,13 +40,13 @@
           {% if upcoming_count %}<span class="dot dot-live" aria-hidden="true"></span>{{ upcoming_count }} upcoming event{{ upcoming_count|pluralize }}{% else %}{% include "ui/icon.html" with name="sparkle" %}Free for every KL student{% endif %}
         </span>
         <h1 class="heading-1 hero-title" id="hero-title">
-          <span class="line grad">Find your team.</span>
-          <span class="line grad">Build the idea.</span>
-          <span class="line hl">Win the stage.</span>
+          <span class="line"><span class="li grad">Find your team.</span></span>
+          <span class="line"><span class="li grad">Build the idea.</span></span>
+          <span class="line"><span class="li hl">Win the stage.</span></span>
         </h1>
         <p class="hero-sub">Hackathons, workshops and pitch days by {{ CLUB_NAME }}, KL University's Center for Innovation, Incubation and Entrepreneurship. Every event is free, the best teams win funds or certificates, and signing up takes about a minute.</p>
         <div class="hero-cta">
-          <a class="btn btn-primary btn-lg btn-arrow" href="#events">See upcoming events {% include "ui/icon.html" with name="arrow-right" %}</a>
+          <a class="btn btn-primary btn-lg btn-arrow" href="#events" data-magnetic>See upcoming events {% include "ui/icon.html" with name="arrow-right" %}</a>
           <a class="text-link" href="#how">How it works</a>
           <a class="text-link" href="{% url 'faculty_register' %}">Faculty: register to judge</a>
         </div>
@@ -67,6 +82,15 @@
             </div>
           </div></div>
           <div class="obj orb"><div class="float"><div class="ball"></div></div></div>
+          <div class="obj badge-obj"><div class="float">
+            <div class="spin-badge">
+              <svg class="ring-text" data-spin viewBox="0 0 132 132" focusable="false">
+                <defs><path id="badge-circle" d="M66 66 m-52 0 a52 52 0 1 1 104 0 a52 52 0 1 1 -104 0"/></defs>
+                <text><textPath href="#badge-circle">Free entry · Teams · Funds · Certificates ·</textPath></text>
+              </svg>
+              <span class="core">{% include "ui/icon.html" with name="star-four" %}</span>
+            </div>
+          </div></div>
           <div class="obj float-chip fc-1"><div class="float"><span class="chip">{% include "ui/icon.html" with name="check-circle" %}Checked in</span></div></div>
           <div class="obj float-chip fc-2"><div class="float"><span class="chip">{% include "ui/icon.html" with name="sparkle" %}Free entry</span></div></div>
           <div class="obj float-chip fc-3"><div class="float"><span class="chip">{% include "ui/icon.html" with name="trophy" %}Funds or certificates</span></div></div>
@@ -76,19 +100,47 @@
   </div>
 </section>
 
-{# ---------- Event types ---------- #}
-<div class="marquee" aria-label="Kinds of events">
-  <div class="marquee-track">
-    {% for copy in "12" %}
-    <div class="marquee-group"{% if forloop.counter == 2 %} aria-hidden="true"{% endif %}>
-      <span class="marquee-item">Hackathons {% include "ui/icon.html" with name="star-four" %}</span>
-      <span class="marquee-item">Ideathons {% include "ui/icon.html" with name="star-four" %}</span>
-      <span class="marquee-item">Workshops {% include "ui/icon.html" with name="star-four" %}</span>
-      <span class="marquee-item">Pitch days {% include "ui/icon.html" with name="star-four" %}</span>
-      <span class="marquee-item">Bootcamps {% include "ui/icon.html" with name="star-four" %}</span>
-      <span class="marquee-item">Founder talks {% include "ui/icon.html" with name="star-four" %}</span>
+{# ---------- Next event, counting down ---------- #}
+{% if next_event %}
+<div class="next-strip">
+  <div class="container">
+    <span class="ns-label"><span class="dot dot-live" aria-hidden="true"></span>Next up</span>
+    <a class="ns-title" href="{{ next_event.get_absolute_url }}">{{ next_event.title }}</a>
+    <span class="ns-when">{{ next_event.starts_at|date:"D j M, g:i A" }}{% if next_event.venue %} · {{ next_event.venue }}{% endif %}</span>
+    <span class="slide-count" data-slide-countdown="{{ next_event.starts_at|date:'c' }}" aria-hidden="true"></span>
+    <span class="ns-go"><a class="btn btn-ink btn-sm btn-arrow" href="{{ next_event.get_absolute_url }}">Open the event {% include "ui/icon.html" with name="arrow-right" %}</a></span>
+  </div>
+</div>
+{% endif %}
+
+{# ---------- Event types, on two crossing tapes ---------- #}
+<div class="tapes">
+  <div class="marquee tape-1" data-tape="left" aria-label="Kinds of events">
+    <div class="marquee-track">
+      {% for copy in "12" %}
+      <div class="marquee-group"{% if forloop.counter == 2 %} aria-hidden="true"{% endif %}>
+        <span class="marquee-item">Hackathons {% include "ui/icon.html" with name="star-four" %}</span>
+        <span class="marquee-item">Ideathons {% include "ui/icon.html" with name="star-four" %}</span>
+        <span class="marquee-item">Workshops {% include "ui/icon.html" with name="star-four" %}</span>
+        <span class="marquee-item">Pitch days {% include "ui/icon.html" with name="star-four" %}</span>
+        <span class="marquee-item">Bootcamps {% include "ui/icon.html" with name="star-four" %}</span>
+        <span class="marquee-item">Founder talks {% include "ui/icon.html" with name="star-four" %}</span>
+      </div>
+      {% endfor %}
     </div>
-    {% endfor %}
+  </div>
+  <div class="marquee tape-2" data-tape="right" aria-hidden="true">
+    <div class="marquee-track">
+      {% for copy in "12" %}
+      <div class="marquee-group">
+        <span class="marquee-item">Free entry {% include "ui/icon.html" with name="star-four" %}</span>
+        <span class="marquee-item">Come as a team {% include "ui/icon.html" with name="star-four" %}</span>
+        <span class="marquee-item">Funds or certificates {% include "ui/icon.html" with name="star-four" %}</span>
+        <span class="marquee-item">Pass on your phone {% include "ui/icon.html" with name="star-four" %}</span>
+        <span class="marquee-item">Built around your classes {% include "ui/icon.html" with name="star-four" %}</span>
+      </div>
+      {% endfor %}
+    </div>
   </div>
 </div>
 
@@ -97,7 +149,7 @@
   <div class="container">
     <div class="section-head" data-reveal>
       <div>
-        <span class="eyebrow">What's on</span>
+        <span class="eyebrow"><span class="idx">01</span>What's on</span>
         <h2 class="heading-2" id="events-title">Pick your next event</h2>
         <p>Every event here is free. Open one to see the full plan, then register in about a minute.</p>
       </div>
@@ -133,7 +185,7 @@
   <div class="container">
     <div class="section-head" data-reveal>
       <div>
-        <span class="eyebrow">Why join</span>
+        <span class="eyebrow"><span class="idx">02</span>Why join</span>
         <h2 class="heading-2" id="why-title">Made for students with a full timetable</h2>
         <p>Classes, labs and exams come first. Every event is set up so it takes as little of your time as possible.</p>
       </div>
@@ -184,8 +236,8 @@
   <div class="container">
     <div class="how" data-how>
       <div data-reveal>
-        <span class="eyebrow">How it works</span>
-        <h2 class="heading-2 mt-2" id="how-title">From sign up to the door in three steps</h2>
+        <span class="eyebrow"><span class="idx">03</span>How it works</span>
+        <h2 class="heading-2 mt-2" id="how-title" data-split>From sign up to the door in three steps</h2>
         <ol class="how-steps" role="tablist" aria-label="Steps">
           <li><button class="how-step is-active" type="button" role="tab" aria-selected="true" data-step>
             <span class="step-num">1</span><span class="st">Sign in with your email</span>
@@ -260,8 +312,8 @@
   <div class="container">
     <div class="row gx-4 gy-5 gx-lg-5">
       <div class="col-lg-4" data-reveal>
-        <span class="eyebrow">FAQ</span>
-        <h2 class="heading-2 mt-2" id="faq-title">Questions, answered</h2>
+        <span class="eyebrow"><span class="idx">04</span>FAQ</span>
+        <h2 class="heading-2 mt-2" id="faq-title" data-split>Questions, answered</h2>
         <p class="text-secondary mt-3">Something else on your mind? Write to <a href="mailto:{{ CLUB_CONTACT_EMAIL }}">{{ CLUB_CONTACT_EMAIL }}</a> and the student team will reply.</p>
       </div>
       <div class="col-lg-8">
@@ -315,12 +367,40 @@
 {# ---------- Final call to action ---------- #}
 <section class="pb-0" aria-labelledby="cta-title">
   <div class="container">
-    <div class="cta-block" data-reveal>
-      <span class="deco d1" aria-hidden="true"></span><span class="deco d2" aria-hidden="true"></span><span class="deco d3" aria-hidden="true"></span>
-      <h2 class="heading-2" id="cta-title">Your next event is one minute away</h2>
-      <p>Pick an event, register, and your pass is ready before you close the tab.</p>
-      <a class="btn btn-primary btn-lg btn-arrow" href="{% url 'event_list' %}">See upcoming events {% include "ui/icon.html" with name="arrow-right" %}</a>
+    <div class="cta-block cta-split" data-reveal>
+      <div>
+        <span class="eyebrow" style="color: rgba(253, 240, 213, .7)"><span class="idx">05</span>One minute</span>
+        <h2 class="heading-2 mt-3" id="cta-title" data-split>Your next event is one minute away</h2>
+        <p>Pick an event and register. Your pass is ready before you close the tab, and the door team scans it in a second.</p>
+        <a class="btn btn-primary btn-lg btn-arrow" href="{% url 'event_list' %}" data-magnetic>See upcoming events {% include "ui/icon.html" with name="arrow-right" %}</a>
+      </div>
+      <div class="morph-stage" data-morph aria-hidden="true">
+        <div class="morph-scene">
+          <div class="morph-shape">
+            <div class="m-c">Register for free {% include "ui/icon.html" with name="arrow-right" %}</div>
+            <div class="m-c"><span class="m-spinner"></span></div>
+            <div class="m-c dark">{% include "ui/icon.html" with name="check" %}</div>
+            <div class="m-c dark">{% include "ui/icon.html" with name="check-circle" %}You're in. Your pass is ready.</div>
+            <div class="m-c dark">
+              <div class="m-pass">
+                <div class="mp-top"><span>Entry pass</span><span>Free</span></div>
+                <div class="mp-title">{% if next_event %}{{ next_event.title|truncatechars:34 }}{% else %}Campus ideathon{% endif %}</div>
+                <div class="mp-when">{% if next_event %}{{ next_event.starts_at|date:"D j M, g:i A" }}{% else %}Sat 10:00 AM · Seminar hall{% endif %}</div>
+                <div class="mp-perf"></div>
+                <div class="mp-qr">{% for c in "1110111100010110111011011010000010111011010101110110011011011110111" %}<i{% if c == "0" %} class="o"{% endif %}></i>{% endfor %}</div>
+              </div>
+            </div>
+            <div class="m-c dark">{% include "ui/icon.html" with name="scan" %}Checked in at Gate 1</div>
+            <div class="m-c"><div class="m-cert">{% include "ui/icon.html" with name="trophy" %}<small>Winning team</small><span>Funds or certificates</span></div></div>
+            <div class="m-c">Register for free {% include "ui/icon.html" with name="arrow-right" %}</div>
+          </div>
+          <svg class="morph-cursor" viewBox="0 0 24 24" focusable="false"><path fill="currentColor" stroke="#003049" stroke-width="1.4" d="M4 2.5l15 9-6.6 1.4L9.8 20z"/></svg>
+        </div>
+        <div class="morph-caption">Step <b data-morph-caption>Register</b></div>
+      </div>
     </div>
   </div>
 </section>
 {% endblock %}
+
+{% block extra_body %}<script src="{% static 'js/logo-intro.js' %}" defer onerror="document.documentElement.classList.remove('is-preloading')"></script>{% endblock %}

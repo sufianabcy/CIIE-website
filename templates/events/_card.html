@@ -12,6 +12,7 @@
         {% if event.earns_points %}<span class="tag tag-blue">SIL points</span>{% endif %}
       </div>
     </div>
+    {% if forloop %}<span class="ec-no" aria-hidden="true">No.{{ forloop.counter|stringformat:"02d" }}</span>{% endif %}
     <h3>{{ event.title }}</h3>
     {% if event.summary %}<p class="summary">{{ event.summary }}</p>{% endif %}
     <div class="ec-foot">

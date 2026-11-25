@@ -1,73 +1,114 @@
 {% extends "admin/base_site.html" %}
-{% load static %}
-{% comment %}Admin home (task dashboard). Context: ops/admin_home.py. Layout: static/css/admin-layout.css.{% endcomment %}
+{% load static admin_nav %}
+{% comment %}Admin home (task dashboard). Context: ops/admin_home.py. Layout: static/css/admin-layout.css. Icons: ops/templatetags/admin_nav.py.
+Every page is in the side menu (templates/admin/nav_sidebar.html); "Everything else" repeats it only while that menu is hidden (phones, or when it's closed).{% endcomment %}
 {% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static 'css/admin-layout.css' %}">{% endblock %}
 {% block bodyclass %}{{ block.super }} dashboard admin-home-page{% endblock %}
 {% block nav-breadcrumbs %}{% endblock %}
-{% block nav-sidebar %}{% endblock %}
 {% block content_title %}{% endblock %}
 {% block content %}
 <div id="content-main" class="admin-home">
   <div class="home-head">
-    <h1 style="margin:0">Admin home</h1>
+    <div class="home-hello">
+      <p class="home-eyebrow">{% now "l j F" %}</p>
+      <h1>Admin home</h1>
+      <p class="home-sub">{% if attention %}Red cards need you first. Every page is in the menu.{% else %}Your events are below. Every page you can open is in the menu.{% endif %}</p>
+    </div>
     {% if can_add_event %}<a class="btn-create" href="{{ add_event_url }}">+ Create event</a>{% endif %}
   </div>
 
   {% if attention %}
-  <h2 class="home-title">Needs attention</h2>
-  <div class="admin-attention">
-    {% for a in attention %}
-    <a class="admin-card{% if a.alert and a.value and a.value != 0 %} is-alert{% endif %}" href="{{ a.url }}"><span class="value">{{ a.value }}</span><span class="note">{{ a.label }}</span></a>
-    {% endfor %}
-  </div>
+  <section class="home-block" aria-labelledby="home-glance">
+    <h2 class="home-title" id="home-glance">At a glance</h2>
+    <div class="stat-grid">
+      {% for a in attention %}
+      <a class="stat-card{% if a.alert and a.value and a.value != 0 %} is-alert{% endif %}" href="{{ a.url }}">
+        <span class="stat-head"><span class="stat-icon">{% include "ui/icon.html" with name=a.label|tile_icon %}</span><span class="stat-label">{{ a.label }}</span></span>
+        <span class="stat-value{% if not a.value|is_count %} is-words{% endif %}">{{ a.value }}</span>
+        <span class="stat-foot">
+          {% if a.alert and a.value and a.value != 0 %}<span class="stat-dot is-bad"></span>Needs a look{% elif "alert" in a %}<span class="stat-dot is-ok"></span>All clear{% else %}<span class="stat-dot"></span>Open the list{% endif %}
+          {% include "ui/icon.html" with name="arrow-right" %}
+        </span>
+      </a>
+      {% endfor %}
+    </div>
+  </section>
   {% endif %}
 
-  {% if actions %}
-  <h2 class="home-title">Quick actions</h2>
-  <div class="admin-actions">
-    {% for a in actions %}<a class="admin-card" href="{{ a.url }}"><strong>{{ a.label }}</strong><span class="note">{{ a.note }}</span></a>{% endfor %}
-  </div>
-  {% endif %}
-
-  <h2 class="home-title">Recent and upcoming events</h2>
-  {% if recent %}
-  <div class="module admin-recent"><table>
-    <tbody>{% for e in recent %}<tr>
-      <th scope="row">{{ e.title }}{% if e.is_hackathon %} <span class="admin-tag-small">hackathon</span>{% endif %}{% if e.status != 'published' %} <span class="admin-tag-small">{{ e.get_status_display }}</span>{% endif %}</th>
-      <td>{{ e.starts_at|date:"D j M, g:i A" }}</td>
-      <td>{{ e.registered }} registered</td>
-      <td style="text-align:right; white-space:nowrap">
-        {% if e.is_hackathon %}<a href="{% url 'hackathon_dashboard' e.slug %}">Hackathon page</a>{% else %}<a href="{% url 'door' e.slug %}">Run</a>{% endif %}
-        · <a href="{% url 'admin:events_event_change' e.pk %}">Edit</a> · <a href="{{ e.get_absolute_url }}">Public page</a>
-      </td>
-    </tr>{% endfor %}</tbody>
-  </table></div>
-  {% else %}
-  <div class="admin-empty">
-    <p><strong>No events yet.</strong> Start by creating your first event or hackathon.</p>
-    {% if can_add_event %}<a class="btn-create" href="{{ add_event_url }}">+ Create event</a>{% else %}<p>An admin adds you to the events you run.</p>{% endif %}
-  </div>
-  {% endif %}
-
-  <h2 class="home-title">Everything else</h2>
-  <input class="admin-search" type="search" placeholder="Find a page (for example: email, people, backups)" aria-label="Find a page" data-admin-search>
-  <div class="admin-groups" style="margin-top:12px">
-    {% for g in groups %}
-    <section class="admin-group" data-admin-group>
-      <h3>{{ g.title }}</h3>
-      <p class="note">{{ g.note }}</p>
-      <ul>{% for name, url, add in g.links %}<li data-admin-link><a href="{{ url }}">{{ name }}</a>{% if add %}<a href="{{ add }}" class="addlink">Add</a>{% endif %}</li>{% endfor %}</ul>
+  <div class="home-grid{% if actions or status_url %} has-side{% endif %}">
+    <section class="home-panel" aria-labelledby="home-events">
+      <div class="panel-head">
+        <h2 class="home-title" id="home-events">Recent and upcoming events</h2>
+        {% if recent and perms.events.view_event %}<a class="panel-link" href="{% url 'admin:events_event_changelist' %}">All events</a>{% endif %}
+      </div>
+      {% if recent %}
+      <ul class="ev-list">
+        {% for e in recent %}
+        <li class="ev-row">
+          <div class="ev-date" aria-hidden="true"><span>{{ e.starts_at|date:"M" }}</span><strong>{{ e.starts_at|date:"j" }}</strong></div>
+          <div class="ev-body">
+            <p class="ev-title"><a href="{% url 'admin:events_event_change' e.pk %}">{{ e.title }}</a>{% if e.is_hackathon %} <span class="admin-tag-small is-hack">hackathon</span>{% endif %}{% if e.status != 'published' %} <span class="admin-tag-small">{{ e.get_status_display }}</span>{% endif %}</p>
+            <p class="ev-meta">{{ e.starts_at|date:"D j M, g:i A" }} · {{ e.registered }} registered{% if e.seats %} of {{ e.seats }}{% endif %}</p>
+            {% if e.seats %}<span class="ev-bar" aria-hidden="true"><span style="width: {% widthratio e.registered e.seats 100 %}%"></span></span>{% endif %}
+          </div>
+          <div class="ev-actions">
+            {% if e.is_hackathon %}<a class="btn-soft" href="{% url 'hackathon_dashboard' e.slug %}">Hackathon page</a>{% else %}<a class="btn-soft" href="{% url 'door' e.slug %}">Run the door</a>{% endif %}
+            <a class="btn-plain" href="{% url 'admin:events_event_change' e.pk %}">Edit</a>
+            <a class="btn-plain" href="{{ e.get_absolute_url }}">Public page</a>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div class="admin-empty">
+        <span class="empty-icon">{% include "ui/icon.html" with name="calendar" %}</span>
+        <p><strong>No events yet.</strong> Start by creating your first event or hackathon.</p>
+        {% if can_add_event %}<a class="btn-create" href="{{ add_event_url }}">+ Create event</a>{% else %}<p>An admin adds you to the events you run.</p>{% endif %}
+      </div>
+      {% endif %}
     </section>
-    {% endfor %}
-    {% if status_url %}<section class="admin-group" data-admin-group><h3>Status</h3><p class="note">Is everything running?</p><ul><li data-admin-link><a href="{{ status_url }}">Status page</a></li></ul></section>{% endif %}
+
+    {% if actions or status_url %}
+    <div class="home-side">
+      {% if actions %}
+      <section class="home-panel" aria-labelledby="home-actions">
+        <h2 class="home-title" id="home-actions">Quick actions</h2>
+        <ul class="action-list">
+          {% for a in actions %}
+          <li><a class="action-row" href="{{ a.url }}"><span class="action-icon">{% include "ui/icon.html" with name=a.label|action_icon %}</span><span class="action-text"><strong>{{ a.label }}</strong><span>{{ a.note }}</span></span>{% include "ui/icon.html" with name="arrow-right" %}</a></li>
+          {% endfor %}
+        </ul>
+      </section>
+      {% endif %}
+      {% if status_url %}
+      <a class="home-panel action-row status-row" href="{{ status_url }}"><span class="action-icon">{% include "ui/icon.html" with name="chart" %}</span><span class="action-text"><strong>Status page</strong><span>Is everything running?</span></span>{% include "ui/icon.html" with name="arrow-right" %}</a>
+      {% endif %}
+    </div>
+    {% endif %}
   </div>
 
-  {% if advanced %}
-  <details class="admin-group" style="margin-top:16px" data-admin-group>
-    <summary style="cursor:pointer"><strong>Advanced</strong> <span class="note">({{ advanced|length }} technical tables, superusers only)</span></summary>
-    <ul style="margin-top:8px">{% for name, url, add in advanced %}<li data-admin-link><a href="{{ url }}">{{ name }}</a>{% if add %}<a href="{{ add }}" class="addlink">Add</a>{% endif %}</li>{% endfor %}</ul>
-  </details>
-  {% endif %}
+  <section class="home-block admin-directory" aria-labelledby="home-all">
+    <div class="panel-head">
+      <h2 class="home-title" id="home-all">Everything else</h2>
+      <input class="admin-search" type="search" placeholder="Find a page (for example: email, people, backups)" aria-label="Find a page" data-admin-search>
+    </div>
+    <div class="admin-groups">
+      {% for g in groups %}
+      <section class="admin-group" data-admin-group>
+        <h3><span class="group-icon">{% include "ui/icon.html" with name=g.title|group_icon %}</span>{{ g.title }}</h3>
+        <p class="note">{{ g.note }}</p>
+        <ul>{% for name, url, add in g.links %}<li data-admin-link><a href="{{ url }}">{{ name }}</a>{% if add %}<a href="{{ add }}" class="addlink">Add</a>{% endif %}</li>{% endfor %}</ul>
+      </section>
+      {% endfor %}
+      {% if status_url %}<section class="admin-group" data-admin-group><h3><span class="group-icon">{% include "ui/icon.html" with name="chart" %}</span>Status</h3><p class="note">Is everything running?</p><ul><li data-admin-link><a href="{{ status_url }}">Status page</a></li></ul></section>{% endif %}
+    </div>
+    {% if advanced %}
+    <details class="admin-group admin-advanced" data-admin-group>
+      <summary><strong>Advanced</strong> <span class="note">({{ advanced|length }} technical tables, superusers only)</span></summary>
+      <ul>{% for name, url, add in advanced %}<li data-admin-link><a href="{{ url }}">{{ name }}</a>{% if add %}<a href="{{ add }}" class="addlink">Add</a>{% endif %}</li>{% endfor %}</ul>
+    </details>
+    {% endif %}
+  </section>
 </div>
 <script>
   (function () {

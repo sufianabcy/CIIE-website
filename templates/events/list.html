@@ -1,9 +1,10 @@
 {% extends "base.html" %}
 {% block title %}{% if tab == 'completed' %}Past events{% else %}Upcoming events{% endif %}{% endblock %}
+{% block body_attrs %} data-smooth{% endblock %}
 {% block content %}
-<header class="page-head">
-  <span class="eyebrow">Events</span>
-  <h1 class="heading-2">{% if tab == 'completed' %}Past events{% else %}Upcoming events{% endif %}</h1>
+<header class="page-head with-rule">
+  <span class="eyebrow"><span class="idx">{% if tab == 'completed' %}02{% else %}01{% endif %}</span>Events</span>
+  <h1 class="big-title">{% if tab == 'completed' %}Past events{% else %}Upcoming events{% endif %}<sup>({{ events|length|stringformat:"02d" }})</sup></h1>
   <p>{% if tab == 'completed' %}Everything {{ CLUB_NAME }} has run so far, with results where they are published.{% else %}Register here, then show your pass at the door. Every event is free.{% endif %}</p>
 </header>
 <div class="list-toolbar">

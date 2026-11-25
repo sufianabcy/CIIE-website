@@ -4,6 +4,7 @@
 {% block og_title %}{{ event.title }} · {{ CLUB_NAME }}{% endblock %}
 {% block og_description %}{{ event.summary|default:"Free to register on the KL-CIIE portal." }}{% endblock %}
 {% block robots %}{% if event.status != 'published' or event.is_practice %}<meta name="robots" content="noindex">{% endif %}{% endblock %}
+{% block body_attrs %} data-smooth{% endblock %}
 {% block content %}
 <a class="back-link" href="{% url 'event_list' %}{% if event.is_over %}?tab=completed{% endif %}">{% include "ui/icon.html" with name="arrow-left" %}All events</a>
 {% if event.status != 'published' %}<div class="alert alert-warning">Only coordinators can see this page: the event is {{ event.get_status_display|lower }}.</div>{% endif %}
@@ -19,6 +20,7 @@
   </div>
   <h1 class="heading-2" id="event-title">{{ event.title }}</h1>
   {% if event.summary %}<p class="lead-text">{{ event.summary }}</p>{% endif %}
+  {% if not event.is_over %}<div class="hero-count"><span class="hc-label">Starts in</span><span class="hc-live"><span class="dot dot-live" aria-hidden="true"></span>Happening now</span><span class="slide-count slide-count-lg" data-slide-countdown="{{ event.starts_at|date:'c' }}" aria-hidden="true"></span><span class="visually-hidden">{{ event.starts_at|timeuntil }} to go</span></div>{% endif %}
 </section>
 
 <div class="row g-4 gx-lg-5">
