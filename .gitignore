@@ -22,3 +22,6 @@ deploy/.env
 deploy/rclone/
 rclone.conf
 *.pem
+
+
+
