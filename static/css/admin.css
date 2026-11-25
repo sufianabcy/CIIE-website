@@ -1,4 +1,4 @@
-/* KL-CIIE look for the Django admin (cream, navy and crimson palette since 25 Nov).
+/* KL-CIIE look for the Django admin (cream, navy and crimson palette).
    Django's admin is themed through CSS variables, so most of this file sets those
    to the portal's brand colours. The rest rounds and spaces the main pieces.
    Light and dark follow the admin's own switch (html[data-theme]), which shares

@@ -1,7 +1,7 @@
 /* KL-CIIE portal design system.
    Loaded after Bootstrap: Bootstrap keeps the grid, utilities and small scripts,
    this file gives every page the KL-CIIE look: Geist on cream paper, navy ink,
-   crimson for actions and blue marble as the second accent (palette from 25 Nov).
+   crimson for actions and blue marble as the second accent.
 
    1. Fonts and tokens       5. Site navigation      9. Landing page
    2. Base and type styles   6. Footer               10. Event pages, pass, sign in
@@ -1226,11 +1226,9 @@ a.mark-row .icon { color: var(--muted); }
 }
 
 /* ---------- 12. Editorial and motion layer ----------
-   Added 25 Nov from Sufian's references: paper grain and newspaper rules (niccolomiranda.com),
-   huge type and an index style (danilodemarco.com, bleibtgleich.dev), live clock and scrambled
-   labels (2xa.studio), scroll driven colour and story (ollivere), glow behind the hero (thibaut.cool),
-   text roll, magnetic buttons, sliding numbers and spinning text (motion-primitives), background
-   paths and the boarding pass (kokonutui), one morphing shape (prompt-motion.com).
+   Paper grain and newspaper rules, huge type with an index style, a live clock and scrambled labels,
+   scroll driven colour, a glow behind the hero, text roll, magnetic buttons, sliding numbers,
+   spinning text, drawn background paths, the boarding pass and one morphing shape.
    The scripts for this layer live in static/js/motion.js. */
 
 /* Paper grain: a tiny noise tile painted once under everything */
@@ -1365,7 +1363,7 @@ body { background-color: var(--bg); background-image: var(--grain); }
 .page-head .big-title sup { font-family: var(--mono); font-size: max(12px, .22em); letter-spacing: 0; font-weight: 500; color: var(--accent-text); top: -2.4em; margin-left: .2em; }
 .page-head.with-rule { border-bottom: 1px solid var(--line); padding-bottom: var(--s-400); }
 
-/* Morphing shape (prompt-motion.com "one shape, never cut") inside the final call to action */
+/* One morphing shape inside the final call to action */
 .cta-block.cta-split { text-align: left; display: grid; gap: var(--s-500); align-items: center; padding: var(--s-600) var(--s-400); background: var(--navy); color: var(--cream); }
 .cta-block.cta-split h2 { color: var(--cream); margin: 0 0 var(--s-200); }
 .cta-block.cta-split p { margin: 0 0 var(--s-400); color: var(--cream); opacity: .78; }

@@ -1,9 +1,8 @@
-// KL-CIIE portal motion layer (added 25 Nov).
-// Pieces taken from the references Sufian picked: text roll, magnetic buttons, sliding numbers and
-// spinning text (motion-primitives), background paths (kokonutui), scrambled labels and a live clock
-// (2xa.studio), tapes that speed up with the scroll, and one shape that morphs through the whole event
-// journey (prompt-motion.com). Smooth scrolling is Lenis and the path drawing is anime.js; both are
-// vendored in static/vendor. The landing page's logo intro is separate, in static/js/logo-intro.js.
+// KL-CIIE portal motion layer: text roll, magnetic buttons, sliding numbers, spinning text, drawn
+// background paths, scrambled labels, a live clock, tapes that speed up with the scroll, and one shape
+// that morphs through the whole event journey. Smooth scrolling is Lenis and the path drawing is
+// anime.js; both are vendored in static/vendor. The landing page's logo intro is separate, in
+// static/js/logo-intro.js.
 // Every piece checks for its elements first, stays still when the visitor asks for less motion,
 // and stops working when it is off screen.
 (function () {
@@ -102,7 +101,7 @@
   });
   doc.querySelectorAll(".hero-title .li").forEach(function (el, i) { el.style.setProperty("--li", i); });
 
-  // 3. Small labels scramble into place (2xa.studio).
+  // 3. Small labels scramble into place.
   var glyphs = "ABCDEFGHJKLMNPQRSTUVWXYZ0123456789#%&+=/<>";
   function scramble(node) {
     var finalText = node.nodeValue, start = performance.now(), dur = 650;
@@ -174,7 +173,7 @@
     onView(el, function (inView) { visible = inView; if (visible && !raf) raf = requestAnimationFrame(frame); });
   });
 
-  // 7. Countdowns with sliding digits (motion-primitives Sliding Number).
+  // 7. Countdowns with sliding digits.
   function digitEl() {
     var d = doc.createElement("span"), strip = doc.createElement("span");
     d.className = "digit";
@@ -322,7 +321,7 @@
     }
   }
 
-  // 10. Live clock in India time (2xa.studio keeps two city clocks in its header).
+  // 10. Live clock in India time.
   var clock = doc.querySelector("[data-clock]");
   if (clock && window.Intl) {
     var fmt = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
