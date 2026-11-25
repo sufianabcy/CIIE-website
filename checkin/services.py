@@ -145,17 +145,25 @@ def find_or_create_person(*, name: str, email: str = "", kl_id: str = "", phone:
         )
     if person:
         return person
-    person = Person.objects.create_user(
-        email=email,
-        full_name=name.strip(),
-        phone=phone.strip(),
-        student_id=kl_id,
-        institution="KL University" if (kl_id or is_kl_email(email)) else "",
-        source=Person.Source.WALK_IN,
-    )
-    if email:
-        # Unverified until they sign in with a code sent to it; then it is theirs.
-        EmailAddress.objects.create(user=person, email=email, primary=True, verified=False)
+    try:
+        with transaction.atomic():
+            person = Person.objects.create_user(
+                email=email,
+                full_name=name.strip(),
+                phone=phone.strip(),
+                student_id=kl_id,
+                institution="KL University" if (kl_id or is_kl_email(email)) else "",
+                source=Person.Source.WALK_IN,
+            )
+            if email:
+                # Unverified until they sign in with a code sent to it; then it is theirs.
+                EmailAddress.objects.create(user=person, email=email, primary=True, verified=False)
+    except IntegrityError:
+        # Another desk added them a moment ago: use that record.
+        person = (Person.objects.filter(student_id=kl_id).first() if kl_id else None) or Person.objects.filter(
+            Q(email__iexact=email) | Q(kl_email__iexact=email)).first()
+        if person is None:
+            raise
     return person
 
 

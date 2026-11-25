@@ -70,7 +70,7 @@ def test_employee_id_is_unique_ignoring_case(client, portal_admin, make_person):
     make_person(email="a@example.com", employee_id="KLF100", kind="faculty")
     client.force_login(portal_admin)
     response = _post(client, ADD + "?type=faculty", kind="faculty", email="b@example.com", full_name="Dr. B", employee_id="klf100")
-    assert b"Someone else already has this employee ID." in response.content
+    assert b"Someone already uses this employee ID" in response.content
     with pytest.raises(IntegrityError), transaction.atomic():
         make_person(email="c@example.com", employee_id="klf100")
 
@@ -136,3 +136,119 @@ def test_faculty_added_on_a_hackathon_get_the_faculty_type(make_person, make_eve
     add_faculty(make_event(kind=Event.Kind.HACKATHON), person)
     person.refresh_from_db()
     assert person.kind == "faculty" and person.is_faculty
+
+
+def test_an_email_already_on_the_portal_is_a_form_error_not_a_crash(client, portal_admin, make_person):
+    existing = make_person(email="test@faculty.com", full_name="Existing One")
+    client.force_login(portal_admin)
+    for email in ("test@faculty.com", "Test@Faculty.com"):
+        response = _post(client, ADD + "?type=faculty", kind="faculty", email=email, full_name="Dr. Copy", employee_id="KLF321")
+        assert response.status_code == 200
+        assert b"Someone already uses this email" in response.content and b"Existing One" in response.content
+    clash = _post(client, ADD + "?type=student", kind="student", email="new@example.com", full_name="New", kl_email="TEST@faculty.com")
+    assert b"Someone already uses this email" in clash.content
+    assert Person.objects.filter(email__iexact="test@faculty.com").count() == 1
+    # Saving someone with their own email again is fine.
+    url = reverse("admin:people_person_change", args=[existing.pk])
+    ok = _post(client, url, kind="student", email="test@faculty.com", full_name="Existing One", phone=existing.phone,
+               institution=existing.institution, branch="", year_of_study="", kl_email="", student_id="")
+    assert ok.status_code == 302
+
+
+# --- No unique clash ever gives a 500 -------------------------------------------------------------
+
+
+def test_exact_bug_existing_email_in_other_case_is_a_form_error(client, portal_admin, make_person):
+    make_person(email="test@facutly.com", full_name="First Faculty", kind="faculty", employee_id="KLF1")
+    client.force_login(portal_admin)
+    response = _post(client, ADD + "?type=faculty", kind="faculty", email="TEST@facutly.com", full_name="Again", employee_id="KLF2")
+    assert response.status_code == 200
+    assert b"Someone already uses this email: First Faculty (Faculty)." in response.content and b"Open their page" in response.content
+
+
+def test_kl_id_clash_is_a_form_error(client, portal_admin, make_person):
+    make_person(email="one@example.com", student_id="2300011111", full_name="Has The ID")
+    client.force_login(portal_admin)
+    response = _post(client, ADD + "?type=student", kind="student", email="two@example.com", full_name="Two", student_id="2300011111")
+    assert b"Someone already uses this KL ID: Has The ID (Student)." in response.content
+
+
+def test_a_race_at_save_time_becomes_a_message(client, portal_admin, monkeypatch):
+    from django.contrib.admin import ModelAdmin
+
+    def boom(*args, **kwargs):
+        raise IntegrityError("duplicate key value violates unique constraint")
+
+    monkeypatch.setattr(ModelAdmin, "save_model", boom)
+    client.force_login(portal_admin)
+    response = _post(client, ADD + "?type=student", kind="student", email="race@example.com", full_name="Race")
+    assert response.status_code == 302
+    page = client.get(response["Location"]).content.decode()
+    assert "Not saved: someone else already uses that email" in page
+
+
+def test_portal_forms_turn_clashes_into_form_errors(client, make_person, make_event):
+    from events.models import Event
+    from hackathon import services
+    from hackathon.models import Room, Team
+    from registrations.services import register
+
+    event = make_event(kind=Event.Kind.HACKATHON)
+    admin_user = make_person(full_name="Admin", is_staff=True)
+    admin_user.groups.add(Group.objects.get(name="Admin"))
+    client.force_login(admin_user)
+    slug = event.slug
+    make_person(email="taken@example.com", student_id="2300099999", employee_id="KLF77")
+    # A student whose KL ID belongs to someone else.
+    page = client.post(reverse("hackathon_manage_student_add", args=[slug]), {"d-f_name": "New", "d-f_email": "new@example.com", "d-f_student_id": "2300099999", "t-team": ""})
+    assert page.status_code == 200 and b"Someone already uses this KL ID" in page.content and not Person.objects.filter(email="new@example.com").exists()
+    # Faculty with an employee ID someone already has (in other capitals).
+    page = client.post(reverse("hackathon_manage_faculty_add", args=[slug]), {"d-f_name": "Dr. X", "d-f_email": "x@example.com", "d-f_employee_id": "klf77", "a-is_active": "on"})
+    assert page.status_code == 200 and b"Someone already uses this Employee ID" in page.content
+    # Rooms and teams with names already used (in other capitals).
+    Room.objects.create(event=event, name="R206")
+    page = client.post(reverse("hackathon_manage_room_add", args=[slug]), {"name": "r206"})
+    assert b"Another room already has this name." in page.content
+    Team.objects.create(event=event, name="Rocket")
+    page = client.post(reverse("hackathon_manage_team_add", args=[slug]), {"name": "ROCKET", "project_title": "", "project_description": "", "room": "", "mentor": "", "mentor_name": ""})
+    assert b"Another team already has this name." in page.content
+    # Supervisors: a race while saving becomes a message.
+    original = services.add_supervisor
+
+    def racing(*args, **kwargs):
+        raise IntegrityError("duplicate")
+
+    services.add_supervisor = racing
+    try:
+        response = client.post(reverse("hackathon_manage_supervisor_add", args=[slug]), {"p-who": "taken@example.com", "s-kind": "faculty", "s-is_active": "on"})
+    finally:
+        services.add_supervisor = original
+    assert response.status_code == 302 and "Not saved" in client.get(response["Location"]).content.decode()
+    # Faculty self-registration twice at once: no 500.
+    student = make_person(email="stu2@example.com")
+    register(event=event, person=student)
+    client.force_login(student)
+    data = {"full_name": "S", "employee_id": "E55", "department": "CSE", "designation": "AP", "phone": "9000000000"}
+    assert client.post(reverse("faculty_register"), data).status_code == 302
+    assert client.post(reverse("faculty_register"), data).status_code in (200, 302)
+
+
+def test_walk_in_desk_uses_the_record_another_desk_just_made(make_person, monkeypatch):
+    from checkin import services as door
+
+    # The other desk's record exists, but this desk's first look happened just before it was saved.
+    make_person(email="walk@example.com", full_name="Made By Other Desk")
+    real_filter = Person.objects.filter
+    state = {"tried_create": False}
+
+    def first_look_misses(*args, **kwargs):
+        return real_filter(*args, **kwargs) if state["tried_create"] else Person.objects.none()
+
+    def create_clashes(**kwargs):
+        state["tried_create"] = True
+        raise IntegrityError("duplicate")
+
+    monkeypatch.setattr(Person.objects, "filter", first_look_misses)
+    monkeypatch.setattr(Person.objects, "create_user", create_clashes)
+    person = door.find_or_create_person(name="Walker", email="walk@example.com")
+    assert person.full_name == "Made By Other Desk"

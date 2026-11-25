@@ -5,7 +5,7 @@ from decimal import Decimal
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -495,9 +495,12 @@ def faculty_register(request):
         form = FacultyRequestForm(request.POST or None, initial={"full_name": person.full_name, "phone": person.phone, "department": person.branch})
         if request.method == "POST" and form.is_valid():
             try:
-                services.request_faculty(person, form.cleaned_data)
+                with transaction.atomic():
+                    services.request_faculty(person, form.cleaned_data)
             except services.RequestError as exc:
                 messages.error(request, str(exc))
+            except IntegrityError:
+                messages.info(request, "Your request is already waiting for an admin.")
             else:
                 messages.success(request, "Request sent. An admin will check it; you'll get an email either way.")
             return redirect("faculty_register")

@@ -50,6 +50,8 @@ def ensure_fields(event, applies_to):
 
 
 def custom_values(event, person) -> dict:
+    if person is None or person.pk is None:
+        return {}  # someone being added: nothing saved yet
     row = PersonDetails.objects.filter(event=event, person=person).first()
     return row.values if row else {}
 
@@ -169,9 +171,31 @@ class DetailsForm(forms.Form):
             value, error = clean_value(d, cleaned.get(name))
             if error:
                 self.add_error(name, error[0].upper() + error[1:] + ".")
-            else:
-                cleaned[name] = value
+                continue
+            cleaned[name] = value
+            other = self._taken_by(d.builtin, value)
+            if other:
+                self.add_error(name, f"Someone already uses this {d.label}: {other.display_name} ({other.get_kind_display()}).")
         return cleaned
+
+    def _taken_by(self, builtin, value):
+        """Another person who already has this email, KL ID or employee ID (these are unique)."""
+        from django.db.models import Q
+
+        from people.models import Person
+
+        if not value or builtin not in ("email", "student_id", "employee_id"):
+            return None
+        if builtin == "email":
+            q = Q(email__iexact=value) | Q(kl_email__iexact=value)
+        else:
+            q = Q(**{f"{builtin}__iexact": value})
+        others = Person.objects.filter(q)
+        if self.person is not None and self.person.pk:
+            others = others.exclude(pk=self.person.pk)
+        elif builtin == "email":
+            return None  # adding someone by an email already on the portal reuses that person
+        return others.first()
 
     def save_to(self, person):
         values = custom_values(self.event, person)

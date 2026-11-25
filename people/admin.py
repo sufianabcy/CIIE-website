@@ -1,11 +1,14 @@
 from django import forms
 from django.contrib import admin
 from django.contrib.auth.models import Group
-from django.shortcuts import render
+from django.db import IntegrityError
+from django.db.models import Q
+from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.utils import timezone
-from django.utils.html import format_html_join
+from django.utils.html import format_html, format_html_join
 
-from .models import Person, is_kl_email
+from .models import Person, is_kl_email, normalise_email
 
 # Roles that open the admin. Faculty is a type of person (and a role), but faculty only use the judging pages.
 ROLE_GROUPS = {"Coordinator", "Admin"}  # supervisors and volunteers work on the hackathon pages, not in the admin
@@ -50,10 +53,40 @@ class PersonForm(forms.ModelForm):
         if "employee_id" in self.fields:
             self.fields["employee_id"].help_text = "Unique. Used to match faculty in Excel uploads."
 
+    def _taken(self, what, other):
+        url = reverse("admin:people_person_change", args=[other.pk])
+        return forms.ValidationError(format_html(
+            'Someone already uses this {}: {} ({}). <a href="{}">Open their page</a> to change their details or give them a role.',
+            what, other.display_name, other.get_kind_display(), url,
+        ))
+
+    def _unique_email(self, name):
+        value = normalise_email(self.cleaned_data.get(name))
+        if not value:
+            return None
+        other = Person.objects.filter(Q(email__iexact=value) | Q(kl_email__iexact=value)).exclude(pk=self.instance.pk).first()
+        if other:
+            raise self._taken("email", other)
+        return value
+
+    def clean_student_id(self):
+        value = (self.cleaned_data.get("student_id") or "").strip()
+        other = Person.objects.filter(student_id__iexact=value).exclude(pk=self.instance.pk).first() if value else None
+        if other:
+            raise self._taken("KL ID", other)
+        return value
+
+    def clean_email(self):
+        return self._unique_email("email")
+
+    def clean_kl_email(self):
+        return self._unique_email("kl_email")
+
     def clean_employee_id(self):
         value = " ".join((self.cleaned_data.get("employee_id") or "").split())
-        if value and Person.objects.filter(employee_id__iexact=value).exclude(pk=self.instance.pk).exists():
-            raise forms.ValidationError("Someone else already has this employee ID.")
+        other = Person.objects.filter(employee_id__iexact=value).exclude(pk=self.instance.pk).first() if value else None
+        if other:
+            raise self._taken("employee ID", other)
         return value
 
     def clean(self):
@@ -127,7 +160,21 @@ class PersonAdmin(admin.ModelAdmin):
             return render(request, "admin/people/person/choose_type.html", {
                 **self.admin_site.each_context(request), "title": "Add a person", "opts": self.model._meta,
             })
-        return super().add_view(request, form_url, extra_context)
+        return self._safely(request, lambda: super(PersonAdmin, self).add_view(request, form_url, extra_context))
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        return self._safely(request, lambda: super(PersonAdmin, self).change_view(request, object_id, form_url, extra_context))
+
+    def _safely(self, request, view):
+        """Safety net: if two saves race (say, a double-clicked Save) the database refuses the second; say so, never a 500."""
+        try:
+            return view()
+        except IntegrityError:
+            self.message_user(
+                request, "Not saved: someone else already uses that email, KL ID or employee ID (it may have just been saved twice). "
+                "Search the people list for them.", level="error",
+            )
+            return redirect(request.get_full_path())
 
     # --- Saving -----------------------------------------------------------------------------------
 

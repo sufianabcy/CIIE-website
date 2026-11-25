@@ -9,7 +9,7 @@ from django import forms
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Count
 from django.forms import inlineformset_factory
 from django.shortcuts import get_object_or_404, redirect, render
@@ -28,6 +28,23 @@ from .access import PERMISSIONS, allowed, is_admin, overseen_event, permissions_
 from . import rooms as room_tools
 from .access import VOLUNTEER_PERMISSIONS
 from .models import Assignment, Criterion, EventFaculty, FieldDefinition, Room, Round, Supervisor, Team, TeamMember, Volunteer
+
+CLASH = "Not saved: someone else already uses that email, KL ID or employee ID (or this was just saved twice). Check and try again."
+
+def friendly_clash(view):
+    """Safety net for saves that race (a double-clicked Save): a database clash becomes a message, never a 500."""
+    from functools import wraps
+
+    @wraps(view)
+    def wrapper(request, *args, **kwargs):
+        try:
+            return view(request, *args, **kwargs)
+        except IntegrityError:
+            messages.error(request, CLASH)
+            return redirect(request.get_full_path())
+
+    return wrapper
+
 
 SECTIONS = [
     ("students", "Students"), ("teams", "Teams"), ("rooms", "Rooms"), ("faculty", "Faculty"),
@@ -150,6 +167,8 @@ def student_edit(request, slug, pk=None):
             details.add_error(None, exc)
         except RegistrationError as exc:
             details.add_error(None, str(exc))
+        except IntegrityError:
+            details.add_error(None, CLASH)
         else:
             messages.success(request, f"Saved {person.display_name}.")
             return redirect("hackathon_manage_students", slug)
@@ -234,7 +253,12 @@ def team_edit(request, slug, pk=None):
                          delete_url=_url(event, "team_delete", team.pk), extra_template="hackathon/_team_members.html",
                          team=team, members=list(team.members.select_related("registration__person")),
                          free=_student_regs(event).filter(team_membership__isnull=True))
-        new.save()
+        try:
+            with transaction.atomic():
+                new.save()
+        except IntegrityError:
+            form.add_error("name", "Another team already has this name.")
+            return _form(request, event, "teams", f"Edit {team.name}" if team else "Add a team", [form], back=_url(event, "teams"))
         if new.mentor_id and new.assignments.filter(faculty__person_id=new.mentor_id).exists():
             messages.warning(request, f"{new.mentor} mentors this team but is allocated to judge it. Remove that allocation.")
         messages.success(request, f"Saved {new.name}.")
@@ -318,9 +342,14 @@ def room_edit(request, slug, pk=None):
     room = get_object_or_404(Room, pk=pk, event=event) if pk else None
     form = _style(RoomForm(request.POST or None, instance=room, event=event))
     if request.method == "POST" and form.is_valid():
-        form.save()
-        messages.success(request, "Room saved.")
-        return redirect("hackathon_manage_rooms", slug)
+        try:
+            with transaction.atomic():
+                form.save()
+        except IntegrityError:
+            form.add_error("name", "Another room already has this name.")
+        else:
+            messages.success(request, "Room saved.")
+            return redirect("hackathon_manage_rooms", slug)
     return _form(request, event, "rooms", f"Edit {room.name}" if room else "Add a room", [form], back=_url(event, "rooms"),
                  delete_url=_url(event, "room_delete", room.pk) if room else None)
 
@@ -389,6 +418,8 @@ def faculty_edit(request, slug, pk=None):
                 role.save(update_fields=["is_active"])
         except ValidationError as exc:
             details.add_error(None, exc)
+        except IntegrityError:
+            details.add_error(None, CLASH)
         else:
             messages.success(request, f"Saved {person.display_name}.")
             return redirect("hackathon_manage_faculty", slug)
@@ -465,6 +496,7 @@ def supervisors(request, slug):
 
 @never_cache
 @login_required
+@friendly_clash
 def supervisor_edit(request, slug, pk=None):
     event = overseen_event(request, slug)
     _admin_only(request)
@@ -593,12 +625,16 @@ def round_edit(request, slug, pk=None):
     for f in formset.forms:
         _style(f)
     if request.method == "POST" and form.is_valid() and formset.is_valid():
-        with transaction.atomic():
-            saved = form.save()
-            formset.instance = saved
-            formset.save()
-        messages.success(request, f"Saved {saved.name}.")
-        return redirect("hackathon_manage_rounds", slug)
+        try:
+            with transaction.atomic():
+                saved = form.save()
+                formset.instance = saved
+                formset.save()
+        except IntegrityError:
+            form.add_error("position", "Another round already has this number.")
+        else:
+            messages.success(request, f"Saved {saved.name}.")
+            return redirect("hackathon_manage_rounds", slug)
     return _form(request, event, "rounds", f"Edit {round_.name}" if round_ else "Add a round", [form], back=_url(event, "rounds"),
                  delete_url=_url(event, "round_delete", round_.pk) if round_ else None, extra_template="hackathon/_criteria.html",
                  formset=formset)
@@ -724,9 +760,14 @@ def field_edit(request, slug, pk=None):
     defn = get_object_or_404(FieldDefinition, pk=pk, event=event) if pk else None
     form = _style(FieldForm(request.POST or None, instance=defn, event=event))
     if request.method == "POST" and form.is_valid():
-        form.save()
-        messages.success(request, "Field saved.")
-        return redirect("hackathon_manage_fields", slug)
+        try:
+            with transaction.atomic():
+                form.save()
+        except IntegrityError:
+            form.add_error("label", "Another field already has this name.")
+        else:
+            messages.success(request, "Field saved.")
+            return redirect("hackathon_manage_fields", slug)
     return _form(request, event, "fields", f"Edit {defn.label}" if defn else "Add a field", [form], back=_url(event, "fields"),
                  delete_url=_url(event, "field_delete", defn.pk) if defn and not defn.builtin else None)
 
@@ -769,6 +810,7 @@ def volunteers(request, slug):
 
 @never_cache
 @login_required
+@friendly_clash
 def volunteer_edit(request, slug, pk=None):
     event = overseen_event(request, slug)
     _admin_only(request)
