@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     "checkin",
     "results",
     "hackathon",
+    "sqlconsole",
 ]
 
 MIDDLEWARE = [

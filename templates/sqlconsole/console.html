@@ -1,0 +1,42 @@
+{% extends "admin/base_site.html" %}
+{% block breadcrumbs %}<div class="breadcrumbs"><a href="{% url 'admin:index' %}">Home</a> › SQL › SQL console</div>{% endblock %}
+{% block content %}
+<div id="content-main">
+  <p>Read queries run one <code>SELECT</code>, <code>WITH</code> or <code>EXPLAIN</code> in a read-only transaction, stop after 10 seconds, and show up to {{ limit }} rows. Passwords, tokens and sessions are refused or hidden.{% if can_write %} Superusers can also change data: one <code>INSERT</code>, <code>UPDATE</code> or <code>DELETE</code>, tried first as a dry run that changes nothing, then committed only when you type the row count. Accounts, sessions and the change history can't be changed here.{% endif %} Every run is logged below.</p>
+  {% if error %}<ul class="messagelist"><li class="error">{{ error }}</li></ul>{% endif %}
+  <form method="post">{% csrf_token %}
+    <textarea name="sql" rows="8" style="width:100%; font-family: monospace; font-size: 14px" placeholder="SELECT full_name, email FROM people_person ORDER BY date_joined DESC" aria-label="SQL">{{ sql }}</textarea>
+    <p style="margin-top:8px">
+      <label>Row limit <input type="number" name="limit" value="{{ limit }}" min="1" max="5000" style="width:6em"></label>
+      <button type="submit" name="action" value="read" class="button default" style="margin-left:8px">Run read query</button>
+      {% if can_write %}<button type="submit" name="action" value="dry_run" class="button" style="margin-left:8px">Dry run a change</button>{% endif %}
+    </p>
+    {% if can_write and dry_rows is not None %}
+      <fieldset class="module aligned" style="padding:12px; border:1px solid var(--warning-fg, #b26a00)">
+        <p><strong>This would change {{ dry_rows }} row{{ dry_rows|pluralize }}.</strong> Nothing has been changed yet{% if rows %}; the first {{ rows|length }} are shown below{% endif %}.</p>
+        <label>Type <code>{{ dry_rows }}</code> or <code>CONFIRM</code> to commit: <input name="confirm" autocomplete="off" style="width:8em"></label>
+        <button type="submit" name="action" value="commit" class="button" style="margin-left:8px">Commit this change</button>
+      </fieldset>
+    {% endif %}
+  </form>
+
+  {% if columns %}
+    <h2 style="margin-top:20px">{% if dry_rows is not None %}Rows this would change{% else %}{{ rows|length }} row{{ rows|length|pluralize }}{% if truncated %} (stopped at the limit){% endif %}{% endif %}
+      {% if run and run.mode == 'read' %} · <a href="?download=csv&run={{ run.pk }}">CSV</a> · <a href="?download=xlsx&run={{ run.pk }}">Excel</a>{% endif %}</h2>
+    <div style="overflow:auto; max-height: 60vh"><table>
+      <thead><tr>{% for c in columns %}<th>{{ c }}</th>{% endfor %}</tr></thead>
+      <tbody>{% for row in rows %}<tr>{% for v in row %}<td style="white-space:pre-wrap">{{ v|default_if_none:"NULL" }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+    </table></div>
+  {% elif run and not error and dry_rows is None %}<p>No rows.</p>{% endif %}
+
+  <h2 style="margin-top:28px">Recent runs</h2>
+  <table style="width:100%">
+    <thead><tr><th>When</th><th>Who</th><th>Mode</th><th>Query</th><th>Rows</th><th>Result</th></tr></thead>
+    <tbody>{% for h in history %}<tr>
+      <td style="white-space:nowrap">{{ h.created_at|date:"j M, H:i" }}</td><td>{{ h.user.display_name }}</td><td>{{ h.get_mode_display }}</td>
+      <td><code style="white-space:pre-wrap">{{ h.query|truncatechars:200 }}</code></td><td>{{ h.rows|default_if_none:"" }}</td>
+      <td>{% if h.error %}<span style="color:#ba2121">{{ h.error|truncatechars:120 }}</span>{% elif h.committed %}committed{% else %}ok{% endif %}</td>
+    </tr>{% empty %}<tr><td colspan="6">No runs yet.</td></tr>{% endfor %}</tbody>
+  </table>
+</div>
+{% endblock %}

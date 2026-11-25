@@ -1,6 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.decorators import login_required
 from django.urls import include, path
+from django.views.generic import RedirectView
 
 admin.site.site_header = "KL-CIIE event portal"
 admin.site.site_title = "KL-CIIE admin"
@@ -9,6 +10,7 @@ admin.site.index_title = "Run events"
 admin.site.login = login_required(admin.site.login)
 
 urlpatterns = [
+    path("admin/sql/", RedirectView.as_view(pattern_name="admin:sqlconsole_sqlrun_changelist")),
     path("admin/", admin.site.urls),
     # people.urls comes first so the one-box sign-in replaces allauth's pages.
     path("", include("people.urls")),
