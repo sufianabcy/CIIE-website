@@ -221,8 +221,15 @@ def _group(name):
     return Group.objects.get_or_create(name=name)[0]
 
 
-def add_faculty(event, person, extra=None) -> tuple[EventFaculty, bool]:
+def make_faculty_type(person):
+    if person.kind != "faculty":
+        person.kind = "faculty"
+        person.save(update_fields=["kind"])
     person.groups.add(_group("Faculty"))
+
+
+def add_faculty(event, person, extra=None) -> tuple[EventFaculty, bool]:
+    make_faculty_type(person)
     role, created = EventFaculty.objects.get_or_create(event=event, person=person, defaults={"extra": extra or {}})
     if not created and extra:
         role.extra = {**role.extra, **extra}
@@ -265,7 +272,7 @@ def add_volunteer(event, person, extra=None, switches=None):
 def add_supervisor(event, person, kind=Supervisor.Kind.FACULTY, extra=None, switches=None) -> tuple[Supervisor, bool]:
     person.groups.add(_group("Supervisor"))
     if kind == Supervisor.Kind.FACULTY:
-        person.groups.add(_group("Faculty"))
+        make_faculty_type(person)
     role, created = Supervisor.objects.get_or_create(event=event, person=person, defaults={"kind": kind, "extra": extra or {}})
     if not created:
         role.kind = kind
@@ -792,7 +799,7 @@ def approve_faculty_request(req, by, note="", allow_duplicates=False):
     if req.event_id:
         add_faculty(req.event, person, {"Designation": req.designation})
     else:
-        person.groups.add(_group("Faculty"))
+        make_faculty_type(person)
     req.status, req.note, req.decided_by, req.decided_at = FacultyRequest.Status.APPROVED, note, by, timezone.now()
     req.save()
     _decision_email(req)

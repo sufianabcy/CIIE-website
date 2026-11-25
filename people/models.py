@@ -64,6 +64,10 @@ class Person(AbstractBaseUser, PermissionsMixin):
     never deleted, so "added by" stamps keep pointing at someone.
     """
 
+    class Kind(models.TextChoices):
+        STUDENT = "student", "Student"
+        FACULTY = "faculty", "Faculty"
+
     class Source(models.TextChoices):
         SIGNUP = "signup", "Signed up"
         WALK_IN = "walk_in", "Walk-in at the door"
@@ -99,6 +103,10 @@ class Person(AbstractBaseUser, PermissionsMixin):
     kl_verified_at = models.DateTimeField("KL status verified", null=True, blank=True)
 
     source = models.CharField(max_length=20, choices=Source.choices, default=Source.SIGNUP)
+    kind = models.CharField(
+        "type", max_length=20, choices=Kind.choices, default=Kind.STUDENT,
+        help_text="Students and faculty have different details. Coordinator and Admin are roles on top of this.",
+    )
     profile_completed_at = models.DateTimeField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField("can open the admin", default=False)
@@ -122,7 +130,7 @@ class Person(AbstractBaseUser, PermissionsMixin):
                 fields=["student_id"], condition=~Q(student_id=""), name="person_student_id_unique"
             ),
             models.UniqueConstraint(
-                fields=["employee_id"], condition=~Q(employee_id=""), name="person_employee_id_unique"
+                Lower("employee_id"), condition=~Q(employee_id=""), name="person_employee_id_unique_ci"
             ),
         ]
 
@@ -175,6 +183,10 @@ class Person(AbstractBaseUser, PermissionsMixin):
     @property
     def is_portal_admin(self) -> bool:
         return self.in_group("Admin")
+
+    @property
+    def is_faculty_type(self) -> bool:
+        return self.kind == self.Kind.FACULTY
 
     @property
     def is_faculty(self) -> bool:

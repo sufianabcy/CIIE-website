@@ -1,0 +1,18 @@
+{% extends "admin/base_site.html" %}
+{% comment %}First step of "Add person": choose the type, so the form only asks for that type's details.{% endcomment %}
+{% block breadcrumbs %}<div class="breadcrumbs"><a href="{% url 'admin:index' %}">Home</a> › <a href="{% url 'admin:people_person_changelist' %}">People</a> › Add a person</div>{% endblock %}
+{% block content %}
+<div id="content-main">
+  <p>Who are you adding? Coordinator and Admin are roles you can switch on afterwards for either.</p>
+  <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:16px; max-width:720px; margin-top:16px">
+    <a class="module" href="?type=student" style="display:block; padding:18px; text-decoration:none; border-radius:10px">
+      <strong style="display:block; font-size:16px">Student</strong>
+      <span style="color:var(--body-quiet-color)">Name, email, phone, institution, branch, year, KL email and KL ID.</span>
+    </a>
+    <a class="module" href="?type=faculty" style="display:block; padding:18px; text-decoration:none; border-radius:10px">
+      <strong style="display:block; font-size:16px">Faculty</strong>
+      <span style="color:var(--body-quiet-color)">Name, email, phone, department, employee ID and KL email.</span>
+    </a>
+  </div>
+</div>
+{% endblock %}

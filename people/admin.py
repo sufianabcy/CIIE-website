@@ -1,86 +1,181 @@
 from django import forms
 from django.contrib import admin
 from django.contrib.auth.models import Group
+from django.shortcuts import render
+from django.utils import timezone
+from django.utils.html import format_html_join
 
-from .models import Person
+from .models import Person, is_kl_email
 
-# Roles that open the admin. Faculty is a role too, but faculty only use the judging pages.
-ROLE_GROUPS = {"Coordinator", "Admin"}  # supervisors work on the hackathon pages, not in the admin
+# Roles that open the admin. Faculty is a type of person (and a role), but faculty only use the judging pages.
+ROLE_GROUPS = {"Coordinator", "Admin"}  # supervisors and volunteers work on the hackathon pages, not in the admin
 
-
-ROLES = [
-    ("student", "Student"),
-    ("faculty", "Faculty (judges at hackathons)"),
-    ("coordinator", "Coordinator (runs the events they're added to)"),
-    ("admin", "Admin (everything)"),
-]
-ROLE_GROUP = {"faculty": "Faculty", "coordinator": "Coordinator", "admin": "Admin"}
+# What each type of person has. Department is stored in `branch`.
+STUDENT_FIELDS = ["kind", "email", "full_name", "phone", "institution", "branch", "year_of_study", "kl_email", "student_id"]
+FACULTY_FIELDS = ["kind", "email", "full_name", "phone", "branch", "employee_id", "kl_email"]
 
 
-def role_of(person) -> str:
-    names = set(person.groups.values_list("name", flat=True)) if person.pk else set()
-    if person.is_superuser or "Admin" in names:
-        return "admin"
-    if "Coordinator" in names:
-        return "coordinator"
-    return "faculty" if "Faculty" in names else "student"
+def _group(name):
+    return Group.objects.get_or_create(name=name)[0]
 
 
 class PersonForm(forms.ModelForm):
-    role = forms.ChoiceField(
-        choices=ROLES, widget=forms.RadioSelect,
-        help_text="Supervisors are chosen per hackathon on its page. Coordinators also need adding to each event they run.",
+    """Type first (student or faculty), their details, then Coordinator and Admin as roles on top."""
+
+    is_coordinator = forms.BooleanField(
+        label="Coordinator", required=False,
+        help_text="Runs the events they're added to (on each event's page). A student or a faculty member can be one.",
     )
+    is_admin = forms.BooleanField(label="Admin", required=False, help_text="Can see and change everything. Only superusers grant this.")
 
     class Meta:
         model = Person
         fields = "__all__"
+        labels = {"full_name": "Name"}
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, kind=None, can_grant_admin=False, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["role"].initial = role_of(self.instance)
+        self.kind = kind or self.instance.kind
+        names = set(self.instance.groups.values_list("name", flat=True)) if self.instance.pk else set()
+        self.fields["is_coordinator"].initial = "Coordinator" in names
+        self.fields["is_admin"].initial = "Admin" in names
+        if not can_grant_admin:
+            self.fields["is_admin"].disabled = True
+        if "kind" in self.fields:
+            self.fields["kind"].widget = forms.RadioSelect(choices=Person.Kind.choices)
+            if self.instance.pk:
+                self.fields["kind"].help_text = "Changing the type changes which details are kept here. Details of the old type stay hidden, not deleted."
+        if "branch" in self.fields and self.kind == Person.Kind.FACULTY:
+            self.fields["branch"].label = "Department"
+        if "employee_id" in self.fields:
+            self.fields["employee_id"].help_text = "Unique. Used to match faculty in Excel uploads."
+
+    def clean_employee_id(self):
+        value = " ".join((self.cleaned_data.get("employee_id") or "").split())
+        if value and Person.objects.filter(employee_id__iexact=value).exclude(pk=self.instance.pk).exists():
+            raise forms.ValidationError("Someone else already has this employee ID.")
+        return value
+
+    def clean(self):
+        cleaned = super().clean()
+        if self.kind == Person.Kind.FACULTY and "employee_id" in self.fields and not cleaned.get("employee_id"):
+            self.add_error("employee_id", "Faculty need an employee ID.")
+        return cleaned
 
 
 @admin.register(Person)
 class PersonAdmin(admin.ModelAdmin):
     form = PersonForm
-    list_display = ["display_name", "email", "student_id", "kl_verified", "roles", "is_active", "date_joined"]
-    list_filter = ["is_active", "groups", "source"]
+    list_display = ["display_name", "kind", "email", "id_number", "role_badges", "is_active", "date_joined"]
+    list_filter = ["kind", "is_active", "groups", "source"]
     search_fields = ["full_name", "email", "kl_email", "student_id", "phone", "employee_id", "login_id"]
     ordering = ["-date_joined"]
     readonly_fields = ["date_joined", "last_login", "profile_completed_at", "source", "login_id", "failed_password_signins"]
     filter_horizontal = ["groups"]
     actions = ["deactivate", "reactivate", "unlock_password"]
-    fieldsets = [
-        (None, {"fields": ["email", "full_name", "phone", "institution", "branch", "year_of_study"]}),
-        ("KL status", {"fields": ["kl_email", "student_id", "kl_verified_at"]}),
-        (
-            "Staff sign-in (faculty and supervisors)",
-            {
-                "fields": ["employee_id", "login_id", "must_change_password", "temp_password_expires_at", "failed_password_signins"],
-                "description": "Temporary passwords are made on each hackathon's page and shown once, in an Excel file.",
-            },
-        ),
-        ("Role", {"fields": ["role", "is_active"], "description": "Keep two admins at all times."}),
-        ("Dates", {"classes": ["collapse"], "fields": ["date_joined", "last_login", "profile_completed_at", "source"]}),
-    ]
-    ADVANCED = ("Advanced (superusers)", {"classes": ["collapse"], "fields": ["groups", "is_superuser"],
-                                          "description": "The raw role groups. Usually the Role choice above is enough."})
+
+    # --- Which fields, for which type ---------------------------------------------------------
+
+    def _kind(self, request, obj=None):
+        chosen = request.POST.get("kind") or request.GET.get("type")
+        if chosen in Person.Kind.values:
+            return chosen
+        return obj.kind if obj else None
 
     def get_fieldsets(self, request, obj=None):
-        fieldsets = list(super().get_fieldsets(request, obj))
-        return fieldsets + [self.ADVANCED] if request.user.is_superuser else fieldsets
+        kind = self._kind(request, obj) or Person.Kind.STUDENT
+        details = FACULTY_FIELDS if kind == Person.Kind.FACULTY else STUDENT_FIELDS
+        fieldsets = [
+            ("Faculty member" if kind == Person.Kind.FACULTY else "Student", {"fields": details}),
+            ("Roles", {"fields": ["is_coordinator", "is_admin", "is_active"],
+                       "description": "Supervisors and volunteers are chosen per hackathon on its page. Keep two admins at all times."}),
+        ]
+        if obj:
+            fieldsets += [
+                ("Staff sign-in", {"classes": ["collapse"],
+                                   "fields": ["login_id", "must_change_password", "temp_password_expires_at", "failed_password_signins"],
+                                   "description": "Temporary passwords are made on each hackathon's page and shown once, in an Excel file."}),
+                ("Dates", {"classes": ["collapse"], "fields": ["date_joined", "last_login", "profile_completed_at", "source"]}),
+            ]
+        if request.user.is_superuser:
+            fieldsets.append(("Advanced (superusers)", {"classes": ["collapse"], "fields": ["kl_verified_at", "groups", "is_superuser"],
+                                                        "description": "Set automatically when a KL email is saved, and the raw role groups."}))
+        return fieldsets
 
-    @admin.display(boolean=True, description="KL verified")
-    def kl_verified(self, obj):
-        return obj.is_kl_verified
+    def get_form(self, request, obj=None, change=False, **kwargs):
+        form_class = super().get_form(request, obj, change=change, **kwargs)
+        kind = self._kind(request, obj) or Person.Kind.STUDENT
+        can_grant_admin = request.user.is_superuser
+
+        class Form(form_class):
+            def __init__(self, *args, **kw):
+                kw.setdefault("kind", kind)
+                kw.setdefault("can_grant_admin", can_grant_admin)
+                super().__init__(*args, **kw)
+
+        return Form
+
+    def get_changeform_initial_data(self, request):
+        initial = super().get_changeform_initial_data(request)
+        if request.GET.get("type") in Person.Kind.values:
+            initial["kind"] = request.GET["type"]
+        return initial
+
+    def add_view(self, request, form_url="", extra_context=None):
+        """Ask "Student or faculty?" first; the form that follows has only that type's details."""
+        if request.method == "GET" and request.GET.get("type") not in Person.Kind.values:
+            return render(request, "admin/people/person/choose_type.html", {
+                **self.admin_site.each_context(request), "title": "Add a person", "opts": self.model._meta,
+            })
+        return super().add_view(request, form_url, extra_context)
+
+    # --- Saving -----------------------------------------------------------------------------------
+
+    def save_model(self, request, obj, form, change):
+        if obj.kl_email and is_kl_email(obj.kl_email) and not obj.kl_verified_at:
+            obj.kl_verified_at = timezone.now()  # an admin entering it counts as verified
+        if not obj.pk:
+            obj.set_unusable_password()  # students sign in by emailed code; staff get temporary passwords
+        super().save_model(request, obj, form, change)
+
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        person = form.instance
+        if not (request.user.is_superuser and "groups" in form.changed_data):
+            if person.kind == Person.Kind.FACULTY:
+                person.groups.add(_group("Faculty"))  # can be added to hackathons as faculty straight away
+            elif not person.faculty_roles.exists():
+                person.groups.remove(*Group.objects.filter(name="Faculty"))
+            for name, field in (("Coordinator", "is_coordinator"), ("Admin", "is_admin")):
+                if form.fields[field].disabled:
+                    continue
+                if form.cleaned_data.get(field):
+                    person.groups.add(_group(name))
+                else:
+                    person.groups.remove(*Group.objects.filter(name=name))
+        staff = person.is_superuser or person.groups.filter(name__in=ROLE_GROUPS).exists()
+        if person.is_staff != staff:
+            person.is_staff = staff
+            person.save(update_fields=["is_staff"])
+
+    # --- List -------------------------------------------------------------------------------------
+
+    @admin.display(description="KL ID / employee ID")
+    def id_number(self, obj):
+        return obj.employee_id if obj.kind == Person.Kind.FACULTY else obj.student_id
 
     @admin.display(description="Roles")
-    def roles(self, obj):
-        return ", ".join(g.name for g in obj.groups.all()) or "Student"
+    def role_badges(self, obj):
+        names = {g.name for g in obj.groups.all()}
+        badges = [n for n in ("Admin", "Coordinator") if n in names or (n == "Admin" and obj.is_superuser)]
+        if obj.supervisor_roles.exists():
+            badges.append("Supervisor")
+        if obj.volunteer_roles.exists():
+            badges.append("Volunteer")
+        return format_html_join(" ", '<span class="admin-tag-small">{}</span>', ((b,) for b in badges)) or "—"
 
     def get_queryset(self, request):
-        return super().get_queryset(request).prefetch_related("groups")
+        return super().get_queryset(request).prefetch_related("groups", "supervisor_roles", "volunteer_roles")
 
     def has_delete_permission(self, request, obj=None):
         return False  # people are deactivated, never deleted
@@ -90,23 +185,6 @@ class PersonAdmin(admin.ModelAdmin):
         if not request.user.is_superuser:
             fields.append("is_superuser")
         return fields
-
-    def save_related(self, request, form, formsets, change):
-        super().save_related(request, form, formsets, change)
-        person = form.instance
-        role = form.cleaned_data.get("role")
-        if role and not (request.user.is_superuser and "groups" in form.changed_data):
-            groups = set(person.groups.values_list("name", flat=True))
-            keep_faculty = "Faculty" in groups and person.faculty_roles.exists()  # still judges somewhere
-            person.groups.remove(*Group.objects.filter(name__in=["Faculty", "Coordinator", "Admin"]))
-            if role in ROLE_GROUP:
-                person.groups.add(Group.objects.get_or_create(name=ROLE_GROUP[role])[0])
-            if keep_faculty and role != "faculty":
-                person.groups.add(Group.objects.get_or_create(name="Faculty")[0])
-        staff = person.is_superuser or person.groups.filter(name__in=ROLE_GROUPS).exists()
-        if person.is_staff != staff:
-            person.is_staff = staff
-            person.save(update_fields=["is_staff"])
 
     @admin.action(description="Deactivate (they can no longer sign in)")
     def deactivate(self, request, queryset):

@@ -6,9 +6,8 @@ from django.urls import reverse
 from django.utils import timezone
 
 from events.models import Event
-from hackathon.models import EventFaculty, FacultyRequest
+from hackathon.models import FacultyRequest
 from mailer.models import OutboxEmail
-from people.models import Person
 
 HOME = "/admin/"
 
@@ -92,26 +91,3 @@ def test_normal_event_form_has_no_hackathon_section(client, portal_admin, event)
     client.force_login(portal_admin)
     change = client.get(reverse("admin:events_event_change", args=[event.pk])).content.decode()
     assert "show_jury_to_students" not in change and "Run the door" in change and "Door-team link" in change
-
-
-def test_role_choice_sets_the_groups(client, portal_admin, make_person, make_event):
-    person = make_person(email="role@example.com")
-    url = reverse("admin:people_person_change", args=[person.pk])
-    client.force_login(portal_admin)
-    page = client.get(url).content.decode()
-    assert 'name="role"' in page and 'name="groups"' not in page  # the raw widget is for superusers only
-    data = {"email": person.email, "full_name": person.full_name, "phone": person.phone, "institution": person.institution,
-            "branch": "", "year_of_study": "", "kl_email": "", "student_id": "", "employee_id": "",
-            "temp_password_expires_at_0": "", "temp_password_expires_at_1": "", "is_active": "on"}
-    client.post(url, {**data, "role": "coordinator"})
-    person.refresh_from_db()
-    assert person.is_coordinator and person.is_staff and not person.is_portal_admin
-    client.post(url, {**data, "role": "student"})
-    person.refresh_from_db()
-    assert not person.groups.exists() and not person.is_staff
-    # Someone who judges at a hackathon keeps the Faculty role when made a coordinator.
-    hack = make_event(kind=Event.Kind.HACKATHON)
-    person.groups.add(Group.objects.get(name="Faculty"))
-    EventFaculty.objects.create(event=hack, person=person)
-    client.post(url, {**data, "role": "coordinator"})
-    assert set(Person.objects.get(pk=person.pk).groups.values_list("name", flat=True)) == {"Faculty", "Coordinator"}
