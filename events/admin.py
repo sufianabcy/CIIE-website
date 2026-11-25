@@ -30,24 +30,41 @@ class QuestionInline(admin.StackedInline):
 
 @admin.register(Event)
 class EventAdmin(admin.ModelAdmin):
-    list_display = ["title", "kind", "starts_at", "status", "tools"]
-    list_filter = ["kind", "status"]
+    list_display = ["title", "kind", "starts_at", "status", "registered", "tools"]
+    list_filter = ["kind", "status", "is_practice"]
     search_fields = ["title", "slug", "venue"]
     prepopulated_fields = {"slug": ["title"]}
+    date_hierarchy = "starts_at"
+    change_form_template = "admin/events/event/change_form.html"
+    change_list_template = "admin/events/event/change_list.html"
+    # The first screen when creating an event: just enough to save it. Everything else comes after.
+    add_fieldsets = [
+        (None, {"fields": ["title", "kind", "status"]}),
+        ("When and where", {"fields": [("starts_at", "ends_at"), "venue"]}),
+    ]
+    HELP = {
+        "kind": "A hackathon has teams, rooms, rounds and faculty marking, and no passes or door check-in.",
+        "status": "Draft events are hidden from students. Publish when registration details are ready.",
+        "slug": "The short link: /e/<this>/. Made from the title; change it only before anyone shares it.",
+        "summary": "One line for the event card.",
+        "registration_closes_at": "Leave empty to keep registration open until the event ends.",
+        "coordinators": "People who run this event. They also need the Coordinator role (People page).",
+    }
     autocomplete_fields = ["coordinators"]
     readonly_fields = ["seats_taken", "form_version", "door_team_list", "door_link", "tools"]
     inlines = [QuestionInline]
 
     fieldsets = [
-        (None, {"fields": ["title", "slug", "kind", "status", "summary", "description", "venue"]}),
+        ("Basics", {"fields": ["title", "slug", "kind", "status", "summary", "description", "venue"]}),
+        ("Dates", {"fields": [("starts_at", "ends_at"), ("registration_opens_at", "registration_closes_at")]}),
         (
             "Hackathon",
             {
+                "classes": ["only-hackathon"],
                 "fields": ["show_jury_to_students"],
                 "description": "Only for hackathons. Students, teams, rooms, faculty, rounds and marks are on the event's Hackathon page.",
             },
         ),
-        ("When", {"fields": [("starts_at", "ends_at"), ("registration_opens_at", "registration_closes_at")]}),
         ("Team", {"fields": ["coordinators", "door_link", "door_team_list"]}),
         (
             "Report fields (optional)",
@@ -71,13 +88,58 @@ class EventAdmin(admin.ModelAdmin):
         return qs if request.user.is_portal_admin else qs.filter(coordinators=request.user)
 
     def get_fieldsets(self, request, obj=None):
+        if obj is None:
+            return self.add_fieldsets
         fieldsets = super().get_fieldsets(request, obj)
-        if obj and obj.is_hackathon:  # no door at hackathons
+        if obj.is_hackathon:  # no door at hackathons
             fieldsets = [
                 (name, {**opts, "fields": [f for f in opts["fields"] if f not in ("door_link", "door_team_list")]})
                 for name, opts in fieldsets
             ]
+        else:
+            fieldsets = [(name, opts) for name, opts in fieldsets if name != "Hackathon"]
         return fieldsets
+
+    def get_inlines(self, request, obj):
+        return [QuestionInline] if obj else []  # questions come after the first save
+
+    def get_prepopulated_fields(self, request, obj=None):
+        return self.prepopulated_fields if obj else {}
+
+    def get_form(self, request, obj=None, change=False, **kwargs):
+        form = super().get_form(request, obj, change=change, **kwargs)
+        for name, text in self.HELP.items():
+            if name in form.base_fields:
+                form.base_fields[name].help_text = text
+        return form
+
+    def save_model(self, request, obj, form, change):
+        if not obj.slug:
+            from django.utils.text import slugify
+
+            base = slugify(obj.title)[:40] or "event"
+            slug, n = base, 2
+            while Event.objects.filter(slug=slug).exclude(pk=obj.pk).exists():
+                slug, n = f"{base}-{n}", n + 1
+            obj.slug = slug
+        if not obj.is_hackathon:
+            obj.show_jury_to_students = False
+        super().save_model(request, obj, form, change)
+
+    def response_add(self, request, obj, post_url_continue=None):
+        from django.contrib import messages
+        from django.shortcuts import redirect
+
+        messages.success(request, f"{obj.title} is created. Now add the details below: description, registration questions and the team.")
+        return redirect("admin:events_event_change", obj.pk)
+
+    def render_change_form(self, request, context, add=False, change=False, form_url="", obj=None):
+        context.update(show_save_and_continue=False, show_save_and_add_another=False)
+        return super().render_change_form(request, context, add, change, form_url, obj)
+
+    @admin.display(description="Registered")
+    def registered(self, obj):
+        return obj.registrations.filter(status="confirmed").count()
 
     def get_readonly_fields(self, request, obj=None):
         fields = list(super().get_readonly_fields(request, obj))

@@ -1,0 +1,30 @@
+/* Layout for the admin home and the event form (structure only; colours and fonts come from admin.css). */
+.admin-home { max-width: 1120px; }
+.admin-home .home-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+.admin-home .btn-create { display: inline-block; padding: 10px 18px; border-radius: 8px; background: var(--button-bg); color: var(--button-fg); font-weight: 600; text-decoration: none; }
+.admin-home .btn-create:hover { background: var(--button-hover-bg); color: var(--button-fg); }
+.admin-home h2.home-title { font-size: 15px; margin: 24px 0 10px; }
+.admin-attention, .admin-actions, .admin-groups { display: grid; gap: 12px; }
+.admin-attention { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
+.admin-actions { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+.admin-groups { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); align-items: start; }
+.admin-card { display: block; padding: 14px 16px; border: 1px solid var(--hairline-color); border-radius: 10px; text-decoration: none; background: var(--body-bg); }
+.admin-card:hover { border-color: var(--link-fg); }
+.admin-card strong { display: block; font-size: 15px; color: var(--body-fg); }
+.admin-card .note { color: var(--body-quiet-color); font-size: 13px; }
+.admin-card .value { display: block; font-size: 24px; font-weight: 600; color: var(--body-fg); }
+.admin-card.is-alert .value { color: var(--error-fg); }
+.admin-group { border: 1px solid var(--hairline-color); border-radius: 10px; padding: 12px 14px; }
+.admin-group h3 { margin: 0 0 2px; font-size: 14px; }
+.admin-group .note { color: var(--body-quiet-color); font-size: 12px; margin: 0 0 8px; }
+.admin-group ul { list-style: none; margin: 0; padding: 0; }
+.admin-group li { display: flex; justify-content: space-between; gap: 8px; padding: 5px 0; border-top: 1px solid var(--hairline-color); }
+.admin-search { width: 100%; max-width: 360px; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 8px; }
+.admin-recent table { width: 100%; }
+.admin-recent td, .admin-recent th { vertical-align: middle; }
+.admin-empty { padding: 24px; border: 1px dashed var(--border-color); border-radius: 10px; text-align: center; }
+.admin-tag-small { display: inline-block; padding: 1px 6px; border-radius: 6px; font-size: 11px; background: var(--darkened-bg); color: var(--body-quiet-color); }
+/* Event form */
+.event-form-links { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
+.event-form-links a { padding: 6px 12px; border: 1px solid var(--hairline-color); border-radius: 8px; text-decoration: none; }
+.event-form-links a.primary { background: var(--button-bg); color: var(--button-fg); border-color: transparent; font-weight: 600; }

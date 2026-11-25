@@ -1,0 +1,31 @@
+{% extends "admin/change_form.html" %}
+{% load static %}
+{% comment %}Event form: shortcuts at the top, and hackathon-only / normal-only parts that follow the Type field.{% endcomment %}
+{% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static 'css/admin-layout.css' %}">{% endblock %}
+{% block form_top %}
+  {% if original %}
+  <div class="event-form-links">
+    {% if original.is_hackathon %}<a class="primary" href="{% url 'hackathon_dashboard' original.slug %}">Open hackathon page</a>
+    {% else %}<a class="primary" href="{% url 'door' original.slug %}">Run the door</a><a href="{% url 'door_counts' original.slug %}">Counts</a>{% endif %}
+    <a href="{{ original.get_absolute_url }}">Public page</a>
+    <a href="{% url 'event_report' original.slug %}">Report</a>
+  </div>
+  {% else %}
+  <p class="help">Give the event a name, choose its type and dates, and save. You'll add the description, registration questions and team on the next screen.</p>
+  {% endif %}
+{% endblock %}
+{% block admin_change_form_document_ready %}{{ block.super }}
+<script>
+  (function () {
+    var kind = document.getElementById("id_kind");
+    if (!kind) return;
+    function sync() {
+      var hack = kind.value === "hackathon";
+      document.querySelectorAll("fieldset.only-hackathon").forEach(function (el) { el.style.display = hack ? "" : "none"; });
+      document.querySelectorAll(".field-door_link, .field-door_team_list").forEach(function (el) { el.style.display = hack ? "none" : ""; });
+    }
+    kind.addEventListener("change", sync);
+    sync();
+  })();
+</script>
+{% endblock %}

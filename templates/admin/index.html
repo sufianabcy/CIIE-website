@@ -1,0 +1,92 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+{% comment %}Admin home (task dashboard). Context: ops/admin_home.py. Layout: static/css/admin-layout.css.{% endcomment %}
+{% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static 'css/admin-layout.css' %}">{% endblock %}
+{% block bodyclass %}{{ block.super }} dashboard admin-home-page{% endblock %}
+{% block nav-breadcrumbs %}{% endblock %}
+{% block nav-sidebar %}{% endblock %}
+{% block content_title %}{% endblock %}
+{% block content %}
+<div id="content-main" class="admin-home">
+  <div class="home-head">
+    <h1 style="margin:0">Admin home</h1>
+    {% if can_add_event %}<a class="btn-create" href="{{ add_event_url }}">+ Create event</a>{% endif %}
+  </div>
+
+  {% if attention %}
+  <h2 class="home-title">Needs attention</h2>
+  <div class="admin-attention">
+    {% for a in attention %}
+    <a class="admin-card{% if a.alert and a.value and a.value != 0 %} is-alert{% endif %}" href="{{ a.url }}"><span class="value">{{ a.value }}</span><span class="note">{{ a.label }}</span></a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if actions %}
+  <h2 class="home-title">Quick actions</h2>
+  <div class="admin-actions">
+    {% for a in actions %}<a class="admin-card" href="{{ a.url }}"><strong>{{ a.label }}</strong><span class="note">{{ a.note }}</span></a>{% endfor %}
+  </div>
+  {% endif %}
+
+  <h2 class="home-title">Recent and upcoming events</h2>
+  {% if recent %}
+  <div class="module admin-recent"><table>
+    <tbody>{% for e in recent %}<tr>
+      <th scope="row">{{ e.title }}{% if e.is_hackathon %} <span class="admin-tag-small">hackathon</span>{% endif %}{% if e.status != 'published' %} <span class="admin-tag-small">{{ e.get_status_display }}</span>{% endif %}</th>
+      <td>{{ e.starts_at|date:"D j M, g:i A" }}</td>
+      <td>{{ e.registered }} registered</td>
+      <td style="text-align:right; white-space:nowrap">
+        {% if e.is_hackathon %}<a href="{% url 'hackathon_dashboard' e.slug %}">Hackathon page</a>{% else %}<a href="{% url 'door' e.slug %}">Run</a>{% endif %}
+        · <a href="{% url 'admin:events_event_change' e.pk %}">Edit</a> · <a href="{{ e.get_absolute_url }}">Public page</a>
+      </td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}
+  <div class="admin-empty">
+    <p><strong>No events yet.</strong> Start by creating your first event or hackathon.</p>
+    {% if can_add_event %}<a class="btn-create" href="{{ add_event_url }}">+ Create event</a>{% else %}<p>An admin adds you to the events you run.</p>{% endif %}
+  </div>
+  {% endif %}
+
+  <h2 class="home-title">Everything else</h2>
+  <input class="admin-search" type="search" placeholder="Find a page (for example: email, people, backups)" aria-label="Find a page" data-admin-search>
+  <div class="admin-groups" style="margin-top:12px">
+    {% for g in groups %}
+    <section class="admin-group" data-admin-group>
+      <h3>{{ g.title }}</h3>
+      <p class="note">{{ g.note }}</p>
+      <ul>{% for name, url, add in g.links %}<li data-admin-link><a href="{{ url }}">{{ name }}</a>{% if add %}<a href="{{ add }}" class="addlink">Add</a>{% endif %}</li>{% endfor %}</ul>
+    </section>
+    {% endfor %}
+    {% if status_url %}<section class="admin-group" data-admin-group><h3>Status</h3><p class="note">Is everything running?</p><ul><li data-admin-link><a href="{{ status_url }}">Status page</a></li></ul></section>{% endif %}
+  </div>
+
+  {% if advanced %}
+  <details class="admin-group" style="margin-top:16px" data-admin-group>
+    <summary style="cursor:pointer"><strong>Advanced</strong> <span class="note">({{ advanced|length }} technical tables, superusers only)</span></summary>
+    <ul style="margin-top:8px">{% for name, url, add in advanced %}<li data-admin-link><a href="{{ url }}">{{ name }}</a>{% if add %}<a href="{{ add }}" class="addlink">Add</a>{% endif %}</li>{% endfor %}</ul>
+  </details>
+  {% endif %}
+</div>
+<script>
+  (function () {
+    var box = document.querySelector("[data-admin-search]");
+    if (!box) return;
+    box.addEventListener("input", function () {
+      var q = box.value.trim().toLowerCase();
+      document.querySelectorAll("[data-admin-group]").forEach(function (group) {
+        var shown = 0;
+        group.querySelectorAll("[data-admin-link]").forEach(function (li) {
+          var hit = !q || li.textContent.toLowerCase().indexOf(q) !== -1;
+          li.style.display = hit ? "" : "none";
+          if (hit) shown++;
+        });
+        group.style.display = shown ? "" : "none";
+        if (q && shown && group.tagName === "DETAILS") group.open = true;
+      });
+    });
+  })();
+</script>
+{% endblock %}
+{% block sidebar %}{% endblock %}

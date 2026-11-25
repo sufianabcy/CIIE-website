@@ -1,0 +1,11 @@
+{% extends "admin/change_list.html" %}
+{% load static %}
+{% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static 'css/admin-layout.css' %}">{% endblock %}
+{% block result_list %}
+  {% if cl.result_count == 0 and not cl.query and not cl.has_active_filters %}
+    <div class="admin-empty" style="margin:16px">
+      <p><strong>No events yet.</strong> Create your first one: a normal event (passes and door check-in) or a hackathon.</p>
+      {% if has_add_permission %}<p><a class="button default" href="{% url 'admin:events_event_add' %}?kind=normal">Create event</a> <a class="button" href="{% url 'admin:events_event_add' %}?kind=hackathon">Create hackathon</a></p>{% endif %}
+    </div>
+  {% else %}{{ block.super }}{% endif %}
+{% endblock %}
