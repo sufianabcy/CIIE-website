@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} import · {{ event.title }}{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'hackathon_dashboard' event.slug %}">{% include "ui/icon.html" with name="arrow-left" %}{{ event.title }}</a>
+<header class="tool-head">
+  <div>
+    <span class="eyebrow">{{ title }} import · {{ item.filename }}</span>
+    <h1 class="heading-3">{% if step == 2 %}Match the columns{% elif step == 3 %}Check the rows{% else %}Imported{% endif %}</h1>
+    <p>1 Upload · <strong{% if step != 2 %} class="text-secondary"{% endif %}>2 Match columns</strong> · <strong{% if step != 3 %} class="text-secondary"{% endif %}>3 Check rows</strong> · <strong{% if step != 4 %} class="text-secondary"{% endif %}>4 Done</strong></p>
+  </div>
+</header>
+
+{% if step == 4 %}
+  <section class="panel mb-4">
+    <h2 class="panel-title">{% include "ui/icon.html" with name="check-circle" %}{{ result.summary }}</h2>
+    <p class="mb-2">{{ result.added }} added, {{ result.updated }} updated, {{ result.skipped|length }} row{{ result.skipped|length|pluralize }} skipped.</p>
+    {% if result.skipped %}<a class="btn btn-quiet btn-sm" href="{% url 'hackathon_import_skipped' event.slug item.pk %}">{% include "ui/icon.html" with name="download" %}Skipped rows and why (Excel)</a>{% endif %}
+  </section>
+  {% if result.warnings %}<section class="panel mb-4"><h2 class="panel-title">{% include "ui/icon.html" with name="warning" %}Done, but check</h2><ul class="mb-0">{% for w in result.warnings %}<li>{{ w }}</li>{% endfor %}</ul></section>{% endif %}
+  {% if result.skipped %}<section class="panel mb-4"><h2 class="panel-title">{% include "ui/icon.html" with name="x-circle" %}Skipped</h2><ul class="mb-0">{% for line, reasons in result.skipped.items %}{% for r in reasons %}<li class="text-danger">{{ r }}</li>{% endfor %}{% endfor %}</ul></section>{% endif %}
+  <a class="btn btn-primary" href="{% url 'hackathon_dashboard' event.slug %}">Back to the hackathon page</a>
+{% else %}
+  {% if errors %}<div class="alert alert-danger"><strong>Fix these before importing:</strong><ul class="mb-0">{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul></div>{% endif %}
+  {% if warnings %}<div class="alert alert-warning"><ul class="mb-0">{% for w in warnings %}<li>{{ w }}</li>{% endfor %}</ul></div>{% endif %}
+
+  <form method="post">{% csrf_token %}
+    <section class="panel mb-4">
+      <h2 class="panel-title">Which column holds each field</h2>
+      <p class="caption-2 text-secondary">Matched by header name{% if item.mapping %} (and your last choices){% endif %}. Pick a different column, or "not in this file".{% if can_fields %} To add or change fields, use <a href="{% url 'hackathon_manage_fields' event.slug %}">Fields</a>.{% endif %}</p>
+      <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+        <thead><tr><th>Field</th><th></th><th>Excel column</th></tr></thead>
+        <tbody>{% for t, chosen, chosen_name in table %}<tr>
+          <td>{{ t.label }}{% if t.required %} <span class="text-danger" title="required">*</span>{% endif %}</td>
+          <td>{% if chosen is not None %}<span class="tag tag-green">Matched</span>{% elif t.required %}<span class="tag tag-red">Missing</span>{% else %}<span class="tag">Not matched</span>{% endif %}</td>
+          <td><select class="form-select form-select-sm" name="map_{{ t.key }}" aria-label="Column for {{ t.label }}">
+            <option value="">— not in this file —</option>
+            {% for i, name in options %}<option value="{{ i }}"{% if i == chosen %} selected{% endif %}>{{ name }}</option>{% endfor %}
+          </select></td>
+        </tr>{% endfor %}</tbody>
+      </table></div>
+    </section>
+
+    {% if step == 3 %}
+    <section class="panel mb-4">
+      <h2 class="panel-title">{% if problems %}{% include "ui/icon.html" with name="warning" %}{{ problems|length }} of {{ row_count }} rows have problems{% else %}{% include "ui/icon.html" with name="check-circle" %}All {{ row_count }} rows look right{% endif %}</h2>
+      {% if problems %}<ul class="mb-0">{% for line, msgs in problems %}{% for m in msgs %}<li class="text-danger">{{ m }}</li>{% endfor %}{% endfor %}</ul>{% endif %}
+      <p class="caption-2 text-secondary mt-2 mb-0">Nothing has been saved yet.</p>
+    </section>
+    {% endif %}
+
+    <div class="d-flex flex-wrap gap-2">
+      <button class="btn btn-quiet" type="submit" name="action" value="check">{% if step == 3 %}Check again{% else %}Check the rows{% endif %}</button>
+      {% if step == 3 and not errors %}
+        {% if valid_count %}<button class="btn btn-primary" type="submit" name="action" value="import">{% if problems %}Import the {{ valid_count }} valid row{{ valid_count|pluralize }} and skip the rest{% else %}Import {{ valid_count }} row{{ valid_count|pluralize }}{% endif %}</button>{% endif %}
+        {% if problems %}<a class="btn btn-quiet" href="{% url 'hackathon_dashboard' event.slug %}">Fix the file and upload again</a>{% endif %}
+      {% endif %}
+    </div>
+  </form>
+{% endif %}
+{% endblock %}

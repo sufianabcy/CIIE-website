@@ -58,7 +58,7 @@ class Supervisor(models.Model):
     # What this supervisor may do at this hackathon. Labels and defaults: hackathon.access.PERMISSIONS
     # (a test keeps the two in step). Only admins change these.
     can_view_marks = models.BooleanField("view all marks", default=True, help_text="See every faculty member's marks on the marks page.")
-    can_edit_teams = models.BooleanField("edit rooms and teams", default=True, help_text="Add and edit rooms and teams, and move teams between rooms.")
+    can_edit_teams = models.BooleanField("edit rooms, teams and students", default=True, help_text="Add and edit rooms, teams and students' details, and move teams between rooms.")
     can_edit_allocations = models.BooleanField("edit allocations", default=True, help_text="Allocate faculty to rooms for each round, and remove allocations.")
     can_edit_rounds = models.BooleanField("edit round times", default=True, help_text="Change when rounds open and close, including Open now and Close now.")
     can_download = models.BooleanField("download Excel files", default=True, help_text="Download this hackathon's Excel files.")
@@ -68,7 +68,8 @@ class Supervisor(models.Model):
     can_make_logins = models.BooleanField("make faculty passwords", default=False, help_text="Make or reset temporary passwords for this hackathon's faculty.")
     can_import = models.BooleanField("import Excel", default=False, help_text="Upload the students, faculty and allocations Excel files.")
     can_approve_requests = models.BooleanField("approve faculty requests", default=False, help_text="Approve or reject faculty requests that chose this hackathon.")
-    can_add_faculty = models.BooleanField("add faculty", default=False, help_text="Add existing people to this hackathon's faculty list.")
+    can_add_faculty = models.BooleanField("add and edit faculty", default=False, help_text="Add people to this hackathon's faculty list and edit their details.")
+    can_manage_fields = models.BooleanField("manage fields and imports", default=False, help_text="Define the student and faculty detail fields, and match Excel columns on import.")
 
     class Meta:
         ordering = ["event", "person__full_name"]
@@ -387,3 +388,80 @@ class MarkChange(models.Model):
 
     def __str__(self):
         return f"{self.get_kind_display()} by {self.changed_by} on {self.changed_at:%d %b %Y}"
+
+
+class FieldDefinition(models.Model):
+    """One student or faculty detail field for one hackathon: built-in (stored on the person) or custom."""
+
+    class AppliesTo(models.TextChoices):
+        STUDENT = "student", "Students"
+        FACULTY = "faculty", "Faculty"
+
+    class Kind(models.TextChoices):
+        TEXT = "text", "Short text"
+        LONG_TEXT = "long_text", "Long text"
+        NUMBER = "number", "Number"
+        EMAIL = "email", "Email"
+        PHONE = "phone", "Phone"
+        DATE = "date", "Date"
+        YES_NO = "yes_no", "Yes or no"
+        CHOICE = "choice", "One choice"
+
+    event = models.ForeignKey("events.Event", on_delete=models.CASCADE, related_name="detail_fields")
+    applies_to = models.CharField(max_length=20, choices=AppliesTo.choices)
+    key = models.SlugField(max_length=50, help_text="Permanent ID, used in exports.")
+    label = models.CharField(max_length=150)
+    kind = models.CharField("type", max_length=20, choices=Kind.choices, default=Kind.TEXT)
+    required = models.BooleanField(default=False)
+    position = models.PositiveSmallIntegerField("order", default=0)
+    choices = models.JSONField(default=list, blank=True, help_text="For one-choice fields.")
+    builtin = models.CharField(
+        max_length=30, blank=True, help_text="Set for the built-in fields stored on the person (name, email, ...)."
+    )
+
+    class Meta:
+        ordering = ["applies_to", "position", "id"]
+        constraints = [models.UniqueConstraint(fields=["event", "applies_to", "key"], name="detail_field_key_unique")]
+
+    def __str__(self):
+        return self.label
+
+    @property
+    def always_required(self) -> bool:
+        return self.builtin in ("name", "email")
+
+
+class PersonDetails(models.Model):
+    """Custom field values for one person at one hackathon."""
+
+    event = models.ForeignKey("events.Event", on_delete=models.CASCADE, related_name="person_details")
+    person = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="hackathon_details")
+    values = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["event", "person"], name="person_details_unique")]
+
+
+class ImportUpload(models.Model):
+    """An uploaded Excel file going through the import steps (match columns, check rows, import)."""
+
+    event = models.ForeignKey("events.Event", on_delete=models.CASCADE, related_name="+")
+    kind = models.CharField(max_length=20)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="+")
+    filename = models.CharField(max_length=255)
+    content = models.BinaryField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    mapping = models.JSONField(default=dict, blank=True, help_text="Target field to column index, as last chosen.")
+    result = models.JSONField(default=dict, blank=True, help_text="Summary and skipped rows, once imported.")
+    imported_at = models.DateTimeField(null=True, blank=True)
+
+
+class ImportMapping(models.Model):
+    """The last column matching used for one kind of upload at one hackathon, to pre-fill the next one."""
+
+    event = models.ForeignKey("events.Event", on_delete=models.CASCADE, related_name="+")
+    kind = models.CharField(max_length=20)
+    mapping = models.JSONField(default=dict, help_text="Target field to Excel header text.")
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["event", "kind"], name="import_mapping_unique")]

@@ -1,0 +1,18 @@
+{% if team %}
+<section class="panel">
+  <h2 class="panel-title">{% include "ui/icon.html" with name="users" %}Members</h2>
+  <ul class="list-unstyled mb-3">
+    {% for m in members %}<li class="d-flex justify-content-between align-items-center mb-2"><span>{{ m.registration.person.display_name }}</span>
+      <form method="post">{% csrf_token %}<input type="hidden" name="member_action" value="remove"><input type="hidden" name="member" value="{{ m.pk }}"><button class="btn btn-quiet btn-sm" type="submit">Remove</button></form></li>
+    {% empty %}<li class="text-secondary">No members yet.</li>{% endfor %}
+  </ul>
+  {% if free %}
+  <form method="post" class="d-flex gap-2">{% csrf_token %}<input type="hidden" name="member_action" value="add">
+    <select name="registration" class="form-select form-select-sm" aria-label="Student to add">{% for r in free %}<option value="{{ r.pk }}">{{ r.person.display_name }}</option>{% endfor %}</select>
+    <button class="btn btn-quiet btn-sm" type="submit">Add</button>
+  </form>
+  {% else %}<p class="caption-2 text-secondary mb-0">Every registered student is already in a team. To move someone, open them on the Students page.</p>{% endif %}
+</section>
+{% else %}
+<section class="panel"><p class="text-secondary mb-0">Save the team first, then add members.</p></section>
+{% endif %}

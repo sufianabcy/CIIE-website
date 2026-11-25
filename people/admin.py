@@ -4,7 +4,7 @@ from django.contrib.auth.models import Group
 from .models import Person
 
 # Roles that open the admin. Faculty is a role too, but faculty only use the judging pages.
-ROLE_GROUPS = {"Coordinator", "Admin", "Supervisor"}
+ROLE_GROUPS = {"Coordinator", "Admin"}  # supervisors work on the hackathon pages, not in the admin
 
 
 @admin.register(Person)

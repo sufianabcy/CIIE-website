@@ -51,36 +51,9 @@ COORDINATOR_PERMS = [
 ]
 
 # Supervisors: everything about their hackathon except marks and the rubric; they never add supervisors.
-SUPERVISOR_PERMS = [
-    # The model permissions a supervisor could ever need; what each one may actually do at each
-    # hackathon is the switches on their Supervisor row (hackathon.access.allowed).
-    "hackathon.add_eventfaculty",
-    "hackathon.view_markchange",
-    "events.view_event",
-    "events.view_question",
-    "registrations.view_registration",
-    "hackathon.view_eventfaculty",
-    "hackathon.change_eventfaculty",
-    "hackathon.view_supervisor",
-    "hackathon.view_room",
-    "hackathon.add_room",
-    "hackathon.change_room",
-    "hackathon.view_team",
-    "hackathon.add_team",
-    "hackathon.change_team",
-    "hackathon.view_teammember",
-    "hackathon.add_teammember",
-    "hackathon.change_teammember",
-    "hackathon.delete_teammember",
-    "hackathon.view_round",
-    "hackathon.change_round",
-    "hackathon.view_criterion",
-    "hackathon.view_assignment",
-    "hackathon.add_assignment",
-    "hackathon.change_assignment",
-    "hackathon.delete_assignment",
-    "hackathon.view_score",
-]
+# Supervisors work on the portal's hackathon pages, where hackathon.access.allowed() decides what each
+# may do; the group gives no Django admin permissions.
+SUPERVISOR_PERMS: list[str] = []
 
 ADMIN_APPS = ["people", "events", "registrations", "checkin", "results", "hackathon", "mailer", "ops", "pghistory", "account", "socialaccount", "auth"]
 # Rows that are never deleted, even by admins: they deactivate, cancel or undo instead.

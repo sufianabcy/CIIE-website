@@ -5,6 +5,7 @@ from decimal import Decimal
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import transaction
 from django.db.models import Count, Q
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -14,8 +15,8 @@ from django.views.decorators.http import require_POST
 
 from registrations.models import Registration
 
-from . import services
-from .access import PERMISSIONS, allowed, is_admin, overseen_event, overseen_events, permissions_for, require
+from . import imports, services
+from .access import allowed, is_admin, overseen_event, overseen_events, permissions_for, require
 from .exports import TEMPLATES, credentials_file, template_file
 from .forms import AllocateForm, CredentialsForm, MarksForm, MoveTeamForm, UploadForm
 from .models import Assignment, EventFaculty, Room, Round, Supervisor, Team, TeamMember
@@ -107,34 +108,94 @@ UPLOADS = {
 @login_required
 @require_POST
 def upload(request, slug, kind):
+    """Step 1: keep the uploaded file, then go to the column-matching step."""
+    from .models import ImportUpload
+
     event = overseen_event(request, slug)
     if kind not in UPLOADS:
         raise Http404
-    if kind == "supervisors" and not is_admin(request.user):
-        raise PermissionDenied  # only admins add supervisors
-    require(request.user, event, "can_import")
+    _import_allowed(request, event, kind)
     form = UploadForm(request.POST, request.FILES)
     if not form.is_valid():
         messages.error(request, " ".join(form.errors.get("file", ["Choose a file."])))
         return redirect("hackathon_dashboard", slug)
-    upload_file = form.cleaned_data["file"]
+    content = form.cleaned_data["file"].read()
     try:
-        if kind == "students":
-            report = services.import_students(event, upload_file, by=request.user)
-        elif kind == "faculty":
-            report = services.import_staff(event, upload_file, "faculty")
-        elif kind == "supervisors":
-            report = services.import_staff(event, upload_file, "supervisor")
-        else:
-            report = services.import_allocations(event, upload_file)
+        imports.read(content)
     except services.ImportFileError as exc:
         messages.error(request, str(exc))
         return redirect("hackathon_dashboard", slug)
-    title, noun = UPLOADS[kind]
-    return render(
-        request, "hackathon/import_result.html",
-        {"event": event, "title": title, "summary": report.summary(noun), "report": report},
-    )
+    item = ImportUpload.objects.create(event=event, kind=kind, user=request.user, filename=form.cleaned_data["file"].name, content=content)
+    return redirect("hackathon_import", slug, item.pk)
+
+
+def _import_allowed(request, event, kind):
+    if kind == "supervisors" and not is_admin(request.user):
+        raise PermissionDenied  # only admins add supervisors
+    require(request.user, event, "can_import")
+
+
+@never_cache
+@login_required
+def import_step(request, slug, pk):
+    """Steps 2 to 4: match columns to fields, check every row, then import the valid rows."""
+    from .models import ImportUpload
+
+    event = overseen_event(request, slug)
+    item = get_object_or_404(ImportUpload, pk=pk, event=event)
+    _import_allowed(request, event, item.kind)
+    headers, rows = imports.read(item.content)
+    targets_ = imports.targets(event, item.kind, request.user)
+    title, noun = UPLOADS[item.kind]
+    if item.imported_at:
+        return render(request, "hackathon/import_steps.html", {"event": event, "item": item, "title": title, "step": 4, "result": item.result})
+    mapping = item.mapping or imports.auto_match(headers, targets_, imports.saved_mapping(event, item.kind))
+    mapping = {t.key: mapping.get(t.key) for t in targets_}
+    problems, step = None, 2
+    if request.method == "POST" and any(k.startswith("map_") for k in request.POST):
+        for t in targets_:
+            raw = request.POST.get(f"map_{t.key}", "")
+            mapping[t.key] = int(raw) if raw.isdigit() and int(raw) < len(headers) else None
+        item.mapping = mapping
+        item.save(update_fields=["mapping"])
+    errors, warnings = imports.sheet_checks(headers, rows, mapping, targets_, item.kind)
+    action = request.POST.get("action") if request.method == "POST" else None
+    if action in ("check", "import") and not errors:
+        problems = imports.row_checks(event, item.kind, headers, rows, mapping, targets_)
+        step = 3
+        if action == "import":
+            valid = {line for line in range(2, len(rows) + 2) if line not in problems}
+            with transaction.atomic():
+                report = imports.run_import(item, mapping, valid, request.user)
+            skipped = {str(line): msgs for line, msgs in problems.items()}
+            for message in report.problems:  # anything the import itself refused at the last moment
+                line = message.split(":")[0].replace("Row ", "")
+                if line.isdigit():
+                    skipped.setdefault(line, []).append(message)
+            item.result = {"summary": report.summary(noun), "added": report.created, "updated": report.updated,
+                           "skipped": skipped, "warnings": report.warnings}
+            item.imported_at = timezone.now()
+            item.save(update_fields=["result", "imported_at"])
+            imports.remember(event, item.kind, headers, mapping)
+            return redirect("hackathon_import", slug, item.pk)
+    options = [(i, imports.col_name(i, headers)) for i in range(len(headers))]
+    table = [(t, mapping.get(t.key), imports.col_name(mapping[t.key], headers) if mapping.get(t.key) is not None else None) for t in targets_]
+    return render(request, "hackathon/import_steps.html", {
+        "event": event, "item": item, "title": title, "step": step, "table": table, "options": options,
+        "errors": errors, "warnings": warnings, "problems": sorted((problems or {}).items()),
+        "valid_count": len(rows) - len(problems or {}), "row_count": len(rows),
+        "can_fields": allowed(request.user, event, "can_manage_fields"),
+    })
+
+
+@login_required
+def import_skipped(request, slug, pk):
+    from .models import ImportUpload
+
+    event = overseen_event(request, slug)
+    item = get_object_or_404(ImportUpload, pk=pk, event=event, imported_at__isnull=False)
+    _import_allowed(request, event, item.kind)
+    return _download(f"{event.slug}-{item.kind}-skipped-rows.xlsx", imports.skipped_workbook(item))
 
 
 @login_required
@@ -391,9 +452,14 @@ def my_hackathon(request, slug):
             ]
         marks = team_marks(team, round_) if team and round_.results_published_at else None
         rounds.append({"round": round_, "jury": jury, "marks": marks})
+    from .fields import custom_values, display, ensure_fields
+
+    values = custom_values(event, request.user)
+    extra_details = [(d.label, display(d, values.get(d.key))) for d in ensure_fields(event, "student") if not d.builtin and values.get(d.key) not in (None, "")]
     return render(
         request, "hackathon/my_hackathon.html",
-        {"event": event, "registration": registration, "person": request.user, "team": team, "members": members, "rounds": rounds},
+        {"event": event, "registration": registration, "person": request.user, "team": team, "members": members, "rounds": rounds,
+         "extra_details": extra_details},
     )
 
 

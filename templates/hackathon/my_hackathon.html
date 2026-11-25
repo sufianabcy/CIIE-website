@@ -37,6 +37,7 @@
           {% if person.email %}<div><dt>Email</dt><dd>{{ person.email }}</dd></div>{% endif %}
           {% if person.student_id %}<div><dt>KL ID</dt><dd>{{ person.student_id }}</dd></div>{% endif %}
           {% if person.branch %}<div><dt>Branch</dt><dd>{{ person.branch }}{% if person.year_of_study %} · Year {{ person.year_of_study }}{% endif %}</dd></div>{% endif %}
+          {% for label, value in extra_details %}<div><dt>{{ label }}</dt><dd>{{ value }}</dd></div>{% endfor %}
         </dl>
         <a class="btn btn-quiet btn-sm mt-3" href="{% url 'profile' %}">{% include "ui/icon.html" with name="gear" %}Fix my details</a>
       </section>

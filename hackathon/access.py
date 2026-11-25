@@ -19,7 +19,7 @@ from .models import EventFaculty, Supervisor
 # field name -> (label, one-line explanation, default for a new supervisor)
 PERMISSIONS = {
     "can_view_marks": ("View all marks", "See every faculty member's marks on the marks page.", True),
-    "can_edit_teams": ("Edit rooms and teams", "Add and edit rooms and teams, and move teams between rooms.", True),
+    "can_edit_teams": ("Edit rooms, teams and students", "Add and edit rooms, teams and students' details, and move teams between rooms.", True),
     "can_edit_allocations": ("Edit allocations", "Allocate faculty to rooms for each round, and remove allocations.", True),
     "can_edit_rounds": ("Edit round times", "Change when rounds open and close, including Open now and Close now.", True),
     "can_download": ("Download Excel files", "Download this hackathon's Excel files.", True),
@@ -29,7 +29,8 @@ PERMISSIONS = {
     "can_make_logins": ("Make faculty passwords", "Make or reset temporary passwords for this hackathon's faculty.", False),
     "can_import": ("Import Excel", "Upload the students, faculty and allocations Excel files.", False),
     "can_approve_requests": ("Approve faculty requests", "Approve or reject faculty requests that chose this hackathon.", False),
-    "can_add_faculty": ("Add faculty", "Add existing people to this hackathon's faculty list.", False),
+    "can_add_faculty": ("Add and edit faculty", "Add people to this hackathon's faculty list and edit their details.", False),
+    "can_manage_fields": ("Manage fields and imports", "Define the student and faculty detail fields, and match Excel columns on import.", False),
 }
 DEFAULTS = {name: default for name, (_, _, default) in PERMISSIONS.items()}
 

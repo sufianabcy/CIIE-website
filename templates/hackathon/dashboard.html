@@ -11,6 +11,7 @@
   </div>
   {% if can.can_view_marks %}<a class="btn btn-quiet" href="{% url 'hackathon_marks' event.slug %}">{% include "ui/icon.html" with name="chart" %}All marks</a>{% endif %}
 </header>
+{% include "hackathon/_manage_nav.html" %}
 
 <div class="stat-grid mb-4">
   <div class="stat-card"><div class="stat-value">{{ students }}</div><div class="stat-label">students</div></div>
@@ -48,7 +49,7 @@
   <div class="table-responsive"><table class="table table-sm align-middle mb-0">
     <thead><tr><th>Team</th><th>Project</th><th>Mentor</th><th class="text-end">Size</th><th>Room</th></tr></thead>
     <tbody>{% for t in teams %}<tr>
-      <td><a href="{% url 'admin:hackathon_team_change' t.pk %}">{{ t.name }}</a></td>
+      <td>{% if can.can_edit_teams %}<a href="{% url 'hackathon_manage_team_edit' event.slug t.pk %}">{{ t.name }}</a>{% else %}{{ t.name }}{% endif %}</td>
       <td>{{ t.project_title|default:"—" }}</td>
       <td>{{ t.mentor_display|default:"—" }}</td>
       <td class="text-end num">{{ t.size }}</td>
@@ -63,7 +64,9 @@
   {% endif %}
   <div class="d-flex flex-wrap gap-2 mt-3">
     {% if can.can_download %}<a class="btn btn-quiet btn-sm" href="{% url 'event_export' event.slug 'teams' %}">{% include "ui/icon.html" with name="download" %}Teams and rooms (Excel)</a>{% endif %}
-    {% if can.can_edit_teams %}<a class="btn btn-quiet btn-sm" href="{% url 'admin:hackathon_room_changelist' %}?event__id__exact={{ event.pk }}">{% include "ui/icon.html" with name="gear" %}Edit rooms</a>{% endif %}
+    <a class="btn btn-quiet btn-sm" href="{% url 'hackathon_manage_students' event.slug %}">{% include "ui/icon.html" with name="users" %}Students</a>
+    <a class="btn btn-quiet btn-sm" href="{% url 'hackathon_manage_teams' event.slug %}">Teams</a>
+    <a class="btn btn-quiet btn-sm" href="{% url 'hackathon_manage_rooms' event.slug %}">Rooms</a>
   </div>
 </section>
 
@@ -87,14 +90,14 @@
     {{ upload_form.file }}
     <button class="btn btn-quiet" type="submit">Upload supervisors Excel</button>
   </form>
-  <p class="caption-2 text-secondary">Same columns plus <strong>Type</strong> (Faculty or Student), and optional Yes/No columns named after any permission below (for example <strong>Change marks</strong>). <a href="{% url 'hackathon_template' event.slug 'supervisors' %}">Sample file</a>. To add one by hand, use <a href="{% url 'admin:hackathon_supervisor_add' %}">Add supervisor</a>.</p>
+  <p class="caption-2 text-secondary">Same columns plus <strong>Type</strong> (Faculty or Student), and optional Yes/No columns named after any permission below (for example <strong>Change marks</strong>). <a href="{% url 'hackathon_template' event.slug 'supervisors' %}">Sample file</a>. To add one by hand, or change what one can do, use <a href="{% url 'hackathon_manage_supervisors' event.slug %}">Supervisors</a>.</p>
   {% endif %}
   {% if faculty or supervisors %}
   <div class="table-responsive"><table class="table table-sm align-middle mb-0">
     <thead><tr><th>Name</th><th>Role</th><th>Email / login ID</th><th>Department</th><th class="text-end">Submitted</th></tr></thead>
     <tbody>
     {% for f in faculty %}<tr{% if not f.is_active %} class="text-secondary"{% endif %}><td>{{ f.person.display_name }}{% if not f.is_active %} (off){% endif %}</td><td>Faculty</td><td>{{ f.person.email|default:"" }}{% if f.person.login_id %} <code>{{ f.person.login_id }}</code>{% endif %}</td><td>{{ f.person.branch }}</td><td class="text-end num">{{ f.done }} / {{ f.total }}</td></tr>{% endfor %}
-    {% for s in supervisors %}<tr><td>{{ s.person.display_name }}</td><td>Supervisor ({{ s.get_kind_display }})<div class="caption-2 text-secondary">Can: {% for label in s.switch_labels %}{{ label }}{% if not forloop.last %}, {% endif %}{% empty %}only look{% endfor %}</div>{% if is_admin %}<a class="caption-2" href="{% url 'admin:hackathon_supervisor_change' s.pk %}">Change what they can do</a>{% endif %}</td><td>{{ s.person.email|default:"" }}{% if s.person.login_id %} <code>{{ s.person.login_id }}</code>{% endif %}</td><td>{{ s.person.branch }}</td><td></td></tr>{% endfor %}
+    {% for s in supervisors %}<tr><td>{{ s.person.display_name }}</td><td>Supervisor ({{ s.get_kind_display }})<div class="caption-2 text-secondary">Can: {% for label in s.switch_labels %}{{ label }}{% if not forloop.last %}, {% endif %}{% empty %}only look{% endfor %}</div>{% if is_admin %}<a class="caption-2" href="{% url 'hackathon_manage_supervisor_edit' event.slug s.pk %}">Change what they can do</a>{% endif %}</td><td>{{ s.person.email|default:"" }}{% if s.person.login_id %} <code>{{ s.person.login_id }}</code>{% endif %}</td><td>{{ s.person.branch }}</td><td></td></tr>{% endfor %}
     </tbody></table></div>
   {% endif %}
 </section>
@@ -105,7 +108,7 @@
   <div class="table-responsive mb-3"><table class="table table-sm align-middle mb-0">
     <thead><tr><th>Round</th><th>Marking window</th><th>Rubric</th><th>State</th><th></th></tr></thead>
     <tbody>{% for r, rooms_row, unroomed in rounds %}<tr>
-      <td><a href="{% url 'admin:hackathon_round_change' r.pk %}">{{ r.name }}</a></td>
+      <td>{% if can.can_edit_rounds %}<a href="{% url 'hackathon_manage_round_edit' event.slug r.pk %}">{{ r.name }}</a>{% else %}{{ r.name }}{% endif %}</td>
       <td class="caption-2">{% if r.opens_at %}{{ r.opens_at|date:"j M, g:i A" }} – {% if r.closes_at %}{{ r.closes_at|date:"j M, g:i A" }}{% else %}until closed{% endif %}{% else %}not scheduled{% endif %}</td>
       <td class="caption-2">{% for c in r.criteria.all %}{{ c.label }} /{{ c.max_marks.normalize }}{% if not forloop.last %}, {% endif %}{% empty %}<span class="text-danger">no criteria yet</span>{% endfor %}</td>
       <td>{% if r.state == 'open' %}<span class="tag tag-green">Open</span>{% elif r.state == 'upcoming' %}<span class="tag tag-blue">Upcoming</span>{% else %}<span class="tag">{{ r.state|capfirst }}</span>{% endif %}{% if r.results_published_at %} <span class="tag tag-ink">Results out</span>{% endif %}</td>
@@ -119,7 +122,7 @@
     <p class="text-danger">No rounds yet. Faculty can't mark until a round has a rubric and is open.</p>
   {% endif %}
   <div class="d-flex flex-wrap align-items-center gap-2">
-    {% if is_admin %}<a class="btn btn-quiet btn-sm" href="{% url 'admin:hackathon_round_add' %}?event={{ event.pk }}">{% include "ui/icon.html" with name="plus" %}Add a round with its rubric</a>{% endif %}
+    {% if can.can_edit_rounds %}<a class="btn btn-quiet btn-sm" href="{% url 'hackathon_manage_round_add' event.slug %}">{% include "ui/icon.html" with name="plus" %}Add a round with its rubric</a>{% endif %}
     {% if can.can_publish %}<form method="post" action="{% url 'hackathon_jury_switch' event.slug %}">{% csrf_token %}<input type="hidden" name="show" value="{{ event.show_jury_to_students|yesno:'0,1' }}"><button class="btn btn-quiet btn-sm" type="submit">{{ event.show_jury_to_students|yesno:"Hide the jury from students,Show students their jury" }}</button></form>{% endif %}
     <span class="caption-2 text-secondary">Marks can only be entered while a round is open. "Publish results" lets each team see its own marks for that round. Students {% if event.show_jury_to_students %}see{% else %}don't see{% endif %} their jury.</span>
   </div>

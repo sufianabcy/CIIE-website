@@ -34,9 +34,18 @@ def _members(team):
     return ", ".join(m.registration.person.display_name for m in team.members.all())
 
 
+def _custom(event, applies_to):
+    from .fields import display, ensure_fields
+
+    defs = [d for d in ensure_fields(event, applies_to) if not d.builtin]
+    values = {p.person_id: p.values for p in event.person_details.all()}
+    return [d.label for d in defs], lambda person: [display(d, values.get(person.pk, {}).get(d.key)) for d in defs]
+
+
 def teams_workbook(event, wb):
     """One row per student with their team, project, room and mentor; then one row per team."""
     answer_headers, answer_values = _answers(event)
+    custom_headers, custom_values = _custom(event, "student")
     members = (
         TeamMember.objects.filter(team__event=event)
         .select_related("team__room", "team__mentor", "registration__person")
@@ -44,10 +53,11 @@ def teams_workbook(event, wb):
     )
     _sheet(
         wb, "Students",
-        ["Team", "Project title", "Room", "Mentor", "Registration ID"] + PERSON_HEADERS + answer_headers,
+        ["Team", "Project title", "Room", "Mentor", "Registration ID"] + PERSON_HEADERS + custom_headers + answer_headers,
         [
             [m.team.name, m.team.project_title, m.team.room.name if m.team.room else "", m.team.mentor_display,
-             m.registration.pass_code_display] + _person_columns(m.registration.person) + answer_values(m.registration)
+             m.registration.pass_code_display] + _person_columns(m.registration.person)
+            + custom_values(m.registration.person) + answer_values(m.registration)
             for m in members
         ],
         text_columns=["Phone", "KL ID", "Registration ID"],
@@ -82,15 +92,18 @@ def allocations_workbook(event, wb):
     )
     problems = room_rule_warnings(event) + mentor_conflicts(event)
     _sheet(wb, "Warnings", ["Check these"], [[p] for p in problems] or [["None: every faculty member judges one room per round, and no mentor judges their own team."]])
+    custom_headers, custom_values = _custom(event, "faculty")
     staff = [
         [f.person.display_name, f.person.email or "", f.person.employee_id, f.person.branch, "Faculty", f.assignments.count()]
+        + custom_values(f.person)
         for f in EventFaculty.objects.filter(event=event).select_related("person").prefetch_related("assignments")
     ] + [
         [s.person.display_name, s.person.email or "", s.person.employee_id or s.person.student_id, s.person.branch,
          f"Supervisor ({s.get_kind_display()})", ""]
         for s in Supervisor.objects.filter(event=event).select_related("person")
     ]
-    _sheet(wb, "Faculty and supervisors", ["Name", "Email", "Employee or KL ID", "Department", "Role", "Teams to judge"], staff, text_columns=["Employee or KL ID"])
+    _sheet(wb, "Faculty and supervisors", ["Name", "Email", "Employee or KL ID", "Department", "Role", "Teams to judge"] + custom_headers,
+           staff, text_columns=["Employee or KL ID"])
 
 
 def marks_workbook(event, wb):

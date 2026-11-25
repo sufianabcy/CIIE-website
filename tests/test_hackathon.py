@@ -6,7 +6,6 @@ import pytest
 from django.contrib import admin as django_admin
 from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError
-from django.test import RequestFactory
 from django.urls import reverse
 from django.utils import timezone
 from openpyxl import Workbook, load_workbook
@@ -14,7 +13,6 @@ from openpyxl import Workbook, load_workbook
 from events.exports import build_export
 from events.models import Event, Question
 from hackathon import services
-from hackathon.admin import AssignmentAdmin, ScoreInline
 from hackathon.models import Assignment, Criterion, EventFaculty, Room, Round, Score, Supervisor, Team, TeamMember
 from people.models import Person
 from people.staff import MAX_FAILED_SIGNINS, issue_temp_password
@@ -22,6 +20,20 @@ from registrations.models import Registration
 from registrations.services import register
 
 GOOD_PASSWORD = "river-lantern-42"
+
+
+def wizard(client, slug, kind, file, mapping=None, action="import"):
+    """Go through the import steps: upload, (optionally re-map), then check or import. Returns the last response."""
+    response = client.post(reverse("hackathon_upload", args=[slug, kind]), {"file": file})
+    if response.status_code != 302 or "/import/" not in response["Location"]:
+        return response
+    url = response["Location"]
+    if action is None:
+        return client.get(url)
+    data = {"action": action}
+    if mapping is not None:
+        data.update({f"map_{k}": "" if v is None else v for k, v in mapping.items()})
+    return client.post(url, data, follow=True)
 
 
 def xlsx(rows):
@@ -153,13 +165,14 @@ def test_faculty_import_creates_accounts_and_updates_by_employee_id(hack):
     assert Person.objects.get(employee_id="KLF2").phone == "9000000000"
 
 
-def test_only_admins_add_supervisors_and_supervisors_get_admin_access(client, hack, admin_user, make_person):
+def test_only_admins_add_supervisors(client, hack, admin_user, make_person):
     upload = xlsx([["Name", "Email", "KL ID", "Type"], ["Stu Dent", "stu@kluniversity.in", "2300099999", "Student"], ["Dr. S", "s@kluniversity.in", "", "Faculty"]])
     client.force_login(admin_user)
-    page = client.post(reverse("hackathon_upload", args=[hack.slug, "supervisors"]), {"file": upload})
+    page = wizard(client, hack.slug, "supervisors", upload)
     assert b"2 supervisor(s) added" in page.content
     student = Supervisor.objects.get(event=hack, person__email="stu@kluniversity.in")
-    assert student.kind == Supervisor.Kind.STUDENT and student.person.is_staff and student.person.is_supervisor
+    assert student.kind == Supervisor.Kind.STUDENT and student.person.is_supervisor
+    assert not student.person.is_staff  # supervisors work on the hackathon pages, not in the Django admin
     assert not student.person.is_faculty
     assert Person.objects.get(email="s@kluniversity.in").is_faculty
 
@@ -401,19 +414,8 @@ def test_supervisor_sees_their_hackathon_only_and_cannot_change_marks(client, se
     assert client.post(reverse("hackathon_round_action", args=[event.slug, round1.pk, "publish"])).status_code == 403
 
     assert client.get(reverse("hackathon_change_marks", args=[event.slug, assignment.pk])).status_code == 403
-    request = RequestFactory().get("/")
-    request.user = supervisor
-    inline = ScoreInline(Assignment, django_admin.site)
-    assert not inline.has_change_permission(request) and not inline.has_add_permission(request)
-    assignment_admin = AssignmentAdmin(Assignment, django_admin.site)
-    assert {"remarks", "submitted_at"} <= set(assignment_admin.get_readonly_fields(request, assignment))
-    assert list(assignment_admin.get_queryset(request)) == [assignment] + list(a.assignments.exclude(pk=assignment.pk))
-    # In the admin a supervisor sees only their hackathon's rows.
     other_team = Team.objects.create(event=other, name="Elsewhere")
-    from hackathon.admin import TeamAdmin
-
-    request.user = supervisor
-    assert other_team not in TeamAdmin(Team, django_admin.site).get_queryset(request)
+    assert client.get(reverse("hackathon_manage_team_edit", args=[other.slug, other_team.pk])).status_code == 403
 
 
 def test_admin_changes_a_submitted_mark_with_a_recorded_reason(client, setup, admin_user):
@@ -486,31 +488,37 @@ def test_marks_export_per_round_with_summaries(setup, admin_user):
     assert ("Gamma", "Gamma project", None, "R2") == teams[[r[0] for r in teams].index("Gamma")][:4]
 
 
-def test_admin_pages_load_for_admins_and_supervisors(client, setup, admin_user):
+def test_portal_pages_load_and_the_admin_has_no_hackathon_models(client, setup, admin_user):
     event = setup["event"]
     services.allocate_room(setup["rounds"][0], setup["faculty"][0], setup["rooms"][0])
     supervisor = services.add_supervisor(event, Person.objects.create_user(email="sup@example.com", full_name="Sup"))[0].person
-    team = setup["teams"]["Alpha"]
-    pages = [
-        reverse("admin:hackathon_round_changelist"), reverse("admin:hackathon_round_change", args=[setup["rounds"][0].pk]),
-        reverse("admin:hackathon_team_changelist"), reverse("admin:hackathon_team_change", args=[team.pk]),
-        reverse("admin:hackathon_room_changelist"), reverse("admin:hackathon_room_add"),
-        reverse("admin:hackathon_assignment_changelist"), reverse("admin:hackathon_assignment_change", args=[Assignment.objects.first().pk]),
-        reverse("admin:hackathon_eventfaculty_changelist"), reverse("admin:hackathon_supervisor_changelist"),
+    slug = event.slug
+    lists = ["students", "teams", "rooms", "faculty", "supervisors", "rounds", "allocations", "fields"]
+    edits = [
+        ("hackathon_manage_team_edit", setup["teams"]["Alpha"].pk), ("hackathon_manage_room_edit", setup["rooms"][0].pk),
+        ("hackathon_manage_round_edit", setup["rounds"][0].pk), ("hackathon_manage_faculty_edit", setup["faculty"][0].pk),
+        ("hackathon_manage_student_edit", Registration.objects.filter(event=event).first().pk),
     ]
-    for person in (admin_user, supervisor):
-        client.force_login(person)
-        for url in pages:
-            assert client.get(url).status_code == 200, (person, url)
     client.force_login(admin_user)
-    for url in (reverse("admin:hackathon_round_add") + f"?event={event.pk}", reverse("admin:events_event_change", args=[event.pk]),
-                reverse("admin:people_person_change", args=[supervisor.pk]), reverse("hackathon_dashboard", args=[event.slug]),
-                reverse("manage")):
-        assert client.get(url).status_code == 200, url
+    for name in lists:
+        assert client.get(reverse(f"hackathon_manage_{name}", args=[slug])).status_code == 200, name
+    for name, pk in edits + [("hackathon_manage_supervisor_edit", Supervisor.objects.get().pk)]:
+        assert client.get(reverse(name, args=[slug, pk])).status_code == 200, name
+    for name in ("student", "team", "room", "faculty", "supervisor", "round", "field"):
+        assert client.get(reverse(f"hackathon_manage_{name}_add", args=[slug])).status_code == 200, name
+    dashboard = client.get(reverse("hackathon_dashboard", args=[slug])).content.decode()
+    assert "/admin/hackathon" not in dashboard
+    registered = {m._meta.app_label for m in django_admin.site._registry}
+    assert "hackathon" not in registered
+    # A supervisor with the default switches opens the lists, but not supervisors' or fields' edit pages.
     client.force_login(supervisor)
-    assert client.get(reverse("admin:hackathon_supervisor_add")).status_code == 403
+    for name in lists:
+        assert client.get(reverse(f"hackathon_manage_{name}", args=[slug])).status_code == 200, name
+    assert client.get(reverse("hackathon_manage_supervisor_add", args=[slug])).status_code == 403
+    assert client.get(reverse("hackathon_manage_field_add", args=[slug])).status_code == 403
+    assert client.get(reverse("hackathon_manage_faculty_add", args=[slug])).status_code == 403
+    assert client.get(reverse("hackathon_manage_team_add", args=[slug])).status_code == 200
     assert event.title.encode() in client.get(reverse("manage")).content
-
 
 def test_seed_demo_builds_the_demo_hackathon_and_can_run_twice(db):
     from django.core.management import call_command
@@ -874,7 +882,8 @@ def test_each_switch_allows_then_forbids(client, setup, sup, admin_user):
         "can_reopen_marks": lambda: client.post(reverse("hackathon_change_marks", args=[slug, assignment.pk]), {f"c_{idea.pk}": "6", f"c_{demo.pk}": "5", "reason": "judge asked", "action": "reopen"}),
         "can_publish": lambda: client.post(reverse("hackathon_jury_switch", args=[slug]), {"show": "1"}),
         "can_make_logins": lambda: client.post(reverse("hackathon_logins", args=[slug]), {"which": "all", "expires_at": expiry}),
-        "can_import": lambda: client.post(reverse("hackathon_upload", args=[slug, "faculty"]), {"file": xlsx([["Name", "Email"], ["Dr. Z", "z@kluniversity.in"]])}),
+        "can_import": lambda: wizard(client, slug, "faculty", xlsx([["Name", "Email"], ["Dr. Z", "z@kluniversity.in"]])),
+        "can_manage_fields": lambda: client.post(reverse("hackathon_manage_field_add", args=[slug]), {"applies_to": "student", "label": "T-shirt", "kind": "text", "position": 9}),
         "can_approve_requests": lambda: client.get(reverse("faculty_requests")),
         "can_add_faculty": lambda: client.post(reverse("hackathon_add_faculty", args=[slug]), {"who": "applicant@example.com"}),
     }
@@ -924,15 +933,17 @@ def test_faculty_request_switch_is_per_hackathon(client, setup, sup, make_event)
 
 def test_supervisors_cannot_change_their_own_switches(client, setup, sup, admin_user):
     row, _ = sup
-    url = reverse("admin:hackathon_supervisor_change", args=[row.pk])
+    url = reverse("hackathon_manage_supervisor_edit", args=[row.event.slug, row.pk])
     client.force_login(row.person)
-    client.post(url, {"event": row.event.pk, "person": row.person.pk, "kind": "faculty", "is_active": "on", "can_change_marks": "on"})
+    assert client.post(url, {"s-kind": "faculty", "s-is_active": "on", "s-can_change_marks": "on"}).status_code == 403
     row.refresh_from_db()
     assert not row.can_change_marks
-    page = client.get(url)
-    assert page.status_code == 200 and b'name="can_change_marks"' not in page.content  # view-only
+    assert client.get(url).status_code == 403
     client.force_login(admin_user)
-    assert b'name="can_change_marks"' in client.get(url).content
+    assert b'name="s-can_change_marks"' in client.get(url).content
+    client.post(url, {"s-kind": "faculty", "s-is_active": "on", "s-can_change_marks": "on"})
+    row.refresh_from_db()
+    assert row.can_change_marks and not row.can_publish
 
 
 def test_supervisor_excel_sets_switches(hack):
@@ -960,3 +971,194 @@ def test_old_judging_app_is_gone(db):
 
     assert not apps.is_installed("judging")
     assert not [t for t in connection.introspection.table_names() if t.startswith("judging")]
+
+
+# --- Detail fields, import steps and portal editing -----------------------------------------
+
+
+def test_builtin_fields_come_first_and_name_email_stay_required(client, hack, admin_user):
+    from hackathon.fields import ensure_fields
+    from hackathon.models import FieldDefinition
+
+    student = ensure_fields(hack, "student")
+    assert [d.builtin for d in student] == ["name", "email", "phone", "student_id", "branch", "year"]
+    assert [d.builtin for d in ensure_fields(hack, "faculty")] == ["name", "email", "employee_id", "department", "phone"]
+    client.force_login(admin_user)
+    email = FieldDefinition.objects.get(event=hack, applies_to="student", builtin="email")
+    client.post(reverse("hackathon_manage_field_edit", args=[hack.slug, email.pk]), {"label": "Email ID", "position": 1})
+    email.refresh_from_db()
+    assert email.label == "Email ID" and email.required  # can't be made optional
+    assert client.post(reverse("hackathon_manage_field_delete", args=[hack.slug, email.pk])).status_code == 404
+    client.post(reverse("hackathon_manage_field_add", args=[hack.slug]), {
+        "applies_to": "student", "label": "T-shirt size", "kind": "choice", "choices_text": "S\nM\nL", "required": "on", "position": 10,
+    })
+    shirt = FieldDefinition.objects.get(event=hack, key="t-shirt-size")
+    assert shirt.choices == ["S", "M", "L"] and shirt.required
+    bad = client.post(reverse("hackathon_manage_field_add", args=[hack.slug]), {"applies_to": "student", "label": "X", "kind": "choice", "choices_text": "only", "position": 1})
+    assert b"at least two choices" in bad.content
+
+
+def _shirt_field(event, required=True):
+    from hackathon.models import FieldDefinition
+
+    return FieldDefinition.objects.create(event=event, applies_to="student", key="shirt", label="T-shirt size", kind="choice",
+                                          choices=["S", "M", "L"], required=required, position=10)
+
+
+def test_import_auto_matches_by_header_and_shows_columns_by_letter(client, hack, admin_user):
+    from hackathon.models import ImportUpload
+
+    _shirt_field(hack)
+    client.force_login(admin_user)
+    upload = xlsx([["Student Name", "Email ID", "Shoe size", "T-shirt size", "KL ID"], ["Asha", "asha@example.com", "7", "M", "2300011111"]])
+    page = wizard(client, hack.slug, "students", upload, action=None)  # just upload, then the matching page
+    page = client.get(reverse("hackathon_import", args=[hack.slug, ImportUpload.objects.get().pk]))
+    body = page.content.decode()
+    assert "Match the columns" in body
+    assert "A (column 1): Student Name" in body and "D (column 4): T-shirt size" in body
+    assert "Not matched to any field, so ignored: C (column 3): Shoe size" in body
+    item = ImportUpload.objects.get()
+    from hackathon import imports
+
+    headers, rows = imports.read(item.content)
+    mapping = imports.auto_match(headers, imports.targets(hack, "students"))
+    assert (mapping["name"], mapping["email"], mapping["f:shirt"], mapping["student_id"]) == (0, 1, 3, 4)
+
+
+def test_import_blocks_when_a_required_field_has_no_column(client, hack, admin_user):
+    _shirt_field(hack)
+    client.force_login(admin_user)
+    page = wizard(client, hack.slug, "students", xlsx([["Name", "Email"], ["Asha", "asha@example.com"]]), action="import")
+    assert b"\xe2\x80\x9cT-shirt size\xe2\x80\x9d is required" in page.content or b"T-shirt size&quot; is required" in page.content
+    assert not Registration.objects.filter(event=hack).exists()
+
+
+def test_import_row_check_names_row_and_column_then_skips_bad_rows(client, hack, admin_user, make_person):
+    from hackathon.models import ImportMapping, ImportUpload, PersonDetails
+
+    _shirt_field(hack)
+    make_person(email="one@example.com", student_id="111")
+    make_person(email="two@example.com", student_id="222")
+    client.force_login(admin_user)
+    upload = xlsx([
+        ["Name", "Email", "Phone", "KL ID", "T-shirt size"],
+        ["Good One", "good@example.com", "9000000001", "", "M"],
+        ["Bad Email", "not-an-email", "9000000002", "", "S"],
+        ["Bad Shirt", "shirt@example.com", "9000000003", "", "XXL"],
+        ["Dupe", "good@example.com", "9000000004", "", "L"],
+        ["Clash", "one@example.com", "9000000005", "222", "L"],
+        ["Bad Phone", "phone@example.com", "123", "", "L"],
+        ["", "noname@example.com", "9000000006", "", "L"],
+    ])
+    check = wizard(client, hack.slug, "students", upload, action="check").content.decode()
+    assert "Row 3, column B (Email): &quot;not-an-email&quot; is not a valid email." in check
+    assert "Row 4, column E (T-shirt size): &quot;XXL&quot; is not one of: S, M, L." in check
+    assert "Row 5, column B (Email): &quot;good@example.com&quot; is also in row 2." in check
+    assert "Row 6: the email and IDs belong to different people" in check
+    assert "Row 7, column C (Phone)" in check and "Row 8, column A (Name): required, but empty." in check
+    assert not Registration.objects.filter(event=hack).exists()  # nothing saved by the check
+    assert "Import the 1 valid row and skip the rest" in check
+
+    item = ImportUpload.objects.get()
+    done = client.post(reverse("hackathon_import", args=[hack.slug, item.pk]), {"action": "import"}, follow=True).content.decode()
+    assert "1 added, 0 updated, 6 rows skipped." in done
+    person = Person.objects.get(email="good@example.com")
+    assert Registration.objects.filter(event=hack, person=person).exists()
+    assert PersonDetails.objects.get(event=hack, person=person).values == {"shirt": "M"}
+    skipped = sheet(client.get(reverse("hackathon_import_skipped", args=[hack.slug, item.pk])).content, "Skipped rows")
+    assert [r[0] for r in skipped[1:]] == [3, 4, 5, 6, 7, 8] and "not a valid email" in skipped[1][1]
+    assert ImportMapping.objects.get(event=hack, kind="students").mapping["f:shirt"] == "T-shirt size"
+
+
+def test_import_remap_and_remembered_mapping(client, hack, admin_user):
+    from hackathon.models import ImportUpload
+
+    client.force_login(admin_user)
+    upload = xlsx([["Participant", "Mail", "Roll"], ["Ravi", "ravi@example.com", "2300022222"]])
+    first = wizard(client, hack.slug, "students", upload, action="check").content.decode()
+    assert "&quot;Name&quot; is required, but no column is matched to it." in first
+    item = ImportUpload.objects.get()
+    from hackathon import imports
+
+    mapping = {t.key: None for t in imports.targets(hack, "students")}
+    mapping.update(name=0, email=1, student_id=2)
+    client.post(reverse("hackathon_import", args=[hack.slug, item.pk]), {"action": "import", **{f"map_{k}": "" if v is None else v for k, v in mapping.items()}})
+    assert Person.objects.get(email="ravi@example.com").student_id == "2300022222"
+    # The next upload with the same headers is matched the same way, without choosing again.
+    second = wizard(client, hack.slug, "students", xlsx([["Participant", "Mail", "Roll"], ["Mia", "mia@example.com", "2300033333"]]), action="import")
+    assert b"1 added" in second.content and Person.objects.filter(email="mia@example.com").exists()
+
+
+def test_import_rejects_wrong_files_and_empty_sheets(client, hack, admin_user):
+    client.force_login(admin_user)
+    wrong = BytesIO(b"name,email\n")
+    wrong.name = "list.csv"
+    page = client.post(reverse("hackathon_upload", args=[hack.slug, "students"]), {"file": wrong}, follow=True)
+    assert b"Upload an .xlsx file" in page.content
+    broken = BytesIO(b"not really excel")
+    broken.name = "broken.xlsx"
+    assert b"could not be read as Excel" in client.post(reverse("hackathon_upload", args=[hack.slug, "students"]), {"file": broken}, follow=True).content
+    empty = wizard(client, hack.slug, "students", xlsx([]), action="check")
+    assert b"The first sheet is empty." in empty.content
+
+
+def test_editing_student_details_in_the_portal(client, setup, admin_user):
+    from hackathon.models import PersonDetails
+
+    event = setup["event"]
+    _shirt_field(event, required=False)
+    reg = Registration.objects.filter(event=event, person__full_name="Alpha student").get()
+    url = reverse("hackathon_manage_student_edit", args=[event.slug, reg.pk])
+    sup = services.add_supervisor(event, Person.objects.create_user(email="sup@example.com", full_name="Sup"))[0]
+    client.force_login(sup.person)
+    page = client.get(url)
+    assert b'name="d-f_email"' in page.content and b"Only admins can change an email." in page.content
+    client.post(url, {"d-f_name": "Alpha Renamed", "d-f_email": "hijack@example.com", "d-f_phone": "9000000111", "d-f_shirt": "L",
+                      "t-team": setup["teams"]["Beta"].pk})
+    reg.person.refresh_from_db()
+    assert reg.person.full_name == "Alpha Renamed" and reg.person.email != "hijack@example.com"
+    assert PersonDetails.objects.get(event=event, person=reg.person).values["shirt"] == "L"
+    assert reg.person.registrations.get(event=event).team_membership.team.name == "Beta"
+    bad = client.post(url, {"d-f_name": "X", "d-f_phone": "12", "t-team": ""})
+    assert b"not a phone number" in bad.content
+
+
+def test_portal_editing_needs_the_right_switch_and_role(client, setup):
+    event = setup["event"]
+    slug = event.slug
+    team = setup["teams"]["Alpha"]
+    faculty = setup["faculty"][0].person
+    student = Registration.objects.filter(event=event).first().person
+    sup = services.add_supervisor(event, Person.objects.create_user(email="sup@example.com", full_name="Sup"))[0]
+    sup.can_edit_teams = False
+    sup.save()
+    for person in (faculty, student):
+        client.force_login(person)
+        assert client.get(reverse("hackathon_manage_teams", args=[slug])).status_code == 403
+        assert client.post(reverse("hackathon_manage_team_delete", args=[slug, team.pk])).status_code == 403
+    client.force_login(sup.person)
+    assert client.get(reverse("hackathon_manage_teams", args=[slug])).status_code == 200  # can look
+    assert client.get(reverse("hackathon_manage_team_edit", args=[slug, team.pk])).status_code == 403
+    assert client.post(reverse("hackathon_manage_room_add", args=[slug]), {"name": "R9"}).status_code == 403
+    sup.can_edit_teams = True
+    sup.save()
+    client.post(reverse("hackathon_manage_room_add", args=[slug]), {"name": "R9", "building": "C Block"})
+    assert Room.objects.filter(event=event, name="R9").exists()
+    client.post(reverse("hackathon_manage_team_edit", args=[slug, team.pk]), {"name": "Alpha 2", "room": "", "project_title": "", "project_description": "", "mentor": "", "mentor_name": ""})
+    team.refresh_from_db()
+    assert team.name == "Alpha 2"
+
+
+def test_rounds_and_rubric_are_edited_in_the_portal(client, setup, admin_user):
+    event = setup["event"]
+    client.force_login(admin_user)
+    data = {"name": "Final", "position": 3, "opens_at": "", "closes_at": "",
+            "c-TOTAL_FORMS": "2", "c-INITIAL_FORMS": "0", "c-MIN_NUM_FORMS": "0", "c-MAX_NUM_FORMS": "1000",
+            "c-0-position": "1", "c-0-label": "Pitch", "c-0-description": "", "c-0-max_marks": "20",
+            "c-1-position": "", "c-1-label": "", "c-1-description": "", "c-1-max_marks": ""}
+    response = client.post(reverse("hackathon_manage_round_add", args=[event.slug]), data)
+    assert response.status_code == 302, [(f.errors, f.non_field_errors()) for f in response.context["forms"]] + [response.context["formset"].errors]
+    final = Round.objects.get(event=event, name="Final")
+    assert list(final.criteria.values_list("label", "max_marks")) == [("Pitch", Decimal("20"))]
+    dup = client.post(reverse("hackathon_manage_round_add", args=[event.slug]), {**data, "name": "Again"})
+    assert b"Another round already has this number." in dup.content

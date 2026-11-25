@@ -5,6 +5,7 @@ name (with common spellings), keeps columns it doesn't know as extra data, and
 reports problems row by row instead of failing the whole file.
 """
 
+import datetime
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -64,6 +65,10 @@ def _key(text) -> str:
 def _cell(value) -> str:
     if value is None:
         return ""
+    if isinstance(value, datetime.datetime):
+        value = value.date() if value.time() == datetime.time() else value
+    if isinstance(value, datetime.date):
+        return value.isoformat()
     if isinstance(value, float) and value.is_integer():
         value = int(value)
     return str(value).strip()
@@ -186,6 +191,24 @@ def _upsert_person(data) -> tuple[Person | None, bool, str]:
     return person, created, ""
 
 
+def save_custom_values(event, person, data, applies_to):
+    """Custom detail fields (data keys "f:<key>") into PersonDetails, checked against their definitions."""
+    from .fields import clean_value
+    from .models import FieldDefinition, PersonDetails
+
+    given = {k[2:]: v for k, v in data.items() if k.startswith("f:")}
+    if not given or not applies_to:
+        return
+    defs = {d.key: d for d in FieldDefinition.objects.filter(event=event, applies_to=applies_to, builtin="")}
+    details, _ = PersonDetails.objects.get_or_create(event=event, person=person)
+    for key, raw in given.items():
+        if key in defs and raw not in ("", None):
+            value, error = clean_value(defs[key], raw)
+            if not error:
+                details.values[key] = value
+    details.save()
+
+
 def _group(name):
     return Group.objects.get_or_create(name=name)[0]
 
@@ -216,9 +239,6 @@ def add_supervisor(event, person, kind=Supervisor.Kind.FACULTY, extra=None, swit
     person.groups.add(_group("Supervisor"))
     if kind == Supervisor.Kind.FACULTY:
         person.groups.add(_group("Faculty"))
-    if not person.is_staff:
-        person.is_staff = True  # supervisors edit rooms, teams and allocations in the admin
-        person.save(update_fields=["is_staff"])
     role, created = Supervisor.objects.get_or_create(event=event, person=person, defaults={"kind": kind, "extra": extra or {}})
     if not created:
         role.kind = kind
@@ -233,22 +253,29 @@ def add_supervisor(event, person, kind=Supervisor.Kind.FACULTY, extra=None, swit
 
 
 @transaction.atomic
-def import_staff(event, upload, role: str) -> ImportReport:
-    """role is "faculty" or "supervisor". Creates or matches accounts and links them to this event."""
+def import_staff(event, upload, role: str, columns=None, only_rows=None) -> ImportReport:
+    """role is "faculty" or "supervisor". Creates or matches accounts and links them to this event.
+
+    columns ({column index: field}) comes from the import's matching screen; without it, headers are matched by name.
+    only_rows limits the import to those sheet rows (the ones that passed the row check).
+    """
     report = ImportReport()
     headers, rows = read_rows(upload)
     spec = {**STAFF_COLUMNS, **(_switch_columns() if role == "supervisor" else {})}
-    columns = match_columns(headers, spec)
+    columns = columns if columns is not None else match_columns(headers, spec)
     if "name" not in columns.values():
         report.problems.append("No Name column in the first row of the first sheet.")
         return report
     for line, row in enumerate(rows, start=2):
+        if only_rows is not None and line not in only_rows:
+            continue
         data, extra = _row_data(headers, row, columns)
         with transaction.atomic():
             person, _, problem = _upsert_person(data)
             if problem:
                 report.problems.append(f"Row {line}: {problem}.")
                 continue
+            save_custom_values(event, person, data, "faculty" if role == "faculty" else None)
             if role == "faculty":
                 _, created = add_faculty(event, person, extra)
             else:
@@ -349,8 +376,11 @@ def set_team_room(team, room) -> list[str]:
 
 
 @transaction.atomic
-def import_students(event, upload, by=None) -> ImportReport:
-    """Students, their teams, rooms and mentors. A row without a team name becomes a team of one."""
+def import_students(event, upload, by=None, columns=None, only_rows=None) -> ImportReport:
+    """Students, their teams, rooms and mentors. A row without a team name becomes a team of one.
+
+    columns and only_rows come from the import's matching screen (see import_staff).
+    """
     report = ImportReport()
     headers, rows = read_rows(upload)
     questions = list(event.questions.all())
@@ -358,11 +388,13 @@ def import_students(event, upload, by=None) -> ImportReport:
     for q in questions:
         also[q.key] = f"q:{q.key}"
         also[q.label] = f"q:{q.key}"
-    columns = match_columns(headers, STUDENT_COLUMNS, also)
+    columns = columns if columns is not None else match_columns(headers, STUDENT_COLUMNS, also)
     if not ({"email", "student_id"} & set(columns.values())):
         report.problems.append("The first row needs an Email or KL ID column, so each student can be matched or created.")
         return report
     for line, row in enumerate(rows, start=2):
+        if only_rows is not None and line not in only_rows:
+            continue
         data, extra = _row_data(headers, row, columns)
         answers = {name[2:]: value for name, value in data.items() if name.startswith("q:") and value}
         with transaction.atomic():
@@ -370,6 +402,7 @@ def import_students(event, upload, by=None) -> ImportReport:
             if problem:
                 report.problems.append(f"Row {line}: {problem}.")
                 continue
+            save_custom_values(event, person, data, "student")
             registration = Registration.objects.filter(event=event, person=person).first()
             if registration and registration.is_confirmed:
                 if answers:
@@ -516,16 +549,18 @@ def _find_round(event, text):
 
 
 @transaction.atomic
-def import_allocations(event, upload) -> ImportReport:
+def import_allocations(event, upload, columns=None, only_rows=None) -> ImportReport:
     """Rows of (round, faculty, room or team). Breaking the one-room rule is allowed but warned; mentors never judge their team."""
     report = ImportReport()
     headers, rows = read_rows(upload)
-    columns = match_columns(headers, ALLOCATION_COLUMNS)
+    columns = columns if columns is not None else match_columns(headers, ALLOCATION_COLUMNS)
     names = set(columns.values())
     if "faculty" not in names or not ({"room", "team"} & names):
         report.problems.append("The first row needs a Faculty column (email, employee ID, login ID or name) and a Room or Team column.")
         return report
     for line, row in enumerate(rows, start=2):
+        if only_rows is not None and line not in only_rows:
+            continue
         data, _ = _row_data(headers, row, columns)
         round_ = _find_round(event, data.get("round"))
         if not round_:
@@ -610,7 +645,7 @@ class RequestError(Exception):
     pass
 
 
-def request_faculty(person, data) -> "FacultyRequest":
+def request_faculty(person, data):
     """A signed-in person asks to be faculty. Nothing is granted until an admin approves."""
     from .models import FacultyRequest
 

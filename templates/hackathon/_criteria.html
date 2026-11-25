@@ -1,0 +1,12 @@
+<h2 class="heading-6 mt-4">Rubric for this round</h2>
+{{ formset.management_form }}
+{% for e in formset.non_form_errors %}<div class="alert alert-danger">{{ e }}</div>{% endfor %}
+<div class="table-responsive mb-3"><table class="table table-sm align-middle">
+  <thead><tr><th style="width:5rem">Order</th><th>Criterion</th><th>Guidance</th><th style="width:7rem">Out of</th><th>Delete</th></tr></thead>
+  <tbody>{% for f in formset %}<tr>
+    <td>{% for h in f.hidden_fields %}{{ h }}{% endfor %}{{ f.position }}</td><td>{{ f.label }}{% for e in f.label.errors %}<div class="field-error">{{ e }}</div>{% endfor %}</td>
+    <td>{{ f.description }}</td><td>{{ f.max_marks }}{% for e in f.max_marks.errors %}<div class="field-error">{{ e }}</div>{% endfor %}</td>
+    <td>{% if f.instance.pk %}{{ f.DELETE }}{% endif %}</td>
+  </tr>{% endfor %}</tbody>
+</table></div>
+<p class="caption-2 text-secondary">Leave a row empty to skip it. Save to get two more empty rows.</p>

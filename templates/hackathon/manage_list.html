@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} · {{ event.title }}{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'hackathon_dashboard' event.slug %}">{% include "ui/icon.html" with name="arrow-left" %}{{ event.title }}</a>
+<header class="tool-head">
+  <div>
+    <span class="eyebrow">{{ event.title }}</span>
+    <h1 class="heading-3">{{ title }}</h1>
+    {% if intro %}<p>{{ intro }}</p>{% endif %}
+  </div>
+  {% if add_url %}<a class="btn btn-primary" href="{{ add_url }}">{% include "ui/icon.html" with name="plus" %}{{ add_label }}</a>{% endif %}
+</header>
+{% include "hackathon/_manage_nav.html" %}
+{% if rows %}
+<div class="panel"><div class="table-responsive"><table class="table table-sm align-middle mb-0">
+  <thead><tr>{% for h in headers %}<th>{{ h }}</th>{% endfor %}<th></th></tr></thead>
+  <tbody>{% for row in rows %}<tr>
+    {% for c in row.cells %}<td>{{ c }}</td>{% endfor %}
+    <td class="text-end text-nowrap">
+      {% if row.edit %}<a class="btn btn-quiet btn-sm" href="{{ row.edit }}">Edit</a>{% endif %}
+      {% if row.delete %}<form method="post" action="{{ row.delete }}" class="d-inline" onsubmit="return confirm('Remove this?');">{% csrf_token %}<button class="btn btn-quiet btn-sm" type="submit">Remove</button></form>{% endif %}
+    </td>
+  </tr>{% endfor %}</tbody>
+</table></div></div>
+{% else %}
+<div class="empty-state"><h2 class="heading-5">Nothing here yet</h2></div>
+{% endif %}
+{% endblock %}
