@@ -90,7 +90,11 @@
     {{ upload_form.file }}
     <button class="btn btn-quiet" type="submit">Upload supervisors Excel</button>
   </form>
-  <p class="caption-2 text-secondary">Same columns plus <strong>Type</strong> (Faculty or Student), and optional Yes/No columns named after any permission below (for example <strong>Change marks</strong>). <a href="{% url 'hackathon_template' event.slug 'supervisors' %}">Sample file</a>. To add one by hand, or change what one can do, use <a href="{% url 'hackathon_manage_supervisors' event.slug %}">Supervisors</a>.</p>
+  <form method="post" action="{% url 'hackathon_upload' event.slug 'volunteers' %}" enctype="multipart/form-data" class="file-row mb-2">{% csrf_token %}
+    {{ upload_form.file }}<button class="btn btn-quiet" type="submit">Upload volunteers Excel</button>
+  </form>
+  <p class="caption-2 text-secondary">Volunteers: Name, Email or KL ID, Phone, and optional Yes/No columns for each of their permissions. <a href="{% url 'hackathon_template' event.slug 'volunteers' %}">Sample file</a>. Or add them on the <a href="{% url 'hackathon_manage_volunteers' event.slug %}">Volunteers</a> page.</p>
+  <p class="caption-2 text-secondary">Supervisors: same columns plus <strong>Type</strong> (Faculty or Student), and optional Yes/No columns named after any permission below (for example <strong>Change marks</strong>). <a href="{% url 'hackathon_template' event.slug 'supervisors' %}">Sample file</a>. To add one by hand, or change what one can do, use <a href="{% url 'hackathon_manage_supervisors' event.slug %}">Supervisors</a>.</p>
   {% endif %}
   {% if faculty or supervisors %}
   <div class="table-responsive"><table class="table table-sm align-middle mb-0">
@@ -129,7 +133,34 @@
 </section>
 
 <section class="panel step-panel">
-  <h2 class="panel-title"><span class="step-num">4</span>Allocate faculty to rooms</h2>
+  <h2 class="panel-title"><span class="step-num">4</span>Allocate faculty, then rooms</h2>
+  {% if rounds and faculty and can.can_edit_allocations %}
+  <h3 class="heading-6">Faculty to teams</h3>
+  <form method="post" action="{% url 'hackathon_random_allocate' event.slug %}" class="mb-2">{% csrf_token %}
+    <div class="d-flex flex-wrap align-items-end gap-2">
+      <div><label class="form-label" for="{{ random_form.round.id_for_label }}">Round</label>{{ random_form.round }}</div>
+      <div><label class="form-label" for="{{ random_form.per_team.id_for_label }}">{{ random_form.per_team.label }}</label>{{ random_form.per_team }}</div>
+      <div><label class="form-label" for="{{ random_form.copy_from.id_for_label }}">{{ random_form.copy_from.label }}</label>{{ random_form.copy_from }}</div>
+      <label class="caption-2 mb-2">{{ random_form.only_unallocated }} {{ random_form.only_unallocated.label }}</label>
+      <button class="btn btn-primary" type="submit">Allocate randomly</button>
+    </div>
+  </form>
+  <p class="caption-2 text-secondary">Teams are spread evenly across the active faculty, in random order, and never given to their own mentor. Or upload the allocations Excel below (Round, Faculty, Team or a team member's email). Rooms aren't needed yet.</p>
+  <h3 class="heading-6 mt-3">Then rooms</h3>
+  <p class="caption-2 text-secondary">Add the rooms you'll use with their max teams (Rooms page or the rooms Excel below), then let the portal place each faculty member's teams in one room.</p>
+  <div class="d-flex flex-wrap gap-2 mb-3">
+    <a class="btn btn-primary" href="{% url 'hackathon_rooms_plan' event.slug %}">Assign rooms automatically</a>
+    <a class="btn btn-quiet" href="{% url 'hackathon_manage_rooms' event.slug %}">Rooms and max teams</a>
+    {% if can.can_view_floors %}<a class="btn btn-quiet" href="{% url 'hackathon_floors' event.slug %}">By floor</a>{% endif %}
+  </div>
+  {% if can.can_import %}
+  <form method="post" action="{% url 'hackathon_upload' event.slug 'rooms' %}" enctype="multipart/form-data" class="file-row mb-2">{% csrf_token %}
+    {{ upload_form.file }}<button class="btn btn-quiet" type="submit">Upload rooms Excel</button>
+  </form>
+  <p class="caption-2 text-secondary">Columns: <strong>Room</strong> (like R206: block R, floor 2), <strong>Max teams</strong>, and optional Block, Floor, Notes. <a href="{% url 'hackathon_template' event.slug 'rooms' %}">Sample file</a>.</p>
+  {% endif %}
+  <h3 class="heading-6 mt-3">Or the other way round: faculty to a room</h3>
+  {% endif %}
   {% if rounds and rooms and faculty and can.can_edit_allocations %}
   <form method="post" action="{% url 'hackathon_allocate' event.slug %}" class="mb-3">{% csrf_token %}
     <div class="d-flex flex-wrap align-items-end gap-2">
@@ -160,14 +191,14 @@
     {{ upload_form.file }}
     <button class="btn btn-quiet" type="submit">Upload allocations Excel</button>
   </form>
-  <p class="caption-2 text-secondary">Columns: <strong>Round</strong>, <strong>Faculty</strong> (email, employee ID, login ID or name), and <strong>Room</strong> or <strong>Team</strong>. Rows that put one faculty member in two rooms are allowed but listed as warnings; a mentor is never allocated to their own team. <a href="{% url 'hackathon_template' event.slug 'allocations' %}">Sample file</a>.</p>
+  <p class="caption-2 text-secondary">Columns: <strong>Round</strong>, <strong>Faculty</strong> (email, employee ID, login ID or name), and <strong>Team</strong> (or a team member's email or KL ID, or a whole <strong>Room</strong>). Rows that put one faculty member in two rooms are allowed but listed as warnings; a mentor is never allocated to their own team. <a href="{% url 'hackathon_template' event.slug 'allocations' %}">Sample file</a>.</p>
   {% endif %}
   {% if can.can_download %}<a class="btn btn-quiet btn-sm mt-2" href="{% url 'event_export' event.slug 'allocations' %}">{% include "ui/icon.html" with name="download" %}Allocations (Excel)</a>{% endif %}
 </section>
 
 {% if can.can_make_logins %}
 <section class="panel step-panel">
-  <h2 class="panel-title"><span class="step-num">5</span>Logins for {% if is_admin %}faculty and supervisors{% else %}faculty{% endif %}</h2>
+  <h2 class="panel-title"><span class="step-num">5</span>Logins for {% if is_admin %}faculty, supervisors and volunteers{% else %}faculty{% endif %}</h2>
   <p class="caption-2 text-secondary">Each person gets a login ID and a temporary password for <code>{{ request.scheme }}://{{ request.get_host }}{% url 'staff_signin' %}</code>. They must choose their own password the first time they sign in. Passwords are shown only once, in the Excel file you download now. Send each person their own row.{% if not is_admin %} Faculty who also have a bigger role (admin, coordinator or supervisor) are skipped: an admin handles theirs.{% endif %}</p>
   <form method="post" action="{% url 'hackathon_logins' event.slug %}" data-no-busy>{% csrf_token %}
     <div class="choice-row mb-3">{% for radio in credentials_form.which %}<label class="choice" for="{{ radio.id_for_label }}">{{ radio.tag }}<span>{{ radio.choice_label }}</span></label>{% endfor %}</div>

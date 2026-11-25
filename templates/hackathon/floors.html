@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}By floor · {{ event.title }}{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block content %}
+{% if is_overseer %}<a class="back-link" href="{% url 'hackathon_dashboard' event.slug %}">{% include "ui/icon.html" with name="arrow-left" %}{{ event.title }}</a>{% endif %}
+<header class="tool-head">
+  <div><span class="eyebrow">{{ event.title }}</span><h1 class="heading-3">By floor</h1>
+  <p>Rooms floor by floor: their faculty, teams{% if can_team_att or can_faculty_att %}, attendance{% endif %}{% if can_progress %} and which marks are submitted (done or pending){% endif %}.</p></div>
+</header>
+<form method="get" class="d-flex flex-wrap gap-2 mb-4">
+  <select name="floor" class="form-select form-select-lg" style="max-width:12rem" aria-label="Floor" onchange="this.form.submit()"><option value="">All floors</option>{% for f in floor_choices %}<option value="{{ f }}"{% if f == floor %} selected{% endif %}>Floor {{ f }}</option>{% endfor %}</select>
+  <select name="block" class="form-select form-select-lg" style="max-width:12rem" aria-label="Block" onchange="this.form.submit()"><option value="">All blocks</option>{% for b in blocks %}<option value="{{ b }}"{% if b == block %} selected{% endif %}>Block {{ b }}</option>{% endfor %}</select>
+  <select name="round" class="form-select form-select-lg" style="max-width:16rem" aria-label="Round" onchange="this.form.submit()">{% for r in rounds %}<option value="{{ r.pk }}"{% if r.pk == round.pk %} selected{% endif %}>{{ r.name }}</option>{% endfor %}</select>
+  <a class="btn btn-quiet btn-lg" href="?{{ request.GET.urlencode }}&print=1" target="_blank">{% include "ui/icon.html" with name="printer" %}Print</a>
+  <a class="btn btn-quiet btn-lg" href="{% url 'hackathon_floors_export' event.slug %}?{{ request.GET.urlencode }}">{% include "ui/icon.html" with name="download" %}Excel</a>
+  {% if can_team_att or can_faculty_att %}<a class="btn btn-quiet btn-lg" href="{% url 'hackathon_attendance_export' event.slug %}">{% include "ui/icon.html" with name="download" %}Attendance</a>{% endif %}
+</form>
+{% include "hackathon/_floor_rooms.html" %}
+{% if unroomed and not floor and not block %}<section class="panel"><h2 class="panel-title">Teams without a room</h2><p class="mb-0">{% for t in unroomed %}{{ t.name }}{% if not forloop.last %}, {% endif %}{% endfor %}</p></section>{% endif %}
+{% endblock %}

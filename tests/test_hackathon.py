@@ -297,7 +297,7 @@ def test_allocation_import_warns_on_two_rooms_and_refuses_mentors(setup):
     assert warnings[1][0].startswith("Dr. A judges in 2 rooms")
 
 
-def test_moving_a_team_after_allocation_warns(client, setup, admin_user):
+def test_moving_one_team_that_would_split_a_faculty_is_blocked(client, setup, admin_user):
     r1, r2 = setup["rooms"]
     a = setup["faculty"][0]
     services.allocate_room(setup["rounds"][0], a, r1)
@@ -305,9 +305,9 @@ def test_moving_a_team_after_allocation_warns(client, setup, admin_user):
     assert "two rooms" in services.room_change_warnings(alpha, r2)[0]
     client.force_login(admin_user)
     response = client.post(reverse("hackathon_move_team", args=[setup["event"].slug, alpha.pk]), {"room": r2.pk}, follow=True)
-    assert b"two rooms" in response.content
+    assert b"not moved" in response.content and b"two rooms" in response.content
     alpha.refresh_from_db()
-    assert alpha.room == r2
+    assert alpha.room == r1
 
 
 def test_allocation_page_refuses_a_second_room(client, setup, admin_user):
@@ -479,7 +479,8 @@ def test_marks_export_per_round_with_summaries(setup, admin_user):
     assert names[:6] == ["R1 Round 1 marks", "R1 Round 1 summary", "R2 Round 2 marks", "R2 Round 2 summary", "Mark changes", "Overall"]
     rows = sheet(content, "R1 Round 1 marks")
     header = rows[0]
-    alpha_a = next(r for r in rows[1:] if r[0] == "Alpha" and r[2] == "Dr. A")
+    assert header[:6] == ("Team", "Block", "Floor", "Room", "Faculty", "Employee ID")
+    alpha_a = next(r for r in rows[1:] if r[0] == "Alpha" and r[header.index("Faculty")] == "Dr. A")
     assert alpha_a[header.index("Idea (/10)")] == 8 and alpha_a[header.index("Total")] == 20 and alpha_a[header.index("Status")] == "Submitted"
     summary = sheet(content, "R1 Round 1 summary")
     assert summary[1][:2] == (1, "Alpha") and summary[1][summary[0].index("Average total")] == 21
@@ -528,7 +529,10 @@ def test_seed_demo_builds_the_demo_hackathon_and_can_run_twice(db):
     call_command("seed_demo", "--admin", "boss@example.com", stdout=StringIO())
     event = Event.objects.get(slug="demo-hackathon")
     assert event.is_hackathon
-    assert (event.rooms.count(), event.teams.count(), event.rounds.count(), event.faculty.count(), event.supervisors.count()) == (2, 4, 2, 3, 1)
+    assert (event.rooms.count(), event.teams.count(), event.rounds.count(), event.faculty.count(), event.supervisors.count(),
+            event.volunteers.count()) == (3, 9, 2, 4, 1, 1)
+    for room in event.rooms.all():
+        assert room.capacity and room.teams.count() <= room.capacity
     assert not Assignment.objects.filter(team__name="Team Pulse", faculty__person__employee_id="KLF102").exists()
     assert services.room_rule_warnings(event) == [] and services.mentor_conflicts(event) == []
 
@@ -857,7 +861,8 @@ def test_default_switches(sup):
     row, _ = sup
     assert permissions_for(row.person, row.event) == DEFAULTS
     on = {k for k, v in DEFAULTS.items() if v}
-    assert on == {"can_view_marks", "can_edit_teams", "can_edit_allocations", "can_edit_rounds", "can_download"}
+    assert on == {"can_view_marks", "can_edit_teams", "can_edit_allocations", "can_edit_rounds", "can_download",
+                  "can_take_attendance", "can_view_floors"}
 
 
 def test_each_switch_allows_then_forbids(client, setup, sup, admin_user):

@@ -7,6 +7,8 @@ participant is a team of one.
 
 from decimal import Decimal
 
+import re
+
 import pghistory
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -69,6 +71,8 @@ class Supervisor(models.Model):
     can_import = models.BooleanField("import Excel", default=False, help_text="Upload the students, faculty and allocations Excel files.")
     can_approve_requests = models.BooleanField("approve faculty requests", default=False, help_text="Approve or reject faculty requests that chose this hackathon.")
     can_add_faculty = models.BooleanField("add and edit faculty", default=False, help_text="Add people to this hackathon's faculty list and edit their details.")
+    can_take_attendance = models.BooleanField("take attendance", default=True, help_text="Mark teams and faculty present or absent in each round.")
+    can_view_floors = models.BooleanField("see floor lists", default=True, help_text="Open the By floor page, and print or export it.")
     can_manage_fields = models.BooleanField("manage fields and imports", default=False, help_text="Define the student and faculty detail fields, and match Excel columns on import.")
 
     class Meta:
@@ -86,19 +90,39 @@ class Supervisor(models.Model):
         return [label for name, (label, _, _) in PERMISSIONS.items() if getattr(self, name)]
 
 
+ROOM_CODE = re.compile(r"^\s*([A-Za-z]+)\s*-?\s*(\d)(\d+)\s*$")
+
+
+def parse_room_code(code: str):
+    """ "R206" -> ("R", "2", "06"): block letters, then the floor digit, then the room number. None if it doesn't fit."""
+    match = ROOM_CODE.match(code or "")
+    return (match.group(1).upper(), match.group(2), match.group(3)) if match else None
+
+
 @pghistory.track()
 class Room(models.Model):
     event = models.ForeignKey("events.Event", on_delete=models.PROTECT, related_name="rooms")
-    name = models.CharField(max_length=100)
-    building = models.CharField("building / floor", max_length=150, blank=True)
-    capacity = models.PositiveIntegerField("capacity (teams)", null=True, blank=True)
+    name = models.CharField("room code", max_length=100, help_text="For example R206: block R, floor 2, room 06.")
+    building = models.CharField("building / notes", max_length=150, blank=True)
+    capacity = models.PositiveIntegerField("max teams", null=True, blank=True, help_text="How many teams fit. Needed for automatic room assignment.")
+    block = models.CharField(max_length=20, blank=True, help_text="Read from the code; change it if the code doesn't follow the pattern.")
+    floor = models.CharField(max_length=10, blank=True, help_text="Read from the code; change it if the code doesn't follow the pattern.")
+    code_unread = models.BooleanField("code could not be read", default=False, editable=False)
 
     class Meta:
-        ordering = ["event", "name"]
+        ordering = ["event", "block", "floor", "name"]
         constraints = [models.UniqueConstraint("event", Lower("name"), name="room_name_unique_per_event")]
 
     def __str__(self):
         return f"{self.name} ({self.building})" if self.building else self.name
+
+    def save(self, *args, **kwargs):
+        parsed = parse_room_code(self.name)
+        if parsed:
+            self.block = self.block or parsed[0]
+            self.floor = self.floor or parsed[1]
+        self.code_unread = parsed is None and not (self.block and self.floor)
+        super().save(*args, **kwargs)
 
 
 @pghistory.track()
@@ -252,6 +276,7 @@ class Assignment(models.Model):
     class Source(models.TextChoices):
         WEBSITE = "website", "Allocated on the website"
         IMPORT = "import", "Imported from Excel"
+        RANDOM = "random", "Allocated randomly"
 
     round = models.ForeignKey(Round, on_delete=models.PROTECT, related_name="assignments")
     faculty = models.ForeignKey(EventFaculty, on_delete=models.PROTECT, related_name="assignments")
@@ -465,3 +490,59 @@ class ImportMapping(models.Model):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["event", "kind"], name="import_mapping_unique")]
+
+
+@pghistory.track()
+class Volunteer(models.Model):
+    """Helps on the day at one hackathon: attendance and marking progress. Never sees marks."""
+
+    event = models.ForeignKey("events.Event", on_delete=models.PROTECT, related_name="volunteers")
+    person = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="volunteer_roles")
+    is_active = models.BooleanField(default=True)
+    extra = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    # Labels and defaults: hackathon.access.VOLUNTEER_PERMISSIONS. Only admins change these. There is no switch for marks.
+    can_team_attendance = models.BooleanField("team attendance", default=True, help_text="Mark teams (and their members) present or absent in each round.")
+    can_faculty_attendance = models.BooleanField("faculty attendance", default=True, help_text="Mark faculty present or absent in each round.")
+    can_view_progress = models.BooleanField("see marking progress", default=True, help_text="See which teams each faculty member has submitted marks for (never the marks).")
+    can_view_floors = models.BooleanField("see floor lists", default=True, help_text="Open the By floor page, and print or export it.")
+
+    class Meta:
+        ordering = ["event", "person__full_name"]
+        constraints = [models.UniqueConstraint(fields=["event", "person"], name="volunteer_unique")]
+
+    def __str__(self):
+        return self.person.display_name
+
+    @property
+    def switch_labels(self) -> list[str]:
+        from .access import VOLUNTEER_PERMISSIONS
+
+        return [label for name, (label, _, _) in VOLUNTEER_PERMISSIONS.items() if getattr(self, name)]
+
+
+@pghistory.track()
+class Attendance(models.Model):
+    """One attendance mark for a team or a faculty member in a round. Undone marks stay, with who and why."""
+
+    round = models.ForeignKey(Round, on_delete=models.CASCADE, related_name="attendance")
+    team = models.ForeignKey(Team, null=True, blank=True, on_delete=models.CASCADE, related_name="attendance")
+    faculty = models.ForeignKey(EventFaculty, null=True, blank=True, on_delete=models.CASCADE, related_name="attendance")
+    present = models.BooleanField()
+    members_present = models.JSONField(default=list, blank=True, help_text="Registration IDs of members ticked present.")
+    marked_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    marked_at = models.DateTimeField(default=timezone.now)
+    undone_at = models.DateTimeField(null=True, blank=True)
+    undone_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+")
+    undo_reason = models.CharField(max_length=300, blank=True)
+
+    class Meta:
+        ordering = ["-marked_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=(Q(team__isnull=False) & Q(faculty__isnull=True)) | (Q(team__isnull=True) & Q(faculty__isnull=False)),
+                name="attendance_team_or_faculty",
+            ),
+            models.UniqueConstraint(fields=["round", "team"], condition=Q(undone_at__isnull=True, team__isnull=False), name="one_live_team_attendance"),
+            models.UniqueConstraint(fields=["round", "faculty"], condition=Q(undone_at__isnull=True, faculty__isnull=False), name="one_live_faculty_attendance"),
+        ]

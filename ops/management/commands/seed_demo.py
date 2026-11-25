@@ -108,7 +108,7 @@ class Command(BaseCommand):
                 options=["HealthTech", "EdTech", "FinTech", "Open"], required=True, position=2,
             )
         students = []
-        for i in range(1, 7):
+        for i in range(1, 13):
             person = Person.objects.filter(email=f"student{i}@example.com").first() or Person.objects.create_user(
                 email=f"student{i}@example.com", full_name=f"Demo Student {i}", phone=f"90000001{i:02d}",
                 institution="KL University", branch="CSE", year_of_study="3", profile_completed_at=now,
@@ -120,7 +120,8 @@ class Command(BaseCommand):
             students.append(registration)
 
         faculty = {}
-        for name, emp, dept in [("Dr. Kavya Reddy", "KLF101", "CSE"), ("Dr. Arjun Rao", "KLF102", "ECE"), ("Dr. Meera Nair", "KLF103", "AI&DS")]:
+        for name, emp, dept in [("Dr. Kavya Reddy", "KLF101", "CSE"), ("Dr. Arjun Rao", "KLF102", "ECE"), ("Dr. Meera Nair", "KLF103", "AI&DS"),
+                                ("Dr. Ravi Kumar", "KLF104", "CSE")]:
             email = name.split()[1].lower() + "@example.com"
             person = (
                 Person.objects.filter(employee_id=emp).first()
@@ -136,19 +137,25 @@ class Command(BaseCommand):
         )
         services.add_supervisor(event, sup_person, "faculty")
 
-        lab1, lab2 = services.get_room(event, "Lab 101"), services.get_room(event, "Lab 102")
-        lab1.building, lab2.building = "R&D Block, 1st floor", "R&D Block, 1st floor"
-        lab1.save()
-        lab2.save()
+        lab1, lab2 = services.get_room(event, "R206"), services.get_room(event, "R207")
+        s101 = services.get_room(event, "S101")
+        for room, capacity in ((lab1, 4), (lab2, 4), (s101, 3)):
+            room.capacity = room.capacity or capacity
+            room.save()
         plan = [
             ("Team Nova", "Smart attendance", "Face-based attendance for labs, with an offline mode.", lab1, None, students[0:2]),
             ("Team Byte", "Canteen queue", "Pre-order and pick-up slots to cut the lunch queue.", lab1, None, students[2:4]),
             ("Team Pulse", "Clinic finder", "Find the nearest open campus clinic and its wait time.", lab2, faculty["KLF102"], students[4:5]),
             ("Team Solo", "Lab booking", "Book lab benches by the hour.", lab2, None, students[5:6]),
+            ("Team Orbit", "Bus tracker", "Live campus bus positions.", None, None, students[6:7]),
+            ("Team Quill", "Notes swap", "Share class notes by course.", None, None, students[7:8]),
+            ("Team Volt", "Energy meter", "Show each block's power use.", None, None, students[8:9]),
+            ("Team Kite", "Event buddy", "Find people to go to events with.", None, None, students[9:10]),
+            ("Team Lens", "Lost and found", "Photos of found items by place.", None, None, students[10:12]),
         ]
         for name, title, description, room, mentor, members in plan:
             team = Team.objects.filter(event=event, name=name).first() or Team.objects.create(event=event, name=name)
-            team.project_title, team.project_description, team.room = title, description, room
+            team.project_title, team.project_description = title, description  # rooms come from the room assignment below
             team.mentor = mentor.person if mentor else None
             team.save()
             for registration in members:
@@ -168,17 +175,23 @@ class Command(BaseCommand):
             for i, (label, top) in enumerate([("Final pitch", 20), ("Impact", 10)], start=1):
                 Criterion.objects.create(round=round2, label=label, max_marks=top, position=i)
 
-        for round_, emp, room in [(round1, "KLF101", lab1), (round1, "KLF103", lab2), (round1, "KLF102", lab2), (round2, "KLF102", lab1), (round2, "KLF101", lab2)]:
-            try:
-                made, notes = services.allocate_room(round_, faculty[emp], room)
-            except services.AllocationError as exc:
-                notes = [str(exc)]
-            for note in notes:
-                self.stdout.write(f"  {round_}: {note}")
+        # Faculty to teams first (at random, never a mentor), then rooms by capacity, one room per faculty.
+        from hackathon import rooms as room_tools
+
+        if not round1.assignments.exists():
+            room_tools.random_allocate(round1, per_team=1, seed=7)
+        try:
+            room_tools.apply_plan(round1)
+        except Exception as exc:  # noqa: BLE001 - show it, the demo still works
+            self.stdout.write(f"  rooms not assigned: {exc}")
+        volunteer_person = Person.objects.filter(email="volunteer@example.com").first() or Person.objects.create_user(
+            email="volunteer@example.com", full_name="Demo Volunteer", phone="9000000300", source=Person.Source.IMPORT, profile_completed_at=now,
+        )
+        services.add_volunteer(event, volunteer_person)
 
         expires = now + timedelta(days=7)
         self.stdout.write("Demo hackathon staff (local demo data only). Sign in at /signin/password/:")
-        for person in [f.person for f in faculty.values()] + [sup_person]:
+        for person in [f.person for f in faculty.values()] + [sup_person, volunteer_person]:
             if person.has_usable_password():
                 self.stdout.write(f"  {person.full_name}: {person.email} / login ID {person.login_id} (already has a password)")
                 continue

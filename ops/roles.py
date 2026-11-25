@@ -79,6 +79,7 @@ def ensure_roles(apps=global_apps, **kwargs) -> None:
     supervisor, _ = Group.objects.get_or_create(name="Supervisor")
     supervisor.permissions.set(perms(SUPERVISOR_PERMS))
 
+    Group.objects.get_or_create(name="Volunteer")  # no admin permissions: volunteers use the By floor page
     Group.objects.get_or_create(name="Faculty")  # no admin permissions: faculty use the judging pages
 
     admin, _ = Group.objects.get_or_create(name="Admin")

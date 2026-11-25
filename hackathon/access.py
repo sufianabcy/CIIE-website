@@ -30,9 +30,48 @@ PERMISSIONS = {
     "can_import": ("Import Excel", "Upload the students, faculty and allocations Excel files.", False),
     "can_approve_requests": ("Approve faculty requests", "Approve or reject faculty requests that chose this hackathon.", False),
     "can_add_faculty": ("Add and edit faculty", "Add people to this hackathon's faculty list and edit their details.", False),
+    "can_take_attendance": ("Take attendance", "Mark teams and faculty present or absent in each round.", True),
+    "can_view_floors": ("See floor lists", "Open the By floor page, and print or export it.", True),
     "can_manage_fields": ("Manage fields and imports", "Define the student and faculty detail fields, and match Excel columns on import.", False),
 }
 DEFAULTS = {name: default for name, (_, _, default) in PERMISSIONS.items()}
+
+# Volunteers: on-the-day help. There is deliberately no switch for marks: volunteers never see them.
+VOLUNTEER_PERMISSIONS = {
+    "can_team_attendance": ("Team attendance", "Mark teams (and their members) present or absent in each round.", True),
+    "can_faculty_attendance": ("Faculty attendance", "Mark faculty present or absent in each round.", True),
+    "can_view_progress": ("See marking progress", "See which teams each faculty member has submitted marks for (never the marks).", True),
+    "can_view_floors": ("See floor lists", "Open the By floor page, and print or export it.", True),
+}
+# Day-of tools, checked by day_allowed(): what each means for supervisors (and coordinators/admins) and for volunteers.
+DAY_TOOLS = {
+    "team_attendance": ("can_take_attendance", "can_team_attendance"),
+    "faculty_attendance": ("can_take_attendance", "can_faculty_attendance"),
+    "progress": ("can_view_floors", "can_view_progress"),
+    "floors": ("can_view_floors", "can_view_floors"),
+}
+
+
+def volunteer_row(user, event):
+    if not user.is_authenticated:
+        return None
+    from .models import Volunteer
+
+    return Volunteer.objects.filter(event=event, person=user, is_active=True).first()
+
+
+def day_allowed(user, event, tool: str) -> bool:
+    """Day-of tools (attendance, progress, floor lists) for overseers by their switch, or volunteers by theirs."""
+    supervisor_perm, volunteer_perm = DAY_TOOLS[tool]
+    if oversees(user, event) and allowed(user, event, supervisor_perm):
+        return True
+    row = volunteer_row(user, event)
+    return bool(row and getattr(row, volunteer_perm))
+
+
+def sees_marks(user, event) -> bool:
+    """Marks, totals, remarks and rankings. Volunteers never; others by the "view all marks" switch."""
+    return oversees(user, event) and allowed(user, event, "can_view_marks")
 
 
 def allowed(user, event, perm: str) -> bool:

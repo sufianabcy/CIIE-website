@@ -55,6 +55,14 @@ ALLOCATION_COLUMNS = {
     "faculty": ["faculty", "faculty email", "faculty employee id", "employee id", "emp id", "faculty id", "login id", "faculty login id", "faculty name", "judge", "jury", "evaluator", "email"],
     "room": ["room", "room no", "room number", "lab", "venue"],
     "team": ["team", "team name", "group"],
+    "member": ["member", "member email", "student email", "student", "kl id", "student kl id", "roll no"],
+}
+ROOM_COLUMNS = {
+    "name": ["room", "room code", "room no", "room number", "room name", "lab"],
+    "capacity": ["max teams", "capacity", "teams", "max", "maximum teams", "no of teams"],
+    "block": ["block", "building"],
+    "floor": ["floor", "floor no"],
+    "notes": ["notes", "note", "remarks", "description"],
 }
 
 
@@ -232,7 +240,26 @@ def _switch_columns():
     return out
 
 
+def _volunteer_switch_columns():
+    from .access import VOLUNTEER_PERMISSIONS
+
+    return {name: [_key(label), _key(name), _key("can " + label)] for name, (label, _, _) in VOLUNTEER_PERMISSIONS.items()}
+
+
 TRUE_WORDS, FALSE_WORDS = {"yes", "y", "true", "1", "on", "allow", "allowed"}, {"no", "n", "false", "0", "off", "deny"}
+
+
+def add_volunteer(event, person, extra=None, switches=None):
+    from .models import Volunteer
+
+    person.groups.add(_group("Volunteer"))
+    row, created = Volunteer.objects.get_or_create(event=event, person=person, defaults={"extra": extra or {}})
+    if not created:
+        row.is_active = True
+    for name, value in (switches or {}).items():
+        setattr(row, name, value)
+    row.save()
+    return row, created
 
 
 def add_supervisor(event, person, kind=Supervisor.Kind.FACULTY, extra=None, switches=None) -> tuple[Supervisor, bool]:
@@ -261,7 +288,7 @@ def import_staff(event, upload, role: str, columns=None, only_rows=None) -> Impo
     """
     report = ImportReport()
     headers, rows = read_rows(upload)
-    spec = {**STAFF_COLUMNS, **(_switch_columns() if role == "supervisor" else {})}
+    spec = {**STAFF_COLUMNS, **(_switch_columns() if role == "supervisor" else _volunteer_switch_columns() if role == "volunteer" else {})}
     columns = columns if columns is not None else match_columns(headers, spec)
     if "name" not in columns.values():
         report.problems.append("No Name column in the first row of the first sheet.")
@@ -278,6 +305,15 @@ def import_staff(event, upload, role: str, columns=None, only_rows=None) -> Impo
             save_custom_values(event, person, data, "faculty" if role == "faculty" else None)
             if role == "faculty":
                 _, created = add_faculty(event, person, extra)
+            elif role == "volunteer":
+                switches = {}
+                for name in _volunteer_switch_columns():
+                    word = _key(data.get(name))
+                    if word in TRUE_WORDS:
+                        switches[name] = True
+                    elif word in FALSE_WORDS:
+                        switches[name] = False
+                _, created = add_volunteer(event, person, extra, switches)
             else:
                 kind_text = _key(data.get("kind"))
                 kind = Supervisor.Kind.STUDENT if kind_text.startswith("stud") else Supervisor.Kind.FACULTY
@@ -298,7 +334,7 @@ def import_staff(event, upload, role: str, columns=None, only_rows=None) -> Impo
 
 def _privileged(person) -> bool:
     """Accounts a non-admin must never reset: a new password would be a way into a bigger account."""
-    return bool(person.is_superuser or person.is_staff or person.groups.filter(name__in=["Admin", "Coordinator", "Supervisor"]).exists())
+    return bool(person.is_superuser or person.is_staff or person.groups.filter(name__in=["Admin", "Coordinator", "Supervisor", "Volunteer"]).exists())
 
 
 def issue_credentials(event, expires_at, which="new", faculty_only=False):
@@ -312,8 +348,12 @@ def issue_credentials(event, expires_at, which="new", faculty_only=False):
             continue
         people.setdefault(f.person.pk, [f.person, []])[1].append("Faculty")
     if not faculty_only:
+        from .models import Volunteer
+
         for s in Supervisor.objects.filter(event=event, is_active=True).select_related("person"):
             people.setdefault(s.person.pk, [s.person, []])[1].append("Supervisor")
+        for v in Volunteer.objects.filter(event=event, is_active=True).select_related("person"):
+            people.setdefault(v.person.pk, [v.person, []])[1].append("Volunteer")
     issued = []
     with transaction.atomic():
         for person, roles in sorted(people.values(), key=lambda pr: pr[0].display_name):
@@ -548,6 +588,52 @@ def _find_round(event, text):
     return qs.filter(position=int(digits)).first() if digits else None
 
 
+def find_member_registration(event, text):
+    text = (text or "").strip()
+    qs = Registration.objects.filter(event=event, status=Registration.Status.CONFIRMED)
+    if "@" in text:
+        email = normalise_email(text)
+        return qs.filter(Q(person__email__iexact=email) | Q(person__kl_email__iexact=email)).first()
+    return qs.filter(person__student_id__iexact=text).first() if text else None
+
+
+@transaction.atomic
+def import_rooms(event, upload, columns=None, only_rows=None) -> ImportReport:
+    """Rooms to use, with their max teams. Codes like R206 give the block and floor unless the file says otherwise."""
+    report = ImportReport()
+    headers, rows = read_rows(upload)
+    columns = columns if columns is not None else match_columns(headers, ROOM_COLUMNS)
+    if "name" not in columns.values():
+        report.problems.append("The first row needs a Room column.")
+        return report
+    for line, row in enumerate(rows, start=2):
+        if only_rows is not None and line not in only_rows:
+            continue
+        data, _ = _row_data(headers, row, columns)
+        name = " ".join((data.get("name") or "").split())
+        if not name:
+            report.problems.append(f"Row {line}: no room code.")
+            continue
+        capacity = data.get("capacity") or ""
+        if capacity and not capacity.isdigit():
+            report.problems.append(f"Row {line}: max teams \"{capacity}\" is not a whole number.")
+            continue
+        room = Room.objects.filter(event=event, name__iexact=name).first()
+        created = room is None
+        room = room or Room(event=event, name=name)
+        if capacity:
+            room.capacity = int(capacity)
+        for key, attr in (("block", "block"), ("floor", "floor"), ("notes", "building")):
+            if data.get(key):
+                setattr(room, attr, data[key].upper() if key == "block" else data[key])
+        room.save()
+        if room.code_unread:
+            report.warnings.append(f"Row {line}: couldn't read block and floor from \"{name}\". Set them on the Rooms page.")
+        report.created += created
+        report.updated += not created
+    return report
+
+
 @transaction.atomic
 def import_allocations(event, upload, columns=None, only_rows=None) -> ImportReport:
     """Rows of (round, faculty, room or team). Breaking the one-room rule is allowed but warned; mentors never judge their team."""
@@ -555,8 +641,8 @@ def import_allocations(event, upload, columns=None, only_rows=None) -> ImportRep
     headers, rows = read_rows(upload)
     columns = columns if columns is not None else match_columns(headers, ALLOCATION_COLUMNS)
     names = set(columns.values())
-    if "faculty" not in names or not ({"room", "team"} & names):
-        report.problems.append("The first row needs a Faculty column (email, employee ID, login ID or name) and a Room or Team column.")
+    if "faculty" not in names or not ({"room", "team", "member"} & names):
+        report.problems.append("The first row needs a Faculty column (email, employee ID, login ID or name) and a Team, team member or Room column.")
         return report
     for line, row in enumerate(rows, start=2):
         if only_rows is not None and line not in only_rows:
@@ -570,6 +656,13 @@ def import_allocations(event, upload, columns=None, only_rows=None) -> ImportRep
         if not faculty:
             report.problems.append(f"Row {line}: no faculty member of this event matches \"{data.get('faculty', '')}\".")
             continue
+        if not data.get("team") and data.get("member"):
+            registration = find_member_registration(event, data["member"])
+            membership = TeamMember.objects.filter(registration=registration).select_related("team").first() if registration else None
+            if not membership:
+                report.problems.append(f"Row {line}: no student in a team matches \"{data['member']}\".")
+                continue
+            data["team"] = membership.team.name
         if data.get("team"):
             teams = list(Team.objects.filter(event=event, name__iexact=data["team"]))
             if not teams:

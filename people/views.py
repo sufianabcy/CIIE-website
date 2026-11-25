@@ -105,7 +105,7 @@ def profile(request):
 def _staff_landing(person) -> str:
     if person.must_change_password:
         return "password_change"
-    if person.faculty_roles.exists() or person.supervisor_roles.exists():
+    if person.faculty_roles.exists() or person.supervisor_roles.exists() or person.volunteer_roles.exists():
         return "staff_home"
     return "my_registrations"
 

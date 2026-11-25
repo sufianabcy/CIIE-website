@@ -30,6 +30,12 @@ def _answers(event):
     return [q.label for q in questions], values
 
 
+def _where(team):
+    """Block, floor and room of a team, for exports."""
+    room = team.room
+    return [room.block, room.floor, room.name] if room else ["", "", ""]
+
+
 def _members(team):
     return ", ".join(m.registration.person.display_name for m in team.members.all())
 
@@ -82,9 +88,9 @@ def allocations_workbook(event, wb):
     )
     _sheet(
         wb, "Allocations",
-        ["Round", "Room", "Faculty", "Faculty email", "Employee ID", "Team", "How", "Status"],
+        ["Round", "Block", "Floor", "Room", "Faculty", "Faculty email", "Employee ID", "Team", "How", "Status"],
         [
-            [a.round.name, a.team.room.name if a.team.room else "", a.faculty.person.display_name, a.faculty.person.email or "",
+            [a.round.name, *_where(a.team), a.faculty.person.display_name, a.faculty.person.email or "",
              a.faculty.person.employee_id, a.team.name, a.get_source_display(), "Submitted" if a.submitted_at else "Not submitted"]
             for a in rows
         ],
@@ -127,7 +133,7 @@ def marks_workbook(event, wb):
             status = "Submitted" if a.submitted_at else ("Draft saved" if marks else "Not started")
             last = next(iter(a.changes.all()), None)  # newest first
             rows.append(
-                [a.team.name, a.team.room.name if a.team.room else "", a.faculty.person.display_name, a.faculty.person.employee_id]
+                [a.team.name, *_where(a.team), a.faculty.person.display_name, a.faculty.person.employee_id]
                 + [_num(marks.get(c.pk)) for c in criteria]
                 + [_num(total) if marks else None, _num(out_of), a.remarks, status, _local(a.submitted_at)]
                 + ([last.reason, last.changed_by.display_name, _local(last.changed_at)] if last else [None, None, None])
@@ -137,7 +143,7 @@ def marks_workbook(event, wb):
         title = re.sub(r"[\[\]:*?/\\]", "", f"R{round_.position} {round_.name}")[:22]
         _sheet(
             wb, f"{title} marks",
-            ["Team", "Room", "Faculty", "Employee ID"] + crit_headers
+            ["Team", "Block", "Floor", "Room", "Faculty", "Employee ID"] + crit_headers
             + ["Total", "Out of", "Remarks", "Status", "Submitted at", "Last changed: reason", "Changed by", "Changed at"],
             rows, text_columns=["Employee ID"],
         )
@@ -220,8 +226,11 @@ TEMPLATES = {
                 ["Dr. A. Example", "a.example@kluniversity.in", "KLF1234", "CSE", "9000000000"]),
     "supervisors": ("Supervisors", ["Name", "Email", "Employee ID", "KL ID", "Department", "Phone", "Type", "Change marks", "Publish results"],
                     ["Dr. B. Example", "b.example@kluniversity.in", "KLF5678", "", "ECE", "9000000001", "Faculty", "No", "No"]),
-    "allocations": ("Allocations", ["Round", "Faculty email", "Room", "Team"],
-                    ["Round 1", "a.example@kluniversity.in", "R&D 101", ""]),
+    "allocations": ("Allocations", ["Round", "Faculty email", "Team", "Member email or KL ID"],
+                    ["Round 1", "a.example@kluniversity.in", "Team Rocket", ""]),
+    "rooms": ("Rooms", ["Room", "Max teams", "Block", "Floor", "Notes"], ["R206", "4", "", "", "Projector"]),
+    "volunteers": ("Volunteers", ["Name", "Email", "KL ID", "Phone", "Team attendance", "Faculty attendance", "See marking progress", "See floor lists"],
+                   ["A. Volunteer", "2300012345@kluniversity.in", "2300012345", "9000000000", "Yes", "Yes", "Yes", "Yes"]),
 }
 
 

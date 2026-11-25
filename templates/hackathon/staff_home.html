@@ -32,7 +32,18 @@
     {% endfor %}
   </ul>
   {% endif %}
-  {% if not roles and not overseen %}
+  {% if volunteering %}
+  <h2 class="heading-6 mb-3">Volunteering</h2>
+  <ul class="reg-list mb-5">
+    {% for v in volunteering %}
+    <li><a class="reg-row mark-row" href="{% url 'hackathon_volunteer_today' v.event.slug %}">
+      <span><span class="r-title">{{ v.event.title }}</span><br><span class="caption-2 text-secondary">{{ v.event.starts_at|date:"D j M Y" }} · {{ v.switch_labels|join:", " }}</span></span>
+      {% include "ui/icon.html" with name="arrow-right" %}
+    </a></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if not roles and not overseen and not volunteering %}
   <div class="empty-state">
     <div class="empty-icon">{% include "ui/icon.html" with name="gavel" %}</div>
     <h2 class="heading-5">Nothing assigned to you yet</h2>

@@ -25,11 +25,13 @@ from registrations.services import RegistrationError, cancel, register
 from . import fields as detail_fields
 from . import services
 from .access import PERMISSIONS, allowed, is_admin, overseen_event, permissions_for, require
-from .models import Assignment, Criterion, EventFaculty, FieldDefinition, Room, Round, Supervisor, Team, TeamMember
+from . import rooms as room_tools
+from .access import VOLUNTEER_PERMISSIONS
+from .models import Assignment, Criterion, EventFaculty, FieldDefinition, Room, Round, Supervisor, Team, TeamMember, Volunteer
 
 SECTIONS = [
     ("students", "Students"), ("teams", "Teams"), ("rooms", "Rooms"), ("faculty", "Faculty"),
-    ("supervisors", "Supervisors"), ("rounds", "Rounds and rubric"), ("allocations", "Allocations"), ("fields", "Fields"),
+    ("supervisors", "Supervisors"), ("volunteers", "Volunteers"), ("rounds", "Rounds and rubric"), ("allocations", "Allocations"), ("fields", "Fields"),
 ]
 
 
@@ -224,9 +226,14 @@ def team_edit(request, slug, pk=None):
         return _team_members(request, event, team)
     if request.method == "POST" and form.is_valid():
         new = form.save(commit=False)
-        if team and new.room != old_room:
-            for w in services.room_change_warnings(Team.objects.get(pk=team.pk), new.room):
-                messages.warning(request, w)
+        problems = room_tools.move_problems(Team.objects.get(pk=team.pk), new.room) if team and new.room and new.room != old_room else []
+        if problems:
+            for p in problems:
+                form.add_error("room", p)
+            return _form(request, event, "teams", f"Edit {team.name}", [form], back=_url(event, "teams"),
+                         delete_url=_url(event, "team_delete", team.pk), extra_template="hackathon/_team_members.html",
+                         team=team, members=list(team.members.select_related("registration__person")),
+                         free=_student_regs(event).filter(team_membership__isnull=True))
         new.save()
         if new.mentor_id and new.assignments.filter(faculty__person_id=new.mentor_id).exists():
             messages.warning(request, f"{new.mentor} mentors this team but is allocated to judge it. Remove that allocation.")
@@ -273,7 +280,7 @@ def team_delete(request, slug, pk):
 class RoomForm(forms.ModelForm):
     class Meta:
         model = Room
-        fields = ["name", "building", "capacity"]
+        fields = ["name", "capacity", "block", "floor", "building"]
 
     def __init__(self, *args, event, **kwargs):
         super().__init__(*args, **kwargs)
@@ -292,11 +299,15 @@ def rooms(request, slug):
     event = overseen_event(request, slug)
     can_edit = allowed(request.user, event, "can_edit_teams")
     rows = [
-        ([r.name, r.building or "—", r.capacity or "—", r.n], _url(event, "room_edit", r.pk) if can_edit else None)
+        ([r.name + (" (code not read: set block and floor)" if r.code_unread else ""), r.block or "—", r.floor or "—",
+          f"{r.n} / {r.capacity}" if r.capacity else f"{r.n} / no max", r.building or ""],
+         _url(event, "room_edit", r.pk) if can_edit else None)
         for r in Room.objects.filter(event=event).annotate(n=Count("teams"))
     ]
-    return _list(request, event, "rooms", "Rooms", ["Room", "Building / floor", "Capacity", "Teams"], rows,
-                 add_url=_url(event, "room_add") if can_edit else None, add_label="Add a room")
+    return _list(request, event, "rooms", "Rooms", ["Room", "Block", "Floor", "Teams / max", "Notes"], rows,
+                 add_url=_url(event, "room_add") if can_edit else None, add_label="Add a room",
+                 intro="Codes like R206 are read as block R, floor 2, room 06. Set max teams for automatic room assignment. "
+                       "Rooms can also come from Excel (Room, Max teams, Block, Floor, Notes) on the hackathon page.")
 
 
 @never_cache
@@ -729,3 +740,69 @@ def field_delete(request, slug, pk):
     defn.delete()
     messages.success(request, "Field deleted. Values already saved for it stay in the database.")
     return redirect("hackathon_manage_fields", slug)
+
+
+# --- Volunteers (admins only) ----------------------------------------------------------------
+
+
+class VolunteerForm(forms.ModelForm):
+    class Meta:
+        model = Volunteer
+        fields = ["is_active", *VOLUNTEER_PERMISSIONS]
+
+
+@never_cache
+@login_required
+def volunteers(request, slug):
+    event = overseen_event(request, slug)
+    admin = is_admin(request.user)
+    rows = [
+        ([v.person.display_name, v.person.email or "", v.person.login_id or "", "Yes" if v.is_active else "No", ", ".join(v.switch_labels) or "nothing yet"],
+         _url(event, "volunteer_edit", v.pk) if admin else None)
+        for v in Volunteer.objects.filter(event=event).select_related("person")
+    ]
+    return _list(request, event, "volunteers", "Volunteers", ["Name", "Email", "Login ID", "Active", "Can"], rows,
+                 add_url=_url(event, "volunteer_add") if admin else None, add_label="Add a volunteer",
+                 intro="Volunteers take attendance and see which marks are submitted, never the marks. Only admins add them and choose what they can do. "
+                       "Make their temporary passwords with the logins on the hackathon page.")
+
+
+@never_cache
+@login_required
+def volunteer_edit(request, slug, pk=None):
+    event = overseen_event(request, slug)
+    _admin_only(request)
+    row = get_object_or_404(Volunteer, pk=pk, event=event) if pk else None
+    find = None if row else _style(FindPersonForm(request.POST or None, prefix="p"))
+    form = _style(VolunteerForm(request.POST or None, instance=row, prefix="v"))
+    for name, (_, help_text, _) in VOLUNTEER_PERMISSIONS.items():
+        form.fields[name].help_text = help_text
+    if request.method == "POST" and form.is_valid() and (find is None or find.is_valid()):
+        with transaction.atomic():
+            if row is None:
+                person = find.cleaned_data["person"]
+                if not person.pk:
+                    person.save()
+                row, _ = services.add_volunteer(event, person)
+            for name in ["is_active", *VOLUNTEER_PERMISSIONS]:
+                setattr(row, name, form.cleaned_data[name])
+            row.save()
+        messages.success(request, f"Saved {row.person.display_name}.")
+        return redirect("hackathon_manage_volunteers", slug)
+    return _form(request, event, "volunteers", f"Edit {row.person.display_name}" if row else "Add a volunteer",
+                 [find, form] if find else [form], back=_url(event, "volunteers"),
+                 delete_url=_url(event, "volunteer_remove", row.pk) if row else None, delete_label="Remove as volunteer")
+
+
+@login_required
+@require_POST
+def volunteer_remove(request, slug, pk):
+    event = overseen_event(request, slug)
+    _admin_only(request)
+    row = get_object_or_404(Volunteer, pk=pk, event=event)
+    person = row.person
+    row.delete()
+    if not person.volunteer_roles.exists():
+        person.groups.remove(*person.groups.filter(name="Volunteer"))
+    messages.success(request, f"{person.display_name} is no longer a volunteer here.")
+    return redirect("hackathon_manage_volunteers", slug)

@@ -16,6 +16,7 @@ from django.views.decorators.http import require_POST
 from registrations.models import Registration
 
 from . import imports, services
+from .day_views import RandomForm
 from .access import allowed, is_admin, overseen_event, overseen_events, permissions_for, require
 from .exports import TEMPLATES, credentials_file, template_file
 from .forms import AllocateForm, CredentialsForm, MarksForm, MoveTeamForm, UploadForm
@@ -82,6 +83,7 @@ def dashboard(request, slug):
             "warnings": services.room_rule_warnings(event) + services.mentor_conflicts(event),
             "upload_form": UploadForm(),
             "allocate_form": AllocateForm(event=event),
+            "random_form": RandomForm(event=event),
             "pending_requests": _pending_requests(request.user, event),
             "credentials_form": CredentialsForm(initial={"expires_at": default_expiry.strftime("%Y-%m-%dT%H:%M")}),
         },
@@ -101,7 +103,9 @@ UPLOADS = {
     "students": ("Students", "student(s)"),
     "faculty": ("Faculty", "faculty"),
     "supervisors": ("Supervisors", "supervisor(s)"),
+    "volunteers": ("Volunteers", "volunteer(s)"),
     "allocations": ("Allocations", "allocation(s)"),
+    "rooms": ("Rooms", "room(s)"),
 }
 
 
@@ -130,8 +134,8 @@ def upload(request, slug, kind):
 
 
 def _import_allowed(request, event, kind):
-    if kind == "supervisors" and not is_admin(request.user):
-        raise PermissionDenied  # only admins add supervisors
+    if kind in ("supervisors", "volunteers") and not is_admin(request.user):
+        raise PermissionDenied  # only admins add supervisors and volunteers
     require(request.user, event, "can_import")
 
 
@@ -262,11 +266,16 @@ def move_team(request, slug, pk):
     require(request.user, event, "can_edit_teams")
     form = MoveTeamForm(request.POST, event=event)
     if form.is_valid():
+        from .rooms import move_problems
+
         room = form.cleaned_data["room"]
-        warnings = services.set_team_room(team, room)
+        problems = move_problems(team, room) if room and room.pk != team.room_id else []
+        if problems:
+            for p in problems:
+                messages.error(request, f"{team.name} not moved: {p}")
+            return redirect("hackathon_dashboard", slug)
+        services.set_team_room(team, room)
         messages.success(request, f"{team.name} is now in {room.name if room else 'no room'}.")
-        for w in warnings:
-            messages.warning(request, w)
     return redirect("hackathon_dashboard", slug)
 
 
@@ -346,9 +355,12 @@ def staff_home(request):
         EventFaculty.objects.filter(person=request.user, is_active=True)
         .select_related("event").order_by("-event__starts_at")
     )
+    from .models import Volunteer
+
+    volunteering = Volunteer.objects.filter(person=request.user, is_active=True).select_related("event").order_by("-event__starts_at")
     return render(
         request, "hackathon/staff_home.html",
-        {"roles": roles, "overseen": overseen_events(request.user).order_by("-starts_at")},
+        {"roles": roles, "overseen": overseen_events(request.user).order_by("-starts_at"), "volunteering": volunteering},
     )
 
 

@@ -1,0 +1,50 @@
+{% for key, rooms in floors %}
+<section class="mb-4">
+  <h2 class="heading-5">Block {{ key.0 }} · Floor {{ key.1 }}</h2>
+  {% for r in rooms %}
+  <article class="panel mb-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+      <h3 class="heading-6 mb-0">{{ r.room.name }} <span class="caption-2 text-secondary">{{ r.teams|length }}{% if r.room.capacity %} / {{ r.room.capacity }}{% endif %} teams</span></h3>
+      {% if can_progress and r.allocations %}<span class="tag{% if r.submitted == r.allocations %} tag-green{% endif %}">Marks submitted {{ r.submitted }} / {{ r.allocations }}</span>{% endif %}
+    </div>
+    {% if r.faculty %}
+    <div class="mb-2"><strong class="caption-2">Faculty</strong>
+      {% for f in r.faculty %}<div class="d-flex flex-wrap align-items-center gap-2 py-1">
+        <span>{{ f.faculty }}</span>
+        {% if f.attendance %}<span class="tag {% if f.attendance.present %}tag-green{% else %}tag-red{% endif %}">{{ f.attendance.present|yesno:"Present,Absent" }}</span>{% endif %}
+        {% if can_faculty_att and round and not printing %}
+          <form method="post" action="{% url 'hackathon_attendance_mark' event.slug %}" class="d-inline-flex gap-1">{% csrf_token %}
+            <input type="hidden" name="round" value="{{ round.pk }}"><input type="hidden" name="faculty" value="{{ f.faculty.pk }}"><input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <button class="btn btn-quiet btn-sm" name="present" value="1" type="submit">Present</button><button class="btn btn-quiet btn-sm" name="present" value="0" type="submit">Absent</button>
+          </form>
+          {% if f.attendance %}<form method="post" action="{% url 'hackathon_attendance_undo' event.slug f.attendance.pk %}" class="d-inline-flex gap-1">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input name="reason" class="form-control form-control-sm" placeholder="Why undo?" style="max-width:9rem" aria-label="Why undo"><button class="btn btn-link btn-sm" type="submit">Undo</button></form>{% endif %}
+        {% endif %}
+      </div>{% endfor %}
+    </div>
+    {% endif %}
+    {% for t in r.teams %}
+    <div class="border-top py-2">
+      <div class="d-flex flex-wrap justify-content-between gap-2">
+        <div><strong>{{ t.team.name }}</strong>{% if t.team.project_title %} · {{ t.team.project_title }}{% endif %}<div class="caption-2 text-secondary">{{ t.members|join:", " }}</div></div>
+        <div class="d-flex flex-wrap gap-1 align-items-start">
+          {% if t.attendance %}<span class="tag {% if t.attendance.present %}tag-green{% else %}tag-red{% endif %}">{{ t.attendance.present|yesno:"Present,Absent" }}{% if t.attendance.members_present %} ({{ t.attendance.members_present|length }}/{{ t.members|length }}){% endif %}</span>{% endif %}
+          {% if can_progress %}{% for f, done in t.progress %}<span class="tag {% if done %}tag-green{% else %}tag-amber{% endif %}" title="{{ f }}">{{ f }}: {{ done|yesno:"done,pending" }}</span>{% endfor %}{% endif %}
+        </div>
+      </div>
+      {% if can_team_att and round and not printing %}
+      <form method="post" action="{% url 'hackathon_attendance_mark' event.slug %}" class="d-flex flex-wrap align-items-center gap-2 mt-2">{% csrf_token %}
+        <input type="hidden" name="round" value="{{ round.pk }}"><input type="hidden" name="team" value="{{ t.team.pk }}"><input type="hidden" name="next" value="{{ request.get_full_path }}">
+        {% for reg_id, name in t.member_regs %}<label class="caption-2"><input type="checkbox" name="members" value="{{ reg_id }}"{% if reg_id in t.attendance.members_present %} checked{% endif %}> {{ name }}</label>{% endfor %}
+        <button class="btn btn-primary btn-sm" name="present" value="1" type="submit">Team present</button>
+        <button class="btn btn-quiet btn-sm" name="present" value="0" type="submit">Absent</button>
+      </form>
+      {% if t.attendance %}<form method="post" action="{% url 'hackathon_attendance_undo' event.slug t.attendance.pk %}" class="d-flex gap-1 mt-1">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input name="reason" class="form-control form-control-sm" placeholder="Why undo?" style="max-width:12rem" aria-label="Why undo"><button class="btn btn-link btn-sm" type="submit">Undo mark</button></form>{% endif %}
+      {% endif %}
+    </div>
+    {% empty %}<p class="caption-2 text-secondary mb-0">No teams in this room.</p>{% endfor %}
+  </article>
+  {% endfor %}
+</section>
+{% empty %}
+<div class="empty-state"><h2 class="heading-5">No rooms here</h2><p>Rooms and their teams appear once they're set up.</p></div>
+{% endfor %}

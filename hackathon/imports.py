@@ -17,7 +17,8 @@ from people.models import normalise_email
 from . import services
 from .fields import clean_value, ensure_fields
 
-KINDS = {"students": "Students", "faculty": "Faculty", "supervisors": "Supervisors", "allocations": "Allocations"}
+KINDS = {"students": "Students", "faculty": "Faculty", "supervisors": "Supervisors", "volunteers": "Volunteers",
+         "allocations": "Allocations", "rooms": "Rooms"}
 
 
 @dataclass
@@ -55,6 +56,16 @@ def targets(event, kind, user=None) -> list[Target]:
                 out.append(Target(key, key.replace("_", " ").capitalize(), False, services.STUDENT_COLUMNS[key]))
             for q in event.questions.filter(is_hidden=False):
                 out.append(Target(f"q:{q.key}", f"Question: {q.label}", False, [_k(q.label), _k(q.key)]))
+    elif kind == "rooms":
+        for key, label in (("name", "Room code (like R206)"), ("capacity", "Max teams"), ("block", "Block"), ("floor", "Floor"), ("notes", "Notes")):
+            out.append(Target(key, label, key == "name", services.ROOM_COLUMNS[key]))
+    elif kind == "volunteers":
+        from .access import VOLUNTEER_PERMISSIONS
+
+        for key, label in (("name", "Name"), ("email", "Email"), ("student_id", "KL ID"), ("employee_id", "Employee ID"), ("phone", "Phone")):
+            out.append(Target(key, label, key == "name", services.STAFF_COLUMNS.get(key, [])))
+        for key, aliases in services._volunteer_switch_columns().items():
+            out.append(Target(key, f"Permission: {VOLUNTEER_PERMISSIONS[key][0]} (Yes/No)", False, aliases))
     elif kind == "supervisors":
         for key, label in (("name", "Name"), ("email", "Email"), ("employee_id", "Employee ID"), ("student_id", "KL ID"),
                            ("branch", "Department"), ("phone", "Phone"), ("kind", "Type (Faculty or Student)")):
@@ -65,7 +76,7 @@ def targets(event, kind, user=None) -> list[Target]:
             out.append(Target(key, f"Permission: {PERMISSIONS[key][0]} (Yes/No)", False, aliases))
     else:
         for key, label in (("round", "Round"), ("faculty", "Faculty (email, employee ID, login ID or name)"),
-                           ("room", "Room"), ("team", "Team")):
+                           ("team", "Team"), ("member", "Or a team member (email or KL ID)"), ("room", "Or a whole room")):
             out.append(Target(key, label, key == "faculty", services.ALLOCATION_COLUMNS[key]))
     return out
 
@@ -108,8 +119,8 @@ def sheet_checks(headers, rows, mapping, targets_, kind):
             errors.append(f"\"{t.label}\" is required, but no column is matched to it.")
     if kind == "students" and mapping.get("email") is None and mapping.get("student_id") is None:
         errors.append("Match an Email or a KL ID column, so each student can be matched or created.")
-    if kind == "allocations" and mapping.get("room") is None and mapping.get("team") is None:
-        errors.append("Match a Room or a Team column.")
+    if kind == "allocations" and all(mapping.get(k) is None for k in ("room", "team", "member")):
+        errors.append("Match a Team, a team member or a Room column.")
     chosen = [i for i in mapping.values() if i is not None]
     for i, n in Counter(chosen).items():
         if n > 1:
@@ -146,13 +157,13 @@ def row_checks(event, kind, headers, rows, mapping, targets_) -> dict:
                     problems[line].append(f"Row {line}, {where}: {error}.")
             elif t.required and not raw:
                 problems[line].append(f"Row {line}, {where}: required, but empty.")
-            if key in ("email", "student_id", "employee_id") and raw and kind != "allocations":
+            if key in ("email", "student_id", "employee_id") and raw and kind not in ("allocations", "rooms"):
                 value = normalise_email(raw) if key == "email" else raw.strip().lower()
                 if value in seen[key]:
                     problems[line].append(f"Row {line}, {where}: \"{raw}\" is also in row {seen[key][value]}.")
                 else:
                     seen[key][value] = line
-        if kind in ("students", "faculty", "supervisors"):
+        if kind in ("students", "faculty", "supervisors", "volunteers"):
             data = {k: (row[i] if i is not None and i < len(row) else "") for k, i in mapping.items()}
             _, clash = services._find_person(normalise_email(data.get("email")) or "", (data.get("student_id") or "").strip(),
                                              (data.get("employee_id") or "").strip())
@@ -184,6 +195,10 @@ def _run(event, kind, content_or_rows, mapping, only_rows, user):
         return services.import_staff(event, upload, "faculty", columns=columns, only_rows=only_rows)
     if kind == "supervisors":
         return services.import_staff(event, upload, "supervisor", columns=columns, only_rows=only_rows)
+    if kind == "volunteers":
+        return services.import_staff(event, upload, "volunteer", columns=columns, only_rows=only_rows)
+    if kind == "rooms":
+        return services.import_rooms(event, upload, columns=columns, only_rows=only_rows)
     return services.import_allocations(event, upload, columns=columns, only_rows=only_rows)
 
 

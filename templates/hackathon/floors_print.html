@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>By floor · {{ event.title }}</title>
+<style>body{font-family:system-ui,sans-serif;font-size:12px;margin:16px} h1{font-size:18px} h2{font-size:15px;margin-top:18px} table{width:100%;border-collapse:collapse;margin-bottom:10px} th,td{border:1px solid #999;padding:4px;text-align:left;vertical-align:top} @media print{.no-print{display:none}}</style></head>
+<body>
+<p class="no-print"><button onclick="window.print()">Print</button></p>
+<h1>{{ event.title }} · By floor{% if round %} · {{ round.name }}{% endif %}</h1>
+{% for key, rooms in floors %}
+  <h2>Block {{ key.0 }}, floor {{ key.1 }}</h2>
+  {% for r in rooms %}
+  <table>
+    <tr><th colspan="{% if can_progress %}5{% else %}4{% endif %}">{{ r.room.name }} · faculty: {% for f in r.faculty %}{{ f.faculty }}{% if f.attendance %} ({{ f.attendance.present|yesno:"present,absent" }}){% endif %}{% if not forloop.last %}, {% endif %}{% empty %}none{% endfor %}</th></tr>
+    <tr><th>Team</th><th>Members</th><th>Project</th><th>Attendance</th>{% if can_progress %}<th>Marking</th>{% endif %}</tr>
+    {% for t in r.teams %}<tr><td>{{ t.team.name }}</td><td>{{ t.members|join:", " }}</td><td>{{ t.team.project_title }}</td><td>{% if t.attendance %}{{ t.attendance.present|yesno:"Present,Absent" }}{% else %}☐{% endif %}</td>{% if can_progress %}<td>{% for f, done in t.progress %}{{ f }}: {{ done|yesno:"done,pending" }}{% if not forloop.last %}; {% endif %}{% endfor %}</td>{% endif %}</tr>{% endfor %}
+  </table>
+  {% endfor %}
+{% endfor %}
+</body></html>

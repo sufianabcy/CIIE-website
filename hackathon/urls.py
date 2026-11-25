@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import manage_views, views
+from . import day_views, manage_views, views
 
 urlpatterns = [
     path("manage/<slug:slug>/hackathon/", views.dashboard, name="hackathon_dashboard"),
@@ -47,6 +47,18 @@ urlpatterns = [
     path("manage/<slug:slug>/hackathon/rounds/<int:pk>/delete/", manage_views.round_delete, name="hackathon_manage_round_delete"),
     path("manage/<slug:slug>/hackathon/allocations/<int:pk>/delete/", manage_views.allocation_delete, name="hackathon_manage_allocation_delete"),
     path("manage/<slug:slug>/hackathon/fields/<int:pk>/delete/", manage_views.field_delete, name="hackathon_manage_field_delete"),
+    path("manage/<slug:slug>/hackathon/allocate-random/", day_views.random_allocate, name="hackathon_random_allocate"),
+    path("manage/<slug:slug>/hackathon/assign-rooms/", day_views.rooms_plan, name="hackathon_rooms_plan"),
+    path("manage/<slug:slug>/hackathon/floors/", day_views.by_floor, name="hackathon_floors"),
+    path("manage/<slug:slug>/hackathon/floors/excel/", day_views.by_floor_export, name="hackathon_floors_export"),
+    path("manage/<slug:slug>/hackathon/attendance/mark/", day_views.attendance_mark, name="hackathon_attendance_mark"),
+    path("manage/<slug:slug>/hackathon/attendance/<int:pk>/undo/", day_views.attendance_undo, name="hackathon_attendance_undo"),
+    path("manage/<slug:slug>/hackathon/attendance/excel/", day_views.attendance_export, name="hackathon_attendance_export"),
+    path("volunteer/<slug:slug>/", day_views.volunteer_today, name="hackathon_volunteer_today"),
+    path("manage/<slug:slug>/hackathon/volunteers/", manage_views.volunteers, name="hackathon_manage_volunteers"),
+    path("manage/<slug:slug>/hackathon/volunteers/add/", manage_views.volunteer_edit, name="hackathon_manage_volunteer_add"),
+    path("manage/<slug:slug>/hackathon/volunteers/<int:pk>/", manage_views.volunteer_edit, name="hackathon_manage_volunteer_edit"),
+    path("manage/<slug:slug>/hackathon/volunteers/<int:pk>/delete/", manage_views.volunteer_remove, name="hackathon_manage_volunteer_remove"),
     path("me/hackathon/<slug:slug>/", views.my_hackathon, name="my_hackathon"),
     path("manage/faculty-requests/", views.faculty_requests, name="faculty_requests"),
     path("faculty/register/", views.faculty_register, name="faculty_register"),
