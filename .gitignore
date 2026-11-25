@@ -9,3 +9,16 @@ media/
 *.dump
 *.dump.age
 age-key*.txt
+
+# Local tool output and OS files
+.DS_Store
+*.log
+.ruff_cache/
+.idea/
+.vscode/
+
+# Server-side secrets: never committed (they live on the server and in the password manager)
+deploy/.env
+deploy/rclone/
+rclone.conf
+*.pem
