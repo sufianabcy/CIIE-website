@@ -33,7 +33,7 @@
         {% if user.is_kl_verified %}
           <p class="mb-0"><span class="pass-status">{% include "ui/icon.html" with name="check-circle" %}Verified</span><br><span class="caption-2 text-secondary">{{ user.kl_email }}</span></p>
         {% else %}
-          <p class="text-secondary">Not verified. Add your KL email (ending in {{ kl_domains|join:" or " }}) and enter the code we send to it.</p>
+          <p class="text-secondary">Not verified. Add your KL faculty email (ending in {{ kl_domains|join:" or " }}) and enter the code we send to it.</p>
           <a class="btn btn-quiet btn-sm" href="{% url 'account_email' %}">Verify my KL faculty email</a>
         {% endif %}
         {% else %}

@@ -54,6 +54,7 @@
         <div class="link-row">
           <a href="{% url 'admin:events_event_change' e.pk %}">{% include "ui/icon.html" with name="gear" %}Setup</a>
           {% if e.is_hackathon %}<a href="{% url 'hackathon_dashboard' e.slug %}">{% include "ui/icon.html" with name="gavel" %}Hackathon</a>{% endif %}
+          {% if user.is_portal_admin %}<a href="{% url 'hackathon_invites' e.slug %}">{% include "ui/icon.html" with name="mail" %}Sign-in invites</a>{% endif %}
           <a href="{% url 'admin:results_result_changelist' %}?event__id__exact={{ e.pk }}">{% include "ui/icon.html" with name="trophy" %}Results</a>
           <a href="{% url 'event_report' e.slug %}">{% include "ui/icon.html" with name="clipboard" %}Report</a>
         </div>

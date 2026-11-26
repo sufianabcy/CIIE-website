@@ -199,9 +199,15 @@ def test_portal_forms_turn_clashes_into_form_errors(client, make_person, make_ev
     client.force_login(admin_user)
     slug = event.slug
     make_person(email="taken@example.com", student_id="2300099999", employee_id="KLF77")
-    # A student whose KL ID belongs to someone else.
+    # A KL ID and an email that belong to two different people.
+    make_person(email="other@example.com", full_name="Other One")
+    page = client.post(reverse("hackathon_manage_student_add", args=[slug]), {"d-f_name": "New", "d-f_email": "other@example.com", "d-f_student_id": "2300099999", "t-team": ""})
+    assert page.status_code == 200 and b"The KL ID belongs to" in page.content
+    # A KL ID already on the portal reuses that profile; a new email is kept as a contact address.
     page = client.post(reverse("hackathon_manage_student_add", args=[slug]), {"d-f_name": "New", "d-f_email": "new@example.com", "d-f_student_id": "2300099999", "t-team": ""})
-    assert page.status_code == 200 and b"Someone already uses this KL ID" in page.content and not Person.objects.filter(email="new@example.com").exists()
+    taken = Person.objects.get(student_id="2300099999")
+    assert page.status_code == 302 and taken.email == "taken@example.com" and taken.contact_email == "new@example.com"
+    assert not Person.objects.filter(email="new@example.com").exists()
     # Faculty with an employee ID someone already has (in other capitals).
     page = client.post(reverse("hackathon_manage_faculty_add", args=[slug]), {"d-f_name": "Dr. X", "d-f_email": "x@example.com", "d-f_employee_id": "klf77", "a-is_active": "on"})
     assert page.status_code == 200 and b"Someone already uses this Employee ID" in page.content

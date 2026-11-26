@@ -1,0 +1,16 @@
+<!doctype html>
+<html><body style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; color:#1f2328; line-height:1.5">
+<p>Hi {{ person.full_name|default:"there" }},</p>
+<p>You've been added to <strong>{{ event.title }}</strong>.</p>
+<table cellpadding="4" style="border-collapse:collapse">
+  {% if team %}<tr><td style="color:#57606a">Team</td><td><strong>{{ team.name }}</strong></td></tr>
+  <tr><td style="color:#57606a">Members</td><td>{{ members|join:", " }}</td></tr>
+  {% if team.project_title %}<tr><td style="color:#57606a">Problem statement</td><td>{{ team.project_title }}</td></tr>{% endif %}{% endif %}
+  {% if room %}<tr><td style="color:#57606a">Room</td><td><strong>{{ room.name }}</strong></td></tr>
+  {% for r in rounds %}<tr><td style="color:#57606a">{{ r.name }}</td><td>{{ r.opens_at|date:"D j M, g:i A" }}{% if r.closes_at %} to {{ r.closes_at|date:"g:i A" }}{% endif %}</td></tr>{% endfor %}{% endif %}
+  {% if not event.is_hackathon %}<tr><td style="color:#57606a">When</td><td>{{ event.starts_at|date:"l j F Y, g:i A" }}</td></tr>
+  {% if event.venue %}<tr><td style="color:#57606a">Where</td><td>{{ event.venue }}</td></tr>{% endif %}{% endif %}
+</table>
+<p>To see your details, <a href="{{ signin_url }}">sign in</a> with your KL email (<strong>{{ person.email }}</strong>). We'll email you a code; there's no password.</p>
+<p>{{ club_name }} student team<br><span style="color:#57606a">Questions: {{ contact_email }}</span></p>
+</body></html>

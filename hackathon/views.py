@@ -237,21 +237,28 @@ def import_step(request, slug, pk):
         item.save(update_fields=["mapping"])
     errors, warnings = imports.sheet_checks(headers, rows, mapping, targets_, item.kind)
     errors = twice + errors
-    problems, step = None, 2
+    problems, step, new_people = None, 2, 0
     if action in ("check", "import") and not errors:
-        found = imports.row_checks(event, item.kind, headers, rows, mapping, targets_)
+        found, new_people = imports.row_checks(event, item.kind, headers, rows, mapping, targets_, want_new=True)
         problems = {numbers[line - 2]: imports.real_rows(msgs, numbers) for line, msgs in found.items() if 0 <= line - 2 < len(numbers)}
         step = 3
         if action == "import":
             valid = {line for line in range(2, len(rows) + 2) if line not in found}
             with transaction.atomic():
                 report = imports.run_import(item, mapping, valid, request.user)
+                emailed = 0
+                if request.POST.get("email_new") == "1":
+                    from registrations.models import Registration as Reg
+                    from registrations.notify import notify_added
+
+                    for registration in Reg.objects.filter(pk__in=set(report.added)).select_related("person", "event"):
+                        emailed += notify_added(registration)
             skipped = {str(line): msgs for line, msgs in problems.items()}
             for message in imports.real_rows(report.problems, numbers):  # anything refused at the last moment
                 line = message.split(":")[0].split(",")[0].replace("Row ", "")
                 if line.isdigit():
                     skipped.setdefault(line, []).append(message)
-            item.result = {"summary": report.summary(noun), "added": report.created, "updated": report.updated,
+            item.result = {"summary": report.summary(noun), "added": report.created, "updated": report.updated, "emailed": emailed,
                            "skipped": skipped, "warnings": imports.real_rows(report.warnings, numbers)}
             item.imported_at = timezone.now()
             item.save(update_fields=["result", "imported_at"])
@@ -261,7 +268,7 @@ def import_step(request, slug, pk):
         "event": event, "item": item, "title": title, "step": step, "targets": targets_,
         "columns": imports.columns_view(headers, rows, mapping), "sheets": imports.sheets(item.content),
         "errors": errors, "warnings": warnings, "problems": sorted((problems or {}).items()),
-        "valid_count": len(rows) - len(problems or {}), "row_count": len(rows), "can_fields": can_fields,
+        "valid_count": len(rows) - len(problems or {}), "row_count": len(rows), "can_fields": can_fields, "new_people": new_people,
         "can_define_fields": allowed(request.user, event, "can_manage_fields"),
     })
 
@@ -536,8 +543,12 @@ def my_hackathon(request, slug):
                 a.faculty.person.display_name
                 for a in Assignment.objects.filter(round=round_, team=team).select_related("faculty__person").order_by("faculty__person__full_name")
             ]
-        marks = team_marks(team, round_) if team and round_.results_published_at else None
-        rounds.append({"round": round_, "jury": jury, "marks": marks})
+        released = round_.marks_released()
+        marks = team_marks(team, round_) if team and released else None
+        allocations = list(Assignment.objects.filter(round=round_, team=team).values_list("submitted_at", flat=True)) if team else []
+        # Before release: only whether the marks are in, never numbers.
+        status = ("submitted" if all(allocations) else "pending") if allocations else None
+        rounds.append({"round": round_, "jury": jury, "marks": marks, "released": released, "status": status})
     from .fields import custom_values, display, ensure_fields
 
     values = custom_values(event, request.user)
@@ -691,3 +702,81 @@ def add_faculty(request, slug):
         _, created = services.add_faculty(event, person)
         messages.success(request, f"{person.display_name} {'added to' if created else 'is already on'} this hackathon's faculty.")
     return redirect("hackathon_dashboard", slug)
+
+
+# --- Sign-in invites (any event) -----------------------------------------------------------------
+
+
+def _invite_event(request, slug):
+    from events.models import Event
+
+    event = get_object_or_404(Event, slug=slug)
+    if is_admin(request.user) or (event.is_hackathon and allowed(request.user, event, "can_email_participants")):
+        return event
+    raise PermissionDenied
+
+
+def _invite_status(event):
+    """{registration id: (attempts, latest status)} from the invite emails in the outbox."""
+    from mailer.models import OutboxEmail
+
+    status = {}
+    for key, state in OutboxEmail.objects.filter(dedupe_key__startswith=f"invite-{event.pk}-").order_by("created_at").values_list("dedupe_key", "status"):
+        _, _, reg_id, attempt = key.split("-")
+        status[int(reg_id)] = (max(int(attempt), status.get(int(reg_id), (0, ""))[0]), state)
+    return status
+
+
+@never_cache
+@login_required
+def invites(request, slug):
+    """Preview, then email every participant that they can sign in. Never sends twice without a confirm."""
+    import math
+
+    from django.conf import settings as conf
+
+    from mailer.models import OutboxEmail
+    from registrations.notify import send_invite
+
+    from .models import Assignment as Alloc
+
+    event = _invite_event(request, slug)
+    regs = list(Registration.objects.filter(event=event, status=Registration.Status.CONFIRMED)
+                .select_related("person", "team_membership__team__room", "team_membership__team__mentor").order_by("person__full_name"))
+    status = _invite_status(event)
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if not request.POST.get("confirm"):
+            messages.error(request, "Tick the box to confirm before sending.")
+            return redirect("hackathon_invites", slug)
+        if action == "send_new":
+            targets = [r for r in regs if r.pk not in status]
+        elif action == "resend_failed":
+            targets = [r for r in regs if status.get(r.pk, (0, ""))[1] == OutboxEmail.Status.FAILED]
+        elif action == "resend_chosen":
+            chosen = {int(x) for x in request.POST.getlist("chosen") if x.isdigit()}
+            targets = [r for r in regs if r.pk in chosen]
+        else:
+            raise Http404
+        sent = sum(send_invite(r, status.get(r.pk, (0, ""))[0] + 1) for r in targets)
+        messages.success(request, f"{sent} invite(s) queued. They go out within the sending limits; sign-in codes go first.")
+        return redirect("hackathon_invites", slug)
+    teams = [getattr(r, "team_membership", None) for r in regs]
+    counts = {"students": len(regs), "no_email": sum(1 for r in regs if not r.person.email)}
+    if event.is_hackathon:
+        counts.update(
+            no_team=sum(1 for m in teams if m is None),
+            no_room=sum(1 for m in teams if m is not None and m.team.room_id is None),
+            no_mentor=sum(1 for m in teams if m is not None and not (m.team.mentor_id or m.team.mentor_name)),
+        )
+    states = [status[r.pk][1] for r in regs if r.pk in status]
+    progress = {"queued": states.count(OutboxEmail.Status.QUEUED) + states.count("sending"), "sent": states.count(OutboxEmail.Status.SENT),
+                "failed": states.count(OutboxEmail.Status.FAILED), "never": sum(1 for r in regs if r.pk not in status)}
+    rate = max(1, conf.MAIL_RATE_PER_MINUTE)
+    return render(request, "hackathon/invites.html", {
+        "event": event, "regs": regs, "status": status, "counts": counts, "progress": progress,
+        "allocated": event.is_hackathon and Alloc.objects.filter(round__event=event).exists(),
+        "rounds_set": event.is_hackathon and event.rounds.exclude(opens_at=None).exists(),
+        "minutes": math.ceil(max(progress["never"], 1) / rate), "rate": rate,
+        "rows": [(r, status.get(r.pk)) for r in regs],
+    })

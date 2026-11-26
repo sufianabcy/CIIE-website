@@ -73,8 +73,9 @@ def test_each_column_is_shown_with_samples_and_any_mapping_can_be_chosen(client,
     # Choose every column, making "Shirt" a new custom field on the spot.
     choose(client, url, {0: "name", 1: "email", 2: "student_id", 3: "__new__"}, action="import")
     field = FieldDefinition.objects.get(event=hack, applies_to="student", label="Shirt")
-    person = Person.objects.get(email="asha@example.com")
-    assert person.student_id == "2300011111" and person.hackathon_details.get(event=hack).values == {field.key: "M"}
+    person = Person.objects.get(student_id="2300011111")
+    assert person.email == "2300011111@kluniversity.in" and person.contact_email == "asha@example.com"
+    assert person.hackathon_details.get(event=hack).values == {field.key: "M"}
     assert ImportMapping.objects.get(event=hack, kind="students").mapping == {"name": "Full Name", "email": "Mail", "student_id": "Roll", f"f:{field.key}": "Shirt"}
     # The next sheet with the same headers is matched the same way.
     url2 = upload(client, hack, "students", xlsx([["Full Name", "Mail", "Roll", "Shirt"], ["Bo", "bo@example.com", "2300022222", "L"]]))
@@ -94,7 +95,7 @@ def test_every_kind_of_problem_is_listed_before_saving(client, hack, admin_user,
         ["Clash", "one@example.com", "222", ""],
     ]))
     twice = choose(client, url, {0: "name", 1: "email", 2: "student_id", 3: "email"}).content.decode()
-    assert "Columns B and D are both used as &quot;Email&quot;" in twice
+    assert "Columns B and D are both used as &quot;Email (optional with a KL ID)&quot;" in twice
     missing = choose(client, url, {0: "", 1: "email", 2: "", 3: ""}).content.decode()
     assert "&quot;Name&quot; is required, but no column is matched to it." in missing
     check = choose(client, url, {0: "name", 1: "email", 2: "student_id", 3: ""}).content.decode()
@@ -140,9 +141,9 @@ def test_team_import_one_row_per_team(client, hack, admin_user, make_person):
     rocket = Team.objects.get(event=hack, name="Rocket")
     assert rocket.project_title == "Smart bins"
     members = {(m.registration.person.email, m.is_leader) for m in rocket.members.all()}
-    assert members == {("asha@example.com", True), ("ravi@example.com", False)}
-    ravi = Person.objects.get(email="ravi@example.com")
-    assert ravi.kind == "student" and ravi.student_id == "2300011111"
+    assert members == {("asha@example.com", True), ("2300011111@kluniversity.in", False)}  # Ravi has a KL ID: he signs in with it
+    ravi = Person.objects.get(student_id="2300011111")
+    assert ravi.kind == "student" and ravi.contact_email == "ravi@example.com"
     comet = Team.objects.get(event=hack, name="Comet")
     assert {m.registration.person.full_name for m in comet.members.all()} == {"Mia", "Already Here"}  # found by KL ID
     # Importing again: those students are already in teams, so nothing changes.

@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Sign-in invites · {{ event.title }}{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block content %}
+<a class="back-link" href="{% if event.is_hackathon %}{% url 'hackathon_dashboard' event.slug %}{% else %}{% url 'manage' %}{% endif %}">{% include "ui/icon.html" with name="arrow-left" %}{{ event.title }}</a>
+<header class="tool-head">
+  <div>
+    <span class="eyebrow">Email participants</span>
+    <h1 class="heading-3">Send sign-in invites</h1>
+    <p>Each registered student gets an email: they can sign in with their KL email to see {% if event.is_hackathon %}their team, room, mentor and timings, whether their marks are submitted, and their marks once released{% else %}their registration{% endif %}.</p>
+  </div>
+</header>
+
+<div class="stat-grid mb-4">
+  <div class="stat-card"><div class="stat-value">{{ counts.students }}</div><div class="stat-label">students</div></div>
+  <div class="stat-card"><div class="stat-value">{{ progress.sent }}</div><div class="stat-label">sent</div></div>
+  <div class="stat-card"><div class="stat-value">{{ progress.queued }}</div><div class="stat-label">waiting to send</div></div>
+  <div class="stat-card{% if progress.failed %} stat-red{% endif %}"><div class="stat-value">{{ progress.failed }}</div><div class="stat-label">failed</div></div>
+</div>
+
+<section class="panel mb-4">
+  <h2 class="panel-title">Before you send</h2>
+  <ul class="mb-0">
+    {% if event.is_hackathon %}
+    <li>{% if counts.no_team %}<span class="text-danger">{{ counts.no_team }} student{{ counts.no_team|pluralize }} without a team.</span>{% else %}Every student is in a team.{% endif %}</li>
+    <li>{% if counts.no_room %}<span class="text-danger">{{ counts.no_room }} in teams without a room.</span>{% else %}Every team has a room.{% endif %}</li>
+    <li>{% if counts.no_mentor %}{{ counts.no_mentor }} in teams without a mentor.{% else %}Every team has a mentor.{% endif %}</li>
+    <li>{% if allocated %}Faculty are allocated.{% else %}<span class="text-danger">No faculty allocated yet.</span>{% endif %}</li>
+    <li>{% if rounds_set %}Round times are set.{% else %}<span class="text-danger">No round times set yet.</span>{% endif %}</li>
+    {% endif %}
+    {% if counts.no_email %}<li class="text-danger">{{ counts.no_email }} with no email, so they can't be invited.</li>{% endif %}
+    <li>{{ progress.never }} never invited. At {{ rate }} a minute that takes about {{ minutes }} minute{{ minutes|pluralize }}. Sign-in codes always go first.</li>
+  </ul>
+  <p class="caption-2 text-secondary mt-2 mb-0">These are warnings: you can still send.</p>
+</section>
+
+<form method="post" class="panel mb-4">{% csrf_token %}
+  <label class="d-flex gap-2 align-items-center mb-3"><input type="checkbox" name="confirm" value="1" class="form-check-input"> I've checked the above and want to send</label>
+  <div class="d-flex flex-wrap gap-2">
+    <button class="btn btn-primary" type="submit" name="action" value="send_new">Invite the {{ progress.never }} never invited</button>
+    {% if progress.failed %}<button class="btn btn-quiet" type="submit" name="action" value="resend_failed">Resend to the {{ progress.failed }} failed</button>{% endif %}
+    <button class="btn btn-quiet" type="submit" name="action" value="resend_chosen">Send again to the people ticked below</button>
+  </div>
+  <div class="table-responsive mt-3"><table class="table table-sm align-middle mb-0">
+    <thead><tr><th></th><th>Student</th><th>Email</th><th>Invite</th></tr></thead>
+    <tbody>{% for r, st in rows %}<tr>
+      <td><input type="checkbox" name="chosen" value="{{ r.pk }}" class="form-check-input" aria-label="Choose {{ r.person.display_name }}"></td>
+      <td>{{ r.person.display_name }}</td><td>{{ r.person.email|default:"—" }}</td>
+      <td>{% if st %}<span class="tag{% if st.1 == 'sent' %} tag-green{% elif st.1 == 'failed' %} tag-red{% endif %}">{{ st.1 }}</span>{% if st.0 > 1 %} <span class="caption-2 text-secondary">({{ st.0 }} times)</span>{% endif %}{% else %}<span class="caption-2 text-secondary">not yet</span>{% endif %}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+</form>
+{% endblock %}

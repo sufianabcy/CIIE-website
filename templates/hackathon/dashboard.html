@@ -9,7 +9,10 @@
     <h1 class="heading-3">{{ event.title }}</h1>
     <p>Students and teams, faculty and supervisors, rounds and rubrics, then allocate one faculty member per room for each round.{% if not is_admin %} You see the buttons for what an admin has allowed you to do here.{% endif %}</p>
   </div>
-  {% if can.can_view_marks %}<a class="btn btn-quiet" href="{% url 'hackathon_marks' event.slug %}">{% include "ui/icon.html" with name="chart" %}All marks</a>{% endif %}
+  <div class="d-flex flex-wrap gap-2">
+    {% if can.can_email_participants %}<a class="btn btn-quiet" href="{% url 'hackathon_invites' event.slug %}">{% include "ui/icon.html" with name="mail" %}Send sign-in invites</a>{% endif %}
+    {% if can.can_view_marks %}<a class="btn btn-quiet" href="{% url 'hackathon_marks' event.slug %}">{% include "ui/icon.html" with name="chart" %}All marks</a>{% endif %}
+  </div>
 </header>
 {% include "hackathon/_manage_nav.html" %}
 
@@ -115,7 +118,7 @@
       <td>{% if can.can_edit_rounds %}<a href="{% url 'hackathon_manage_round_edit' event.slug r.pk %}">{{ r.name }}</a>{% else %}{{ r.name }}{% endif %}</td>
       <td class="caption-2">{% if r.opens_at %}{{ r.opens_at|date:"j M, g:i A" }} – {% if r.closes_at %}{{ r.closes_at|date:"j M, g:i A" }}{% else %}until closed{% endif %}{% else %}not scheduled{% endif %}</td>
       <td class="caption-2">{% for c in r.criteria.all %}{{ c.label }} /{{ c.max_marks.normalize }}{% if not forloop.last %}, {% endif %}{% empty %}<span class="text-danger">no criteria yet</span>{% endfor %}</td>
-      <td>{% if r.state == 'open' %}<span class="tag tag-green">Open</span>{% elif r.state == 'upcoming' %}<span class="tag tag-blue">Upcoming</span>{% else %}<span class="tag">{{ r.state|capfirst }}</span>{% endif %}{% if r.results_published_at %} <span class="tag tag-ink">Results out</span>{% endif %}</td>
+      <td>{% if r.state == 'open' %}<span class="tag tag-green">Open</span>{% elif r.state == 'upcoming' %}<span class="tag tag-blue">Upcoming</span>{% else %}<span class="tag">{{ r.state|capfirst }}</span>{% endif %}{% if r.results_published_at %} <span class="tag tag-ink">Results out</span>{% elif r.release_marks_at %} <span class="tag">Marks shown from {{ r.release_marks_at|date:"j M, g:i A" }}</span>{% endif %}</td>
       <td class="text-end"><div class="d-flex flex-wrap justify-content-end gap-1">
         {% if can.can_edit_rounds %}{% if r.state != 'open' %}<form method="post" action="{% url 'hackathon_round_action' event.slug r.pk 'open' %}">{% csrf_token %}<button class="btn btn-quiet btn-sm" type="submit">Open now</button></form>
         {% else %}<form method="post" action="{% url 'hackathon_round_action' event.slug r.pk 'close' %}">{% csrf_token %}<button class="btn btn-quiet btn-sm" type="submit">Close now</button></form>{% endif %}{% endif %}

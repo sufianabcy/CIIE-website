@@ -1,0 +1,8 @@
+<!doctype html>
+<html><body style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; color:#1f2328; line-height:1.5">
+<p>Hi {{ person.full_name|default:"there" }},</p>
+<p>You can now sign in to the {{ club_name }} portal to see your place in <strong>{{ event.title }}</strong>:{% if event.is_hackathon %} your team, room, mentor and round timings, whether your marks are submitted for each round, and your marks once they're released.{% else %} the date, venue and your registration.{% endif %}</p>
+<p><a href="{{ signin_url }}" style="display:inline-block; background:#0b5ed7; color:#fff; padding:10px 18px; border-radius:6px; text-decoration:none">Sign in</a></p>
+<p style="color:#57606a">Use your KL email (<strong>{{ person.email }}</strong>). We'll email you a code; there's no password. Then open <a href="{{ home_url }}">{{ home_url }}</a>.</p>
+<p>{{ club_name }} student team<br><span style="color:#57606a">Questions: {{ contact_email }}</span></p>
+</body></html>

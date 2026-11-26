@@ -128,6 +128,7 @@ class ImportReport:
     updated: int = 0
     problems: list[str] = field(default_factory=list)  # rows (or parts) skipped
     warnings: list[str] = field(default_factory=list)  # done, but someone should look
+    added: list[int] = field(default_factory=list)  # registrations new to the event (for the "you've been added" email)
 
     def summary(self, noun: str) -> str:
         text = f"{self.created} {noun} added, {self.updated} updated."
@@ -141,13 +142,21 @@ class ImportReport:
 # --- People -------------------------------------------------------------------
 
 
+def kl_email_for(student_id) -> str:
+    """A KL ID's university email (the sign-in address), e.g. 2300012345 -> 2300012345@kluniversity.in."""
+    return normalise_email(settings.KL_STUDENT_EMAIL_FORMAT.format(id=(student_id or "").strip())) or ""
+
+
 def _find_person(email="", student_id="", employee_id="", login_id=""):
-    """(person or None, problem or "") by email, then KL ID, then employee ID; flags rows that point at two people."""
+    """(person or None, problem or "") by email, KL ID (and its KL email), then employee ID; flags rows that point at two people."""
     found = []
     if email:
-        found.append(Person.objects.filter(Q(email__iexact=email) | Q(kl_email__iexact=email)).first())
+        found.append(Person.objects.filter(Q(email__iexact=email) | Q(kl_email__iexact=email) | Q(contact_email__iexact=email)).first())
     if student_id:
         found.append(Person.objects.filter(student_id__iexact=student_id).first())
+        kl = kl_email_for(student_id)
+        if kl and kl != email:
+            found.append(Person.objects.filter(Q(email__iexact=kl) | Q(kl_email__iexact=kl)).first())
     if employee_id:
         found.append(Person.objects.filter(employee_id__iexact=employee_id).first())
     if login_id:
@@ -182,12 +191,20 @@ def _upsert_person(data) -> tuple[Person | None, bool, str]:
     if created:
         if not values["full_name"]:
             return None, False, "no name"
-        person = Person(email=email or None, source=Person.Source.IMPORT, profile_completed_at=timezone.now())
-        if email and is_kl_email(email):
-            person.kl_email = email
+        if student_id and not employee_id:
+            # Students sign in with their KL email, made from the ID; another address is kept as a contact email.
+            kl = kl_email_for(student_id)
+            person = Person(email=kl, kl_email=kl, kind=Person.Kind.STUDENT, source=Person.Source.IMPORT,
+                            profile_completed_at=timezone.now(), contact_email=email if email and email != kl else "")
+        else:
+            person = Person(email=email or None, source=Person.Source.IMPORT, profile_completed_at=timezone.now())
+            if email and is_kl_email(email):
+                person.kl_email = email
         person.set_unusable_password()
     elif email and not person.email:
         person.email = email
+    elif email and email not in (person.email, person.kl_email) and not person.contact_email:
+        person.contact_email = email
     for name, value in values.items():
         if value and not getattr(person, name):
             setattr(person, name, value)
@@ -467,6 +484,7 @@ def import_students(event, upload, by=None, columns=None, only_rows=None) -> Imp
                     report.problems.append(f"Row {line}: {exc}")
                     continue
                 report.created += 1
+                report.added.append(registration.pk)
             team_name = " ".join((data.get("team") or "").split())
             membership = TeamMember.objects.filter(registration=registration).select_related("team").first()
             if team_name:
@@ -971,10 +989,12 @@ def import_teams(event, upload, by=None, columns=None, only_rows=None) -> Import
                     except RegistrationError as exc:
                         failed = f"Row {line}, member {n}: {exc}"
                         break
+                    report.added.append(registration.pk)
                 TeamMember.objects.create(team=team, registration=registration, is_leader=(n == slots[0][0]))
             if failed:
                 transaction.set_rollback(True)
                 report.problems.append(failed)
+                report.added = [pk for pk in report.added if Registration.objects.filter(pk=pk).exists()]
                 continue
         report.created += 1
     return report
@@ -1012,8 +1032,6 @@ def team_row_problem(event, line, name, slots, seen_teams, seen_people) -> str:
 @transaction.atomic
 def register_team(event, leader, team_name, members):
     """The leader registers, the teammates are found (or added as students) and registered, and the team is made."""
-    from registrations.services import send_confirmation
-
     lead_reg, created = register(event=event, person=leader)
     regs = [(lead_reg, created, True)]
     for m in members:
@@ -1028,5 +1046,7 @@ def register_team(event, leader, team_name, members):
     team = Team.objects.create(event=event, name=team_name)
     for registration, _, is_leader in regs:
         TeamMember.objects.create(team=team, registration=registration, is_leader=is_leader)
-    transaction.on_commit(lambda: [send_confirmation(r) for r, new, _ in regs if new])
+    from registrations.notify import notify_added
+
+    transaction.on_commit(lambda: [notify_added(r) for r, new, lead in regs if new and not lead])
     return team, lead_reg

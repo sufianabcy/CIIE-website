@@ -32,6 +32,7 @@ PERMISSIONS = {
     "can_add_faculty": ("Add and edit faculty", "Add people to this hackathon's faculty list and edit their details.", False),
     "can_take_attendance": ("Take attendance", "Mark teams and faculty present or absent in each round.", True),
     "can_view_floors": ("See floor lists", "Open the By floor page, and print or export it.", True),
+    "can_email_participants": ("Email participants", "Send sign-in invites to this hackathon's students.", False),
     "can_manage_fields": ("Manage fields and imports", "Define the student and faculty detail fields, and match Excel columns on import.", False),
 }
 DEFAULTS = {name: default for name, (_, _, default) in PERMISSIONS.items()}

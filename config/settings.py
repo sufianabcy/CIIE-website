@@ -245,6 +245,16 @@ EMAIL_BACKEND = _email["EMAIL_BACKEND"]
 for _key in ("EMAIL_HOST", "EMAIL_PORT", "EMAIL_HOST_USER", "EMAIL_HOST_PASSWORD", "EMAIL_USE_TLS", "EMAIL_USE_SSL"):
     if _key in _email:
         globals()[_key] = _email[_key]
+# SMTP by separate settings (for example an Outlook mailbox: smtp.office365.com, port 587, TLS),
+# used when EMAIL_HOST is set. Keeps a password with special characters out of a URL.
+if env("EMAIL_HOST", default=""):
+    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+    EMAIL_HOST = env("EMAIL_HOST")
+    EMAIL_PORT = env.int("EMAIL_PORT", default=587)
+    EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
+    EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
+    EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
+    EMAIL_TIMEOUT = env.int("EMAIL_TIMEOUT", default=30)
 # Free hosts often block SMTP ports; an HTTPS sending API avoids that.
 ANYMAIL_ESP = env("ANYMAIL_ESP", default="")  # e.g. brevo, resend, postmark
 if ANYMAIL_ESP:
@@ -258,7 +268,8 @@ SERVER_EMAIL = DEFAULT_FROM_EMAIL
 MAIL_SEND_INLINE = env.bool("MAIL_SEND_INLINE", default=True)
 MAIL_DAILY_CAP = env.int("MAIL_DAILY_CAP", default=450)
 MAIL_CODE_RESERVE = env.int("MAIL_CODE_RESERVE", default=100)
-MAIL_RATE_PER_MINUTE = env.int("MAIL_RATE_PER_MINUTE", default=20)
+# Emails per minute (an Outlook mailbox allows about 30). MAIL_PER_MINUTE_CAP wins over the older name.
+MAIL_RATE_PER_MINUTE = env.int("MAIL_PER_MINUTE_CAP", default=env.int("MAIL_RATE_PER_MINUTE", default=20))
 # Secret for /ops/tick/, which free schedulers can call to send queued mail.
 OPS_TICK_TOKEN = env("OPS_TICK_TOKEN", default="")
 

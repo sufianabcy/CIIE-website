@@ -160,10 +160,21 @@ class DetailsForm(forms.Form):
                 field.help_text = "Only admins can change an email."
             if person is not None:
                 field.initial = value_of(d, person, values)
+            if applies_to == "student" and d.builtin == "email" and person is None:
+                field.required = False
+                field.help_text = "Optional with a KL ID: they then sign in with ID@kluniversity.in."
             self.fields[f"f_{d.key}"] = field
 
     def clean(self):
         cleaned = super().clean()
+        if self.applies_to == "student" and self.person is None and not cleaned.get("f_email"):
+            # A student added by KL ID signs in with their KL email.
+            from .services import kl_email_for
+
+            if cleaned.get("f_student_id"):
+                cleaned["f_email"] = kl_email_for(cleaned["f_student_id"])
+            else:
+                self.add_error("f_email", "Give their email or their KL ID.")
         for d in self.definitions:
             name = f"f_{d.key}"
             if name in self.errors or self.fields[name].disabled:
@@ -193,8 +204,8 @@ class DetailsForm(forms.Form):
         others = Person.objects.filter(q)
         if self.person is not None and self.person.pk:
             others = others.exclude(pk=self.person.pk)
-        elif builtin == "email":
-            return None  # adding someone by an email already on the portal reuses that person
+        elif builtin in ("email", "student_id"):
+            return None  # adding someone by an email or KL ID already on the portal reuses that person
         return others.first()
 
     def save_to(self, person):

@@ -1,0 +1,9 @@
+Hi {{ person.full_name|default:"there" }},
+
+You can now sign in to the {{ club_name }} portal to see your place in {{ event.title }}:{% if event.is_hackathon %} your team, room, mentor and round timings, whether your marks are submitted for each round, and your marks once they're released.{% else %} the date, venue and your registration.{% endif %}
+
+Sign in at {{ signin_url }} with your KL email ({{ person.email }}). We'll email you a code; there's no password.
+Then open: {{ home_url }}
+
+{{ club_name }} student team
+Questions: {{ contact_email }}

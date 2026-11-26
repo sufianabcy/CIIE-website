@@ -50,6 +50,13 @@ def targets(event, kind, user=None) -> list[Target]:
             if d.builtin:
                 key = "branch" if d.builtin == "department" else d.builtin
                 aliases = builtin_aliases.get(key, []) + [_k(d.label)]
+                if kind == "students" and key == "email":
+                    # Students are matched by KL ID (sign-in: ID@kluniversity.in); an email column is optional.
+                    from .models import FieldDefinition
+
+                    check = FieldDefinition(kind=d.kind, label=d.label, required=False)
+                    out.append(Target(key, f"{d.label} (optional with a KL ID)", False, aliases, check))
+                    continue
                 out.append(Target(key, d.label, d.required or d.always_required, aliases, d))
             else:
                 out.append(Target(f"f:{d.key}", d.label, d.required, [_k(d.label), _k(d.key)], d))
@@ -228,7 +235,7 @@ def sheet_checks(headers, rows, mapping, targets_, kind):
     return errors, warnings
 
 
-def row_checks(event, kind, headers, rows, mapping, targets_) -> dict:
+def row_checks(event, kind, headers, rows, mapping, targets_, want_new=False):
     """{sheet row: [problems]} before anything is saved: types, required values, choices, duplicates, clashes."""
     problems = defaultdict(list)
     by_key = {t.key: t for t in targets_}
@@ -265,6 +272,8 @@ def row_checks(event, kind, headers, rows, mapping, targets_) -> dict:
         m = re.match(r"Row (\d+)", message)
         if m:
             problems[int(m.group(1))].append(message)
+    if want_new:
+        return dict(problems), len(set(report.added))
     return dict(problems)
 
 

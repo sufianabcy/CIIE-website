@@ -55,6 +55,9 @@ class Registration(models.Model):
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
+    added_email_at = models.DateTimeField(
+        null=True, blank=True, help_text="When the \"you've been added\" or confirmation email was queued. Sent once per person per event."
+    )
     cancelled_at = models.DateTimeField(null=True, blank=True)
     cancelled_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"

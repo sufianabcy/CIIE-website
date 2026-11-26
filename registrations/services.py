@@ -118,6 +118,7 @@ def send_confirmation(registration: Registration) -> None:
         "contact_email": settings.CLUB_CONTACT_EMAIL,
     }
     template = "hackathon_confirmation" if registration.event.is_hackathon else "registration_confirmation"
+    Registration.objects.filter(pk=registration.pk).update(added_email_at=timezone.now())
     enqueue_email(
         to=person.email,
         subject=f"[{settings.CLUB_NAME}] You're registered: {registration.event.title}",

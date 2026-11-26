@@ -73,6 +73,7 @@ class Supervisor(models.Model):
     can_add_faculty = models.BooleanField("add and edit faculty", default=False, help_text="Add people to this hackathon's faculty list and edit their details.")
     can_take_attendance = models.BooleanField("take attendance", default=True, help_text="Mark teams and faculty present or absent in each round.")
     can_view_floors = models.BooleanField("see floor lists", default=True, help_text="Open the By floor page, and print or export it.")
+    can_email_participants = models.BooleanField("email participants", default=False, help_text="Send sign-in invites to this hackathon's students.")
     can_manage_fields = models.BooleanField("manage fields and imports", default=False, help_text="Define the student and faculty detail fields, and match Excel columns on import.")
 
     class Meta:
@@ -204,6 +205,10 @@ class Round(models.Model):
     results_published_at = models.DateTimeField(
         null=True, blank=True, help_text="When set, each team can see its own marks for this round."
     )
+    release_marks_at = models.DateTimeField(
+        "show marks to students from", null=True, blank=True,
+        help_text="Teams see their own marks for this round automatically from this time.",
+    )
 
     class Meta:
         ordering = ["event", "position", "id"]
@@ -217,6 +222,10 @@ class Round(models.Model):
 
     def __str__(self):
         return self.name
+
+    def marks_released(self, now=None) -> bool:
+        now = now or timezone.now()
+        return bool(self.results_published_at or (self.release_marks_at and now >= self.release_marks_at))
 
     def is_open(self, now=None) -> bool:
         now = now or timezone.now()

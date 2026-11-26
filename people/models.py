@@ -99,6 +99,9 @@ class Person(AbstractBaseUser, PermissionsMixin):
     failed_password_signins = models.PositiveSmallIntegerField(default=0, editable=False)
 
     kl_email = models.EmailField("verified KL email", null=True, blank=True)
+    contact_email = models.EmailField(
+        blank=True, help_text="Another address from an upload. Sign-in is always with the main (KL) email."
+    )
     student_id = models.CharField("KL student ID", max_length=20, blank=True)
     kl_verified_at = models.DateTimeField("KL status verified", null=True, blank=True)
 

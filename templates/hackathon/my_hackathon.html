@@ -60,10 +60,11 @@
         <tr><td><strong>Total</strong></td><td class="text-end num"><strong>{{ r.marks.total.normalize }} / {{ r.round.out_of.normalize }}</strong></td></tr></tbody>
       </table></div>
       {% if r.marks.judges > 1 %}<p class="caption-2 text-secondary mt-2 mb-0">Average of {{ r.marks.judges }} judges.</p>{% endif %}
-    {% elif r.round.results_published_at %}
+    {% elif r.released %}
       <p class="caption-2 text-secondary mb-0">Results are out, but your team has no submitted marks for this round.</p>
     {% else %}
-      <p class="caption-2 text-secondary mb-0">Marks appear here when the organisers publish this round's results.</p>
+      {% if r.status %}<p class="mb-1"><span class="tag {% if r.status == 'submitted' %}tag-green{% else %}tag-amber{% endif %}" data-testid="marks-status">{% if r.status == 'submitted' %}Marks submitted{% else %}Pending{% endif %}</span></p>{% endif %}
+      <p class="caption-2 text-secondary mb-0">Your marks appear here {% if r.round.release_marks_at %}from {{ r.round.release_marks_at|date:"D j M, g:i A" }}{% else %}when the organisers release them{% endif %}.</p>
     {% endif %}
   </section>
   {% empty %}

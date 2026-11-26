@@ -10,7 +10,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.forms import inlineformset_factory
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -165,12 +165,25 @@ def student_edit(request, slug, pk=None):
             with transaction.atomic():
                 if person is None:
                     email = details.cleaned_data.get("f_email")
-                    person = Person.objects.filter(email__iexact=email).first() or Person(email=email, source=Person.Source.IMPORT)
+                    kl_id = (details.cleaned_data.get("f_student_id") or "").strip()
+                    by_id = Person.objects.filter(student_id__iexact=kl_id).first() if kl_id else None
+                    by_email = Person.objects.filter(Q(email__iexact=email) | Q(kl_email__iexact=email)).first() if email else None
+                    if by_id and by_email and by_id != by_email:
+                        raise ValidationError(f"The KL ID belongs to {by_id.display_name} but the email to {by_email.display_name}.")
+                    person = by_id or by_email or Person(email=email, source=Person.Source.IMPORT, kind=Person.Kind.STUDENT)
                     if not person.pk:
                         person.set_unusable_password()
+                    elif email and person.email and email != person.email.lower():
+                        # Keep the sign-in email; the other address becomes a contact email.
+                        person.contact_email = person.contact_email or email
+                        details.cleaned_data["f_email"] = person.email
                 details.save_to(person)
                 if registration is None:
                     registration, _ = register(event=event, person=person, source=Registration.Source.IMPORT, created_by=request.user)
+                    from registrations.notify import notify_added
+
+                    new_reg = registration
+                    transaction.on_commit(lambda: notify_added(new_reg))
                 _set_team(event, registration, team_form.cleaned_data["team"])
         except ValidationError as exc:
             details.add_error(None, exc)
@@ -563,10 +576,11 @@ def supervisor_remove(request, slug, pk):
 class RoundForm(forms.ModelForm):
     class Meta:
         model = Round
-        fields = ["name", "position", "opens_at", "closes_at"]
+        fields = ["name", "position", "opens_at", "closes_at", "release_marks_at"]
         widgets = {
             "opens_at": forms.DateTimeInput(attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M"),
             "closes_at": forms.DateTimeInput(attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M"),
+            "release_marks_at": forms.DateTimeInput(attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M"),
         }
 
     def __init__(self, *args, event, **kwargs):
@@ -640,6 +654,9 @@ def round_edit(request, slug, pk=None):
     round_ = get_object_or_404(Round, pk=pk, event=event) if pk else None
     form = _style(RoundForm(request.POST or None, instance=round_, event=event,
                             initial=None if round_ else {"position": (event.rounds.count() + 1)}))
+    if not allowed(request.user, event, "can_publish"):
+        form.fields["release_marks_at"].disabled = True
+        form.fields["release_marks_at"].help_text = "Only people who can publish results set this."
     formset = CriterionFormSet(request.POST or None, instance=round_ or Round(event=event), prefix="c")
     for f in formset.forms:
         _style(f)

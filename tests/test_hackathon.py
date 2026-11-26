@@ -118,8 +118,10 @@ def test_student_import_matches_columns_and_makes_teams_rooms_and_mentors(hack, 
     ]), by=admin_user)
     assert (report.created, report.updated, len(report.problems)) == (3, 0, 1)
     assert "Row 5" in report.problems[0]
-    asha = Person.objects.get(email="asha@kluniversity.in")
-    assert (asha.full_name, asha.student_id, asha.phone, asha.kl_email) == ("Asha", "2300011111", "9000000001", "asha@kluniversity.in")
+    # Students sign in with ID@kluniversity.in; the sheet's other address is kept as a contact email.
+    asha = Person.objects.get(student_id="2300011111")
+    assert (asha.full_name, asha.email, asha.kl_email, asha.contact_email, asha.phone) == (
+        "Asha", "2300011111@kluniversity.in", "2300011111@kluniversity.in", "asha@kluniversity.in", "9000000001")
     reg = Registration.objects.get(event=hack, person=asha)
     assert reg.source == Registration.Source.IMPORT and reg.answers == {"track": "Open"}
     rocket = Team.objects.get(event=hack, name="Rocket")
@@ -171,7 +173,8 @@ def test_only_admins_add_supervisors(client, hack, admin_user, make_person):
     client.force_login(admin_user)
     page = wizard(client, hack.slug, "supervisors", upload)
     assert b"2 supervisor(s) added" in page.content
-    student = Supervisor.objects.get(event=hack, person__email="stu@kluniversity.in")
+    student = Supervisor.objects.get(event=hack, person__student_id="2300099999")
+    assert (student.person.email, student.person.contact_email) == ("2300099999@kluniversity.in", "stu@kluniversity.in")
     assert student.kind == Supervisor.Kind.STUDENT and student.person.is_supervisor
     assert not student.person.is_staff  # supervisors work on the hackathon pages, not in the Django admin
     assert not student.person.is_faculty
@@ -613,7 +616,7 @@ def test_marks_show_only_after_publishing_and_only_own_submitted_marks(client, s
     client.force_login(_student(setup["teams"]["Alpha"]))
     url = reverse("my_hackathon", args=[event.slug])
     hidden = client.get(url).content
-    assert b"Your marks" not in hidden and b"20.5" not in hidden and b"publish" in hidden
+    assert b'data-testid="round-marks"' not in hidden and b"20.5" not in hidden and b"release them" in hidden
 
     client.force_login(admin_user)
     client.post(reverse("hackathon_round_action", args=[event.slug, round1.pk, "publish"]))
@@ -1098,10 +1101,11 @@ def test_import_remap_and_remembered_mapping(client, hack, admin_user):
     mapping = {t.key: None for t in imports.targets(hack, "students")}
     mapping.update(name=0, email=1, student_id=2)
     client.post(reverse("hackathon_import", args=[hack.slug, item.pk]), {"action": "import", **{f"map_{k}": "" if v is None else v for k, v in mapping.items()}})
-    assert Person.objects.get(email="ravi@example.com").student_id == "2300022222"
+    ravi = Person.objects.get(student_id="2300022222")
+    assert (ravi.email, ravi.contact_email) == ("2300022222@kluniversity.in", "ravi@example.com")
     # The next upload with the same headers is matched the same way, without choosing again.
     second = wizard(client, hack.slug, "students", xlsx([["Participant", "Mail", "Roll"], ["Mia", "mia@example.com", "2300033333"]]), action="import")
-    assert b"1 added" in second.content and Person.objects.filter(email="mia@example.com").exists()
+    assert b"1 added" in second.content and Person.objects.filter(student_id="2300033333", contact_email="mia@example.com").exists()
 
 
 def test_import_rejects_wrong_files_and_empty_sheets(client, hack, admin_user):

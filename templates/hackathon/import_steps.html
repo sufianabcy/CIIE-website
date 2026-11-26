@@ -14,7 +14,7 @@
 {% if step == 4 %}
   <section class="panel mb-4">
     <h2 class="panel-title">{% include "ui/icon.html" with name="check-circle" %}{{ result.summary }}</h2>
-    <p class="mb-2">{{ result.added }} added, {{ result.updated }} updated, {{ result.skipped|length }} row{{ result.skipped|length|pluralize }} skipped.</p>
+    <p class="mb-2">{{ result.added }} added, {{ result.updated }} updated, {{ result.skipped|length }} row{{ result.skipped|length|pluralize }} skipped.{% if result.emailed %} {{ result.emailed }} {{ result.emailed|pluralize:"person,people" }} emailed that they've been added.{% endif %}</p>
     {% if result.skipped %}<a class="btn btn-quiet btn-sm" href="{% url 'hackathon_import_skipped' event.slug item.pk %}">{% include "ui/icon.html" with name="download" %}Skipped rows and why (Excel)</a>{% endif %}
   </section>
   {% if result.warnings %}<section class="panel mb-4"><h2 class="panel-title">{% include "ui/icon.html" with name="warning" %}Done, but check</h2><ul class="mb-0">{% for w in result.warnings %}<li>{{ w }}</li>{% endfor %}</ul></section>{% endif %}
@@ -54,6 +54,7 @@
       <h2 class="panel-title">{% if problems %}{% include "ui/icon.html" with name="warning" %}{{ problems|length }} of {{ row_count }} rows have problems{% else %}{% include "ui/icon.html" with name="check-circle" %}All {{ row_count }} rows look right{% endif %}</h2>
       {% if problems %}<ul class="mb-0">{% for line, msgs in problems %}{% for m in msgs %}<li class="text-danger">{{ m }}</li>{% endfor %}{% endfor %}</ul>{% endif %}
       <p class="caption-2 text-secondary mt-2 mb-0">Nothing has been saved yet.</p>
+      {% if new_people %}<label class="d-flex gap-2 align-items-center mt-3"><input type="checkbox" name="email_new" value="1" checked class="form-check-input"> Email the {{ new_people }} {{ new_people|pluralize:"person,people" }} new to this event that they've been added</label>{% endif %}
     </section>
     {% endif %}
 

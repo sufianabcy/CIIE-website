@@ -1,0 +1,16 @@
+Hi {{ person.full_name|default:"there" }},
+
+You've been added to {{ event.title }}.
+{% if team %}
+Team: {{ team.name }}
+Members: {{ members|join:", " }}{% if team.project_title %}
+Problem statement: {{ team.project_title }}{% endif %}{% endif %}{% if room %}
+Room: {{ room.name }}{% for r in rounds %}
+{{ r.name }}: {{ r.opens_at|date:"D j M, g:i A" }}{% if r.closes_at %} to {{ r.closes_at|date:"g:i A" }}{% endif %}{% endfor %}{% endif %}{% if not event.is_hackathon %}
+When: {{ event.starts_at|date:"l j F Y, g:i A" }}{% if event.venue %}
+Where: {{ event.venue }}{% endif %}{% endif %}
+
+To see your details, sign in at {{ signin_url }} with your KL email ({{ person.email }}). We'll email you a code; there's no password.
+
+{{ club_name }} student team
+Questions: {{ contact_email }}
