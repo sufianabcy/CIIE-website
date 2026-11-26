@@ -17,8 +17,10 @@ from people.models import normalise_email
 from . import services
 from .fields import clean_value, ensure_fields
 
-KINDS = {"students": "Students", "faculty": "Faculty", "supervisors": "Supervisors", "volunteers": "Volunteers",
-         "allocations": "Allocations", "rooms": "Rooms"}
+KINDS = {"students": "Students (one row per student)", "teams": "Teams (one row per team, with its members)",
+         "faculty": "Faculty", "supervisors": "Supervisors", "volunteers": "Volunteers", "allocations": "Allocations", "rooms": "Rooms"}
+# Where "+ New field" adds a custom field, by import type.
+NEW_FIELD_FOR = {"students": "student", "faculty": "faculty"}
 
 
 @dataclass
@@ -52,12 +54,25 @@ def targets(event, kind, user=None) -> list[Target]:
             else:
                 out.append(Target(f"f:{d.key}", d.label, d.required, [_k(d.label), _k(d.key)], d))
         if kind == "students":
-            for key in ("team", "project_title", "project_description", "room", "mentor"):
-                out.append(Target(key, key.replace("_", " ").capitalize(), False, services.STUDENT_COLUMNS[key]))
+            for key, label in (("team", "Team name (creates the team or joins it)"), ("project_title", "Project title / problem statement"),
+                               ("project_description", "Project description"), ("room", "Room"), ("mentor", "Mentor")):
+                out.append(Target(key, label, False, services.STUDENT_COLUMNS[key]))
             for q in event.questions.filter(is_hidden=False):
                 out.append(Target(f"q:{q.key}", f"Question: {q.label}", False, [_k(q.label), _k(q.key)]))
+    elif kind == "teams":
+        from .models import FieldDefinition
+
+        K = FieldDefinition.Kind
+        for key, label in (("team", "Team name"), ("project_title", "Problem statement / project title"),
+                           ("project_description", "Project description"), ("room", "Room"), ("mentor", "Mentor (faculty email)")):
+            out.append(Target(key, label, key == "team", services.TEAM_COLUMNS[key]))
+        for n in range(1, (event.team_size_max or 6) + 1):
+            lead = " (leader)" if n == 1 else ""
+            for part, label, kind_ in (("name", "name", K.TEXT), ("email", "email", K.EMAIL), ("student_id", "KL ID", K.TEXT), ("phone", "phone", K.PHONE)):
+                check = FieldDefinition(kind=kind_, label=f"Member {n} {label}", required=False)  # type checks only
+                out.append(Target(f"m{n}_{part}", f"Member {n}{lead} {label}", False, services.member_aliases(n, part), check))
     elif kind == "rooms":
-        for key, label in (("name", "Room code (like R206)"), ("capacity", "Max teams"), ("block", "Block"), ("floor", "Floor"), ("notes", "Notes")):
+        for key, label in (("name", "Room number (like L502)"), ("capacity", "Max capacity (teams)")):
             out.append(Target(key, label, key == "name", services.ROOM_COLUMNS[key]))
     elif kind == "volunteers":
         from .access import VOLUNTEER_PERMISSIONS
@@ -81,8 +96,80 @@ def targets(event, kind, user=None) -> list[Target]:
     return out
 
 
-def read(content):
-    return services.read_rows(BytesIO(bytes(content)))
+def sheets(content) -> list[str]:
+    from openpyxl import load_workbook
+
+    try:
+        return load_workbook(BytesIO(bytes(content)), read_only=True).sheetnames
+    except Exception as exc:  # noqa: BLE001
+        raise services.ImportFileError("That file could not be read as Excel (.xlsx).") from exc
+
+
+def read_sheet(content, sheet_name="", header_row=0):
+    """(headers, rows, real row numbers) for the chosen sheet, starting at the chosen header row (1-based; 0 = first non-empty)."""
+    from openpyxl import load_workbook
+
+    try:
+        wb = load_workbook(BytesIO(bytes(content)), read_only=True, data_only=True)
+    except Exception as exc:  # noqa: BLE001
+        raise services.ImportFileError("That file could not be read as Excel (.xlsx).") from exc
+    ws = wb[sheet_name] if sheet_name in wb.sheetnames else wb.worksheets[0]
+    raw = [(n, [services._cell(v) for v in row]) for n, row in enumerate(ws.iter_rows(values_only=True), start=1)]
+    if header_row:
+        raw = [(n, r) for n, r in raw if n >= header_row]
+        if raw and not any(raw[0][1]):
+            raw = raw[1:]
+    raw = [(n, r) for n, r in raw if any(r)]
+    if not raw:
+        return [], [], []
+    headers = raw[0][1]
+    while headers and not headers[-1]:
+        headers = headers[:-1]
+    width = max([len(headers)] + [len(r) for _, r in raw[1:]])
+    headers = headers + [""] * (width - len(headers))
+    return headers, [r + [""] * (width - len(r)) for _, r in raw[1:]], [n for n, _ in raw[1:]]
+
+
+def read(content, sheet_name="", header_row=0):
+    headers, rows, _ = read_sheet(content, sheet_name, header_row)
+    return headers, rows
+
+
+def read_item(item):
+    return read_sheet(item.content, item.sheet_name, item.header_row)
+
+
+def normalized(headers, rows):
+    """An in-memory workbook with just the header and data rows, for the import functions."""
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    wb.active.append(headers)
+    for row in rows:
+        wb.active.append(row)
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+
+def real_rows(messages, line_numbers):
+    """Turn "Row N" (N counted in the cleaned sheet, header = 1) into the row number in the person's Excel file."""
+    def fix(m):
+        index = int(m.group(1)) - 2
+        return f"Row {line_numbers[index]}" if 0 <= index < len(line_numbers) else m.group(0)
+
+    return [re.sub(r"^Row (\d+)", fix, msg) for msg in messages]
+
+
+def columns_view(headers, rows, mapping):
+    """One entry per Excel column: letter, header, up to 3 sample values, and the field it's used as (or None)."""
+    used = {i: key for key, i in mapping.items() if i is not None}
+    out = []
+    for i, header in enumerate(headers):
+        samples = [r[i] for r in rows if i < len(r) and r[i]][:3]
+        out.append({"index": i, "letter": get_column_letter(i + 1), "header": header, "samples": samples, "target": used.get(i)})
+    return out
 
 
 def auto_match(headers, targets_, saved=None) -> dict:
@@ -117,6 +204,8 @@ def sheet_checks(headers, rows, mapping, targets_, kind):
     for t in targets_:
         if t.required and mapping.get(t.key) is None:
             errors.append(f"\"{t.label}\" is required, but no column is matched to it.")
+    if kind == "teams" and not any(mapping.get(f"m1_{p}") is not None or mapping.get(f"m2_{p}") is not None for p in ("email", "student_id")):
+        errors.append("Use at least one column as a member's email or KL ID, so the members can be found or added.")
     if kind == "students" and mapping.get("email") is None and mapping.get("student_id") is None:
         errors.append("Match an Email or a KL ID column, so each student can be matched or created.")
     if kind == "allocations" and all(mapping.get(k) is None for k in ("room", "team", "member")):
@@ -157,12 +246,13 @@ def row_checks(event, kind, headers, rows, mapping, targets_) -> dict:
                     problems[line].append(f"Row {line}, {where}: {error}.")
             elif t.required and not raw:
                 problems[line].append(f"Row {line}, {where}: required, but empty.")
-            if key in ("email", "student_id", "employee_id") and raw and kind not in ("allocations", "rooms"):
-                value = normalise_email(raw) if key == "email" else raw.strip().lower()
-                if value in seen[key]:
-                    problems[line].append(f"Row {line}, {where}: \"{raw}\" is also in row {seen[key][value]}.")
+            part = key.split("_", 1)[1] if kind == "teams" and re.match(r"m\d+_", key) else key
+            if part in ("email", "student_id", "employee_id") and raw and kind not in ("allocations", "rooms"):
+                value = normalise_email(raw) if part == "email" else raw.strip().lower()
+                if value in seen[part] and seen[part][value] != (line, key):
+                    problems[line].append(f"Row {line}, {where}: \"{raw}\" is also in row {seen[part][value][0]}.")
                 else:
-                    seen[key][value] = line
+                    seen[part][value] = (line, key)
         if kind in ("students", "faculty", "supervisors", "volunteers"):
             data = {k: (row[i] if i is not None and i < len(row) else "") for k, i in mapping.items()}
             _, clash = services._find_person(normalise_email(data.get("email")) or "", (data.get("student_id") or "").strip(),
@@ -199,19 +289,14 @@ def _run(event, kind, content_or_rows, mapping, only_rows, user):
         return services.import_staff(event, upload, "volunteer", columns=columns, only_rows=only_rows)
     if kind == "rooms":
         return services.import_rooms(event, upload, columns=columns, only_rows=only_rows)
+    if kind == "teams":
+        return services.import_teams(event, upload, by=user, columns=columns, only_rows=only_rows)
     return services.import_allocations(event, upload, columns=columns, only_rows=only_rows)
 
 
 def _dry_run(event, kind, mapping, rows, headers, skip):
     """Run the import inside a transaction that is always rolled back, to collect its row problems."""
-    from openpyxl import Workbook
-
-    wb = Workbook()
-    wb.active.append(headers)
-    for row in rows:
-        wb.active.append(row)
-    buffer = BytesIO()
-    wb.save(buffer)
+    buffer = normalized(headers, rows)
     only = {line for line in range(2, len(rows) + 2) if line not in skip}
     result = services.ImportReport()
     try:
@@ -225,8 +310,8 @@ def _dry_run(event, kind, mapping, rows, headers, skip):
 
 
 def run_import(upload, mapping, only_rows, user):
-    report = _run(upload.event, upload.kind, BytesIO(bytes(upload.content)), mapping, only_rows, user)
-    return report
+    headers, rows, _ = read_item(upload)
+    return _run(upload.event, upload.kind, normalized(headers, rows), mapping, only_rows, user)
 
 
 def remember(event, kind, headers, mapping):
@@ -246,15 +331,15 @@ def saved_mapping(event, kind) -> dict:
 def skipped_workbook(upload) -> bytes:
     from openpyxl import Workbook
 
-    headers, rows = read(upload.content)
+    headers, rows, numbers = read_item(upload)
+    by_row = dict(zip(numbers, rows))
     skipped = upload.result.get("skipped", {})
     wb = Workbook()
     ws = wb.active
     ws.title = "Skipped rows"
     ws.append(["Sheet row", "Why it was skipped"] + headers)
     for line, reasons in sorted(skipped.items(), key=lambda kv: int(kv[0])):
-        index = int(line) - 2
-        ws.append([int(line), " ".join(reasons)] + (rows[index] if 0 <= index < len(rows) else []))
+        ws.append([int(line), " ".join(reasons)] + by_row.get(int(line), []))
     buffer = BytesIO()
     wb.save(buffer)
     return buffer.getvalue()

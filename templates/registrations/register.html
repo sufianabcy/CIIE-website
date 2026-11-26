@@ -56,7 +56,22 @@
       {% empty %}
         <p class="text-secondary">No questions for this event. Confirm below and your pass is ready.</p>
       {% endfor %}
-      <button class="btn btn-primary btn-lg w-100" type="submit">Register for free</button>
+      {% if team_form %}
+        <h2 class="heading-6 mt-4 mb-1">Your team</h2>
+        <p class="caption-2 text-secondary">You're the team leader. Teams have {{ event.team_size_min }} to {{ event.team_size_max }} members including you. For each teammate give their email or KL ID (and their name if they're new here); we'll register them and email them.{% if event.team_size_min <= 1 %} Entering alone? Leave the team empty.{% endif %}</p>
+        {% for e in team_form.non_field_errors %}<div class="alert alert-danger">{{ e }}</div>{% endfor %}
+        <div class="mb-3"><label class="form-label" for="{{ team_form.team_name.id_for_label }}">Team name{% if event.team_size_min > 1 %} <span class="req" aria-hidden="true">*</span>{% endif %}</label>{{ team_form.team_name }}{% for e in team_form.team_name.errors %}<div class="field-error">{{ e }}</div>{% endfor %}</div>
+        {% for n, name, email, kl in team_form.member_rows %}
+        <fieldset class="mb-3"><legend class="caption-2 text-secondary mb-1">Member {{ n }}</legend>
+          <div class="row g-2">
+            <div class="col-md-4">{{ name }}{% for e in name.errors %}<div class="field-error">{{ e }}</div>{% endfor %}</div>
+            <div class="col-md-5">{{ email }}{% for e in email.errors %}<div class="field-error">{{ e }}</div>{% endfor %}</div>
+            <div class="col-md-3">{{ kl }}{% for e in kl.errors %}<div class="field-error">{{ e }}</div>{% endfor %}</div>
+          </div>
+        </fieldset>
+        {% endfor %}
+      {% endif %}
+      <button class="btn btn-primary btn-lg w-100" type="submit">{% if team_form %}Register my team{% else %}Register for free{% endif %}</button>
       <p class="small text-secondary text-center mt-3 mb-0">You'll get your pass right away, and a copy by email. You can cancel any time before the event starts.</p>
     </form>
   {% endif %}

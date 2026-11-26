@@ -208,7 +208,7 @@ def test_portal_forms_turn_clashes_into_form_errors(client, make_person, make_ev
     # Rooms and teams with names already used (in other capitals).
     Room.objects.create(event=event, name="R206")
     page = client.post(reverse("hackathon_manage_room_add", args=[slug]), {"name": "r206"})
-    assert b"Another room already has this name." in page.content
+    assert b"There is already a room R206 in this hackathon." in page.content
     Team.objects.create(event=event, name="Rocket")
     page = client.post(reverse("hackathon_manage_team_add", args=[slug]), {"name": "ROCKET", "project_title": "", "project_description": "", "room": "", "mentor": "", "mentor_name": ""})
     assert b"Another team already has this name." in page.content

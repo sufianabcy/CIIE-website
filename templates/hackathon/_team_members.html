@@ -2,8 +2,11 @@
 <section class="panel">
   <h2 class="panel-title">{% include "ui/icon.html" with name="users" %}Members</h2>
   <ul class="list-unstyled mb-3">
-    {% for m in members %}<li class="d-flex justify-content-between align-items-center mb-2"><span>{{ m.registration.person.display_name }}</span>
-      <form method="post">{% csrf_token %}<input type="hidden" name="member_action" value="remove"><input type="hidden" name="member" value="{{ m.pk }}"><button class="btn btn-quiet btn-sm" type="submit">Remove</button></form></li>
+    {% for m in members %}<li class="d-flex justify-content-between align-items-center gap-2 mb-2"><span>{% if m.is_leader %}<span class="tag tag-ink">Leader</span> {% endif %}{{ m.registration.person.display_name }}</span>
+      <span class="d-flex gap-1">
+        {% if not m.is_leader %}<form method="post">{% csrf_token %}<input type="hidden" name="member_action" value="leader"><input type="hidden" name="member" value="{{ m.pk }}"><button class="btn btn-quiet btn-sm" type="submit">Make leader</button></form>{% endif %}
+        <form method="post">{% csrf_token %}<input type="hidden" name="member_action" value="remove"><input type="hidden" name="member" value="{{ m.pk }}"><button class="btn btn-quiet btn-sm" type="submit">Remove</button></form>
+      </span></li>
     {% empty %}<li class="text-secondary">No members yet.</li>{% endfor %}
   </ul>
   {% if free %}

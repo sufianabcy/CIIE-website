@@ -68,16 +68,19 @@ def teams_workbook(event, wb):
         ],
         text_columns=["Phone", "KL ID", "Registration ID"],
     )
-    teams = Team.objects.filter(event=event).select_related("room", "mentor").prefetch_related("members__registration__person")
-    _sheet(
-        wb, "Teams",
-        ["Team", "Project title", "Project description", "Room", "Building / floor", "Mentor", "Members", "Size"],
-        [
-            [t.name, t.project_title, t.project_description, t.room.name if t.room else "",
-             t.room.building if t.room else "", t.mentor_display, _members(t), t.members.count()]
-            for t in teams
-        ],
-    )
+    teams = list(Team.objects.filter(event=event).select_related("room", "mentor").prefetch_related("members__registration__person"))
+    slots = max([event.team_size_max or 1] + [t.members.count() for t in teams])
+    headers = ["Team", "Problem statement", "Project description", "Room", "Mentor", "Size"]
+    for n in range(1, slots + 1):
+        headers += [f"Member {n} name" + (" (leader)" if n == 1 else ""), f"Member {n} email", f"Member {n} KL ID"]
+    rows = []
+    for t in teams:
+        row = [t.name, t.project_title, t.project_description, t.room.name if t.room else "", t.mentor_display, t.members.count()]
+        for m in sorted(t.members.all(), key=lambda m: (not m.is_leader, m.registration.person.display_name)):
+            p = m.registration.person
+            row += [p.display_name, p.email or "", p.student_id]
+        rows.append(row)
+    _sheet(wb, "Teams", headers, rows)
 
 
 def allocations_workbook(event, wb):
@@ -228,7 +231,7 @@ TEMPLATES = {
                     ["Dr. B. Example", "b.example@kluniversity.in", "KLF5678", "", "ECE", "9000000001", "Faculty", "No", "No"]),
     "allocations": ("Allocations", ["Round", "Faculty email", "Team", "Member email or KL ID"],
                     ["Round 1", "a.example@kluniversity.in", "Team Rocket", ""]),
-    "rooms": ("Rooms", ["Room", "Max teams", "Block", "Floor", "Notes"], ["R206", "4", "", "", "Projector"]),
+    "rooms": ("Rooms", ["Room", "Max teams"], ["L502", "4"]),
     "volunteers": ("Volunteers", ["Name", "Email", "KL ID", "Phone", "Team attendance", "Faculty attendance", "See marking progress", "See floor lists"],
                    ["A. Volunteer", "2300012345@kluniversity.in", "2300012345", "9000000000", "Yes", "Yes", "Yes", "Yes"]),
 }

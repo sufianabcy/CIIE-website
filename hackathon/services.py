@@ -389,7 +389,9 @@ def _find_faculty(event, text) -> EventFaculty | None:
 
 
 def get_room(event, name) -> Room | None:
-    name = " ".join((name or "").split())
+    from .models import clean_room_code, parse_room_code
+
+    name = clean_room_code(name) if parse_room_code(name) else " ".join((name or "").split())
     if not name:
         return None
     return Room.objects.filter(event=event, name__iexact=name).first() or Room.objects.create(event=event, name=name)
@@ -617,9 +619,14 @@ def import_rooms(event, upload, columns=None, only_rows=None) -> ImportReport:
         if only_rows is not None and line not in only_rows:
             continue
         data, _ = _row_data(headers, row, columns)
-        name = " ".join((data.get("name") or "").split())
+        from .models import clean_room_code, parse_room_code
+
+        name = clean_room_code(data.get("name"))
         if not name:
-            report.problems.append(f"Row {line}: no room code.")
+            report.problems.append(f"Row {line}: no room number.")
+            continue
+        if not parse_room_code(name):
+            report.problems.append(f"Row {line}: \"{data.get('name')}\" isn't a room number like L502.")
             continue
         capacity = data.get("capacity") or ""
         if capacity and not capacity.isdigit():
@@ -630,12 +637,7 @@ def import_rooms(event, upload, columns=None, only_rows=None) -> ImportReport:
         room = room or Room(event=event, name=name)
         if capacity:
             room.capacity = int(capacity)
-        for key, attr in (("block", "block"), ("floor", "floor"), ("notes", "building")):
-            if data.get(key):
-                setattr(room, attr, data[key].upper() if key == "block" else data[key])
-        room.save()
-        if room.code_unread:
-            report.warnings.append(f"Row {line}: couldn't read block and floor from \"{name}\". Set them on the Rooms page.")
+        room.save()  # block and floor come from the number
         report.created += created
         report.updated += not created
     return report
@@ -870,3 +872,161 @@ def reopen_marks(assignment, by, reason: str):
     return MarkChange.objects.create(
         assignment=assignment, kind=MarkChange.Kind.REOPENED, changed_by=by, reason=reason, before=marks, after=marks
     )
+
+
+# --- Teams, one row per team ------------------------------------------------------------------
+
+
+MEMBER_PARTS = {
+    "name": ["name", "full name", "student name"],
+    "email": ["email", "email id", "mail", "mail id", "e mail"],
+    "student_id": ["kl id", "id", "student id", "roll no", "roll number", "reg no", "registration number"],
+    "phone": ["phone", "mobile", "contact", "phone number", "mobile number", "whatsapp"],
+}
+
+
+def member_aliases(n: int, part: str) -> list[str]:
+    """Header spellings for member n's part, e.g. "member 2 email", "m2 email", "email 2", "leader email" for n = 1."""
+    out = []
+    for word in MEMBER_PARTS[part]:
+        out += [f"member {n} {word}", f"member{n} {word}", f"m{n} {word}", f"{word} {n}", f"participant {n} {word}",
+                f"student {n} {word}", f"team member {n} {word}"]
+        if n == 1:
+            out += [f"leader {word}", f"team leader {word}", f"lead {word}"]
+    return [_key(a) for a in out]
+
+
+TEAM_COLUMNS = {
+    "team": ["team", "team name", "group", "group name"],
+    "project_title": ["problem statement", "project", "project title", "title", "idea", "problem statement title", "ps"],
+    "project_description": ["project description", "description", "abstract", "idea description", "problem statement description"],
+    "room": ["room", "room no", "room number", "lab"],
+    "mentor": ["mentor", "mentor email", "guide", "faculty mentor"],
+}
+
+
+def member_slots(data, max_size):
+    """[(n, {"name", "email", "student_id", "phone"})] for the member slots that have anything in them."""
+    slots = []
+    for n in range(1, max_size + 1):
+        values = {part: (data.get(f"m{n}_{part}") or "").strip() for part in MEMBER_PARTS}
+        if any(values.values()):
+            slots.append((n, values))
+    return slots
+
+
+@transaction.atomic
+def import_teams(event, upload, by=None, columns=None, only_rows=None) -> ImportReport:
+    """One row per team: name, project, mentor and members 1..max (member 1 is the leader). Members are found by
+    email, then KL ID, or created as students, registered and put in the team."""
+    report = ImportReport()
+    headers, rows = read_rows(upload)
+    max_size = event.team_size_max or 6
+    if columns is None:
+        spec = dict(TEAM_COLUMNS)
+        for n in range(1, max_size + 1):
+            for part in MEMBER_PARTS:
+                spec[f"m{n}_{part}"] = member_aliases(n, part)
+        columns = match_columns(headers, spec)
+    if "team" not in columns.values():
+        report.problems.append("The first row needs a Team name column.")
+        return report
+    seen_teams, seen_people = {}, {}
+    for line, row in enumerate(rows, start=2):
+        if only_rows is not None and line not in only_rows:
+            continue
+        data, extra = _row_data(headers, row, columns)
+        name = " ".join((data.get("team") or "").split())
+        if not name:
+            report.problems.append(f"Row {line}: no team name.")
+            continue
+        slots = member_slots(data, max_size)
+        problem = team_row_problem(event, line, name, slots, seen_teams, seen_people)
+        if problem:
+            report.problems.append(problem)
+            continue
+        with transaction.atomic():
+            team = Team.objects.create(event=event, name=name, project_title=data.get("project_title") or "",
+                                       project_description=data.get("project_description") or "", extra=extra)
+            if data.get("room"):
+                team.room = get_room(event, data["room"])
+            if data.get("mentor"):
+                mentor = _find_faculty(event, data["mentor"])
+                if mentor:
+                    team.mentor = mentor.person
+                else:
+                    team.mentor_name = data["mentor"]
+            team.save()
+            failed = None
+            for n, member in slots:
+                person, _, why = _upsert_person({"name": member["name"], "email": member["email"],
+                                                 "student_id": member["student_id"], "phone": member["phone"]})
+                if why:
+                    failed = f"Row {line}, member {n}: {why}."
+                    break
+                registration = Registration.objects.filter(event=event, person=person).first()
+                if not (registration and registration.is_confirmed):
+                    try:
+                        registration, _ = register(event=event, person=person, source=Registration.Source.IMPORT, created_by=by)
+                    except RegistrationError as exc:
+                        failed = f"Row {line}, member {n}: {exc}"
+                        break
+                TeamMember.objects.create(team=team, registration=registration, is_leader=(n == slots[0][0]))
+            if failed:
+                transaction.set_rollback(True)
+                report.problems.append(failed)
+                continue
+        report.created += 1
+    return report
+
+
+def team_row_problem(event, line, name, slots, seen_teams, seen_people) -> str:
+    """Why this team row can't be imported, or "". Tracks teams and people seen earlier in the file."""
+    low, high = event.team_size_min or 1, event.team_size_max or 6
+    if name.lower() in seen_teams:
+        return f"Row {line}: the team name \"{name}\" is also in row {seen_teams[name.lower()]}."
+    seen_teams[name.lower()] = line
+    if Team.objects.filter(event=event, name__iexact=name).exists():
+        return f"Row {line}: there is already a team called \"{name}\" in this hackathon."
+    if not low <= len(slots) <= high:
+        return f"Row {line}: {name} has {len(slots)} member(s); teams here have {low} to {high}."
+    for n, m in slots:
+        if not (m["email"] or m["student_id"]):
+            return f"Row {line}, member {n}: needs an email or a KL ID."
+        for key in ("email", "student_id"):
+            value = normalise_email(m[key]) if key == "email" else m[key].lower()
+            if value and value in seen_people:
+                return f"Row {line}, member {n}: {m[key]} is also in {seen_people[value]}."
+            if value:
+                seen_people[value] = f"row {line}"
+        person, clash = _find_person(normalise_email(m["email"]) or "", m["student_id"])
+        if clash:
+            return f"Row {line}, member {n}: {clash}."
+        if person:
+            taken = TeamMember.objects.filter(team__event=event, registration__person=person).select_related("team").first()
+            if taken:
+                return f"Row {line}, member {n}: {person.display_name} is already in team {taken.team.name}."
+    return ""
+
+
+@transaction.atomic
+def register_team(event, leader, team_name, members):
+    """The leader registers, the teammates are found (or added as students) and registered, and the team is made."""
+    from registrations.services import send_confirmation
+
+    lead_reg, created = register(event=event, person=leader)
+    regs = [(lead_reg, created, True)]
+    for m in members:
+        person, _, why = _upsert_person({"name": m["name"], "email": m["email"], "student_id": m["student_id"]})
+        if why:
+            raise RegistrationError(f"{m['email'] or m['student_id']}: {why}")
+        registration = Registration.objects.filter(event=event, person=person).first()
+        new = not (registration and registration.is_confirmed)
+        if new:
+            registration, _ = register(event=event, person=person, created_by=leader)
+        regs.append((registration, new, False))
+    team = Team.objects.create(event=event, name=team_name)
+    for registration, _, is_leader in regs:
+        TeamMember.objects.create(team=team, registration=registration, is_leader=is_leader)
+    transaction.on_commit(lambda: [send_confirmation(r) for r, new, _ in regs if new])
+    return team, lead_reg

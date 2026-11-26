@@ -106,6 +106,7 @@ UPLOADS = {
     "volunteers": ("Volunteers", "volunteer(s)"),
     "allocations": ("Allocations", "allocation(s)"),
     "rooms": ("Rooms", "room(s)"),
+    "teams": ("Teams", "team(s)"),
 }
 
 
@@ -122,15 +123,21 @@ def upload(request, slug, kind):
     form = UploadForm(request.POST, request.FILES)
     if not form.is_valid():
         messages.error(request, " ".join(form.errors.get("file", ["Choose a file."])))
-        return redirect("hackathon_dashboard", slug)
+        return redirect(request.META.get("HTTP_REFERER") or reverse_lazy_dashboard(slug))
     content = form.cleaned_data["file"].read()
     try:
-        imports.read(content)
+        imports.sheets(content)
     except services.ImportFileError as exc:
         messages.error(request, str(exc))
         return redirect("hackathon_dashboard", slug)
     item = ImportUpload.objects.create(event=event, kind=kind, user=request.user, filename=form.cleaned_data["file"].name, content=content)
     return redirect("hackathon_import", slug, item.pk)
+
+
+def reverse_lazy_dashboard(slug):
+    from django.urls import reverse
+
+    return reverse("hackathon_dashboard", args=[slug])
 
 
 def _import_allowed(request, event, kind):
@@ -141,54 +148,121 @@ def _import_allowed(request, event, kind):
 
 @never_cache
 @login_required
+def import_start(request, slug):
+    """"Import from Excel": choose what the file holds, then upload it."""
+    event = overseen_event(request, slug)
+    require(request.user, event, "can_import")
+    if request.method == "POST":
+        if request.POST.get("kind") not in UPLOADS:
+            raise Http404
+        return upload(request, slug, request.POST["kind"])
+    kinds = [(k, label) for k, label in imports.KINDS.items() if k in UPLOADS and (k not in ("supervisors", "volunteers") or is_admin(request.user))]
+    return render(request, "hackathon/import_start.html", {
+        "event": event, "kinds": kinds, "chosen": request.GET.get("kind", "students"), "upload_form": UploadForm(),
+    })
+
+
+def _new_field(event, kind, header):
+    """"+ New field": a short-text custom field named after the column's header."""
+    from django.utils.text import slugify
+
+    from .models import FieldDefinition
+
+    applies = imports.NEW_FIELD_FOR[kind]
+    label = header or "New field"
+    existing = FieldDefinition.objects.filter(event=event, applies_to=applies, label__iexact=label).first()
+    if existing:
+        return existing
+    base = slugify(label)[:40] or "field"
+    key, n = base, 2
+    while FieldDefinition.objects.filter(event=event, applies_to=applies, key=key).exists():
+        key, n = f"{base}-{n}", n + 1
+    last = FieldDefinition.objects.filter(event=event, applies_to=applies).order_by("-position").first()
+    return FieldDefinition.objects.create(event=event, applies_to=applies, key=key, label=label, position=(last.position + 1 if last else 20))
+
+
+@never_cache
+@login_required
 def import_step(request, slug, pk):
-    """Steps 2 to 4: match columns to fields, check every row, then import the valid rows."""
+    """Steps 2 to 4: say what each Excel column is, check every row, then import the valid rows."""
+    from openpyxl.utils import get_column_letter
+
     from .models import ImportUpload
 
     event = overseen_event(request, slug)
     item = get_object_or_404(ImportUpload, pk=pk, event=event)
     _import_allowed(request, event, item.kind)
-    headers, rows = imports.read(item.content)
-    targets_ = imports.targets(event, item.kind, request.user)
     title, noun = UPLOADS[item.kind]
     if item.imported_at:
         return render(request, "hackathon/import_steps.html", {"event": event, "item": item, "title": title, "step": 4, "result": item.result})
+    action = request.POST.get("action") if request.method == "POST" else None
+    if action == "sheet":
+        item.sheet_name = request.POST.get("sheet", "")
+        raw = request.POST.get("header_row", "")
+        item.header_row = int(raw) if raw.isdigit() else 0
+        item.mapping = {}
+        item.save(update_fields=["sheet_name", "header_row", "mapping"])
+        return redirect("hackathon_import", slug, item.pk)
+    headers, rows, numbers = imports.read_item(item)
+    can_fields = allowed(request.user, event, "can_manage_fields") and item.kind in imports.NEW_FIELD_FOR
+    targets_ = imports.targets(event, item.kind, request.user)
     mapping = item.mapping or imports.auto_match(headers, targets_, imports.saved_mapping(event, item.kind))
     mapping = {t.key: mapping.get(t.key) for t in targets_}
-    problems, step = None, 2
-    if request.method == "POST" and any(k.startswith("map_") for k in request.POST):
+    twice = []
+    if request.method == "POST" and any(k.startswith("col_") for k in request.POST):
+        chosen = {}
+        for i, header in enumerate(headers):
+            value = request.POST.get(f"col_{i}", "")
+            if value == "__new__" and can_fields:
+                value = f"f:{_new_field(event, item.kind, header).key}"
+            if value:
+                chosen.setdefault(value, []).append(i)
+        targets_ = imports.targets(event, item.kind, request.user)  # may include a field just added
+        known = {t.key: t for t in targets_}
+        mapping = {t.key: None for t in targets_}
+        for key, cols in chosen.items():
+            if key not in known:
+                continue
+            mapping[key] = cols[0]
+            if len(cols) > 1:
+                letters = " and ".join(get_column_letter(c + 1) for c in cols)
+                twice.append(f"Columns {letters} are both used as \"{known[key].label}\". Use each field once.")
+        item.mapping = mapping
+        item.save(update_fields=["mapping"])
+    elif request.method == "POST" and any(k.startswith("map_") for k in request.POST):  # field-first form, still accepted
         for t in targets_:
             raw = request.POST.get(f"map_{t.key}", "")
             mapping[t.key] = int(raw) if raw.isdigit() and int(raw) < len(headers) else None
         item.mapping = mapping
         item.save(update_fields=["mapping"])
     errors, warnings = imports.sheet_checks(headers, rows, mapping, targets_, item.kind)
-    action = request.POST.get("action") if request.method == "POST" else None
+    errors = twice + errors
+    problems, step = None, 2
     if action in ("check", "import") and not errors:
-        problems = imports.row_checks(event, item.kind, headers, rows, mapping, targets_)
+        found = imports.row_checks(event, item.kind, headers, rows, mapping, targets_)
+        problems = {numbers[line - 2]: imports.real_rows(msgs, numbers) for line, msgs in found.items() if 0 <= line - 2 < len(numbers)}
         step = 3
         if action == "import":
-            valid = {line for line in range(2, len(rows) + 2) if line not in problems}
+            valid = {line for line in range(2, len(rows) + 2) if line not in found}
             with transaction.atomic():
                 report = imports.run_import(item, mapping, valid, request.user)
             skipped = {str(line): msgs for line, msgs in problems.items()}
-            for message in report.problems:  # anything the import itself refused at the last moment
-                line = message.split(":")[0].replace("Row ", "")
+            for message in imports.real_rows(report.problems, numbers):  # anything refused at the last moment
+                line = message.split(":")[0].split(",")[0].replace("Row ", "")
                 if line.isdigit():
                     skipped.setdefault(line, []).append(message)
             item.result = {"summary": report.summary(noun), "added": report.created, "updated": report.updated,
-                           "skipped": skipped, "warnings": report.warnings}
+                           "skipped": skipped, "warnings": imports.real_rows(report.warnings, numbers)}
             item.imported_at = timezone.now()
             item.save(update_fields=["result", "imported_at"])
             imports.remember(event, item.kind, headers, mapping)
             return redirect("hackathon_import", slug, item.pk)
-    options = [(i, imports.col_name(i, headers)) for i in range(len(headers))]
-    table = [(t, mapping.get(t.key), imports.col_name(mapping[t.key], headers) if mapping.get(t.key) is not None else None) for t in targets_]
     return render(request, "hackathon/import_steps.html", {
-        "event": event, "item": item, "title": title, "step": step, "table": table, "options": options,
+        "event": event, "item": item, "title": title, "step": step, "targets": targets_,
+        "columns": imports.columns_view(headers, rows, mapping), "sheets": imports.sheets(item.content),
         "errors": errors, "warnings": warnings, "problems": sorted((problems or {}).items()),
-        "valid_count": len(rows) - len(problems or {}), "row_count": len(rows),
-        "can_fields": allowed(request.user, event, "can_manage_fields"),
+        "valid_count": len(rows) - len(problems or {}), "row_count": len(rows), "can_fields": can_fields,
+        "can_define_fields": allowed(request.user, event, "can_manage_fields"),
     })
 
 

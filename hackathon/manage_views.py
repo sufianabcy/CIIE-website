@@ -73,10 +73,14 @@ def _style(form):
     return form
 
 
-def _list(request, event, section, title, headers, rows, add_url=None, intro="", add_label="Add"):
+def _list(request, event, section, title, headers, rows, add_url=None, intro="", add_label="Add", import_kind=None, filters=None):
     rows = [{"cells": r[0], "edit": r[1] if len(r) > 1 else None, "delete": r[2] if len(r) > 2 else None} for r in rows]
+    import_url = None
+    if import_kind and allowed(request.user, event, "can_import"):
+        import_url = reverse("hackathon_import_start", args=[event.slug]) + f"?kind={import_kind}"
     return render(request, "hackathon/manage_list.html", _ctx(
         request, event, section, title=title, headers=headers, rows=rows, add_url=add_url, intro=intro, add_label=add_label,
+        import_url=import_url, filters=filters or [],
     ))
 
 
@@ -104,7 +108,11 @@ def students(request, slug):
     can_edit = allowed(request.user, event, "can_edit_teams")
     details = {d.person_id: d.values for d in event.person_details.all()}
     rows = []
-    for r in _student_regs(event):
+    regs = _student_regs(event)
+    no_team = request.GET.get("no_team") == "1"
+    if no_team:
+        regs = regs.filter(team_membership__isnull=True)
+    for r in regs:
         p = r.person
         team = r.team_membership.team if hasattr(r, "team_membership") else None
         vals = details.get(p.pk, {})
@@ -114,8 +122,9 @@ def students(request, slug):
             _url(event, "student_edit", r.pk) if can_edit else None,
         ))
     return _list(request, event, "students", "Students", ["Name", "Email", "KL ID", "Team", "Room"] + [d.label for d in defs], rows,
-                 add_url=_url(event, "student_add") if can_edit else None, add_label="Add a student",
-                 intro="To add many at once, use the students Excel on the hackathon page.")
+                 add_url=_url(event, "student_add") if can_edit else None, add_label="Add a student", import_kind="students",
+                 filters=[("All students", "?", not no_team), ("No team yet", "?no_team=1", no_team)],
+                 intro="Each student's team is shown here; change it on the student's page.")
 
 
 class TeamChoiceForm(forms.Form):
@@ -224,13 +233,14 @@ class TeamForm(forms.ModelForm):
 def teams(request, slug):
     event = overseen_event(request, slug)
     can_edit = allowed(request.user, event, "can_edit_teams")
-    rows = [
-        ([t.name, t.project_title or "—", t.room.name if t.room else "—", t.mentor_display or "—", t.size],
-         _url(event, "team_edit", t.pk) if can_edit else None)
-        for t in Team.objects.filter(event=event).select_related("room", "mentor").annotate(size=Count("members"))
-    ]
-    return _list(request, event, "teams", "Teams", ["Team", "Project", "Room", "Mentor", "Members"], rows,
-                 add_url=_url(event, "team_add") if can_edit else None, add_label="Add a team")
+    rows = []
+    for t in Team.objects.filter(event=event).select_related("room", "mentor").prefetch_related("members__registration__person"):
+        members = ", ".join(("★ " if m.is_leader else "") + m.registration.person.display_name for m in t.members.all())
+        rows.append(([t.name, members or "no members yet", t.project_title or "—", t.room.name if t.room else "—", t.mentor_display or "—"],
+                     _url(event, "team_edit", t.pk) if can_edit else None))
+    return _list(request, event, "teams", "Teams", ["Team", "Members (★ leader)", "Problem statement", "Room", "Mentor"], rows,
+                 add_url=_url(event, "team_add") if can_edit else None, add_label="Add a team", import_kind="teams",
+                 intro="Each team is made of registered students. Add or remove members on the team's page, or import a sheet with one row per team.")
 
 
 @never_cache
@@ -277,6 +287,13 @@ def _team_members(request, event, team):
         registration = get_object_or_404(_student_regs(event), pk=request.POST.get("registration"))
         _set_team(event, registration, team)
         messages.success(request, f"{registration.person.display_name} added.")
+    elif request.POST["member_action"] == "leader":
+        member = get_object_or_404(TeamMember, team=team, pk=request.POST.get("member"))
+        with transaction.atomic():
+            team.members.update(is_leader=False)
+            member.is_leader = True
+            member.save(update_fields=["is_leader"])
+        messages.success(request, f"{member.registration.person.display_name} is now the team leader.")
     else:
         TeamMember.objects.filter(team=team, pk=request.POST.get("member")).delete()
         messages.success(request, "Member removed from the team.")
@@ -304,16 +321,20 @@ def team_delete(request, slug, pk):
 class RoomForm(forms.ModelForm):
     class Meta:
         model = Room
-        fields = ["name", "capacity", "block", "floor", "building"]
+        fields = ["name", "capacity"]
 
     def __init__(self, *args, event, **kwargs):
         super().__init__(*args, **kwargs)
         self.instance.event = event
 
     def clean_name(self):
-        name = " ".join(self.cleaned_data["name"].split())
+        from .models import clean_room_code, parse_room_code
+
+        name = clean_room_code(self.cleaned_data["name"])
+        if not parse_room_code(name):
+            raise ValidationError("Use a room number like L502: the block letters, then the floor, then the two-digit room.")
         if Room.objects.filter(event=self.instance.event, name__iexact=name).exclude(pk=self.instance.pk).exists():
-            raise ValidationError("Another room already has this name.")
+            raise ValidationError(f"There is already a room {name} in this hackathon.")
         return name
 
 
@@ -323,15 +344,13 @@ def rooms(request, slug):
     event = overseen_event(request, slug)
     can_edit = allowed(request.user, event, "can_edit_teams")
     rows = [
-        ([r.name + (" (code not read: set block and floor)" if r.code_unread else ""), r.block or "—", r.floor or "—",
-          f"{r.n} / {r.capacity}" if r.capacity else f"{r.n} / no max", r.building or ""],
-         _url(event, "room_edit", r.pk) if can_edit else None)
+        ([r.name, f"{r.n} / {r.capacity}" if r.capacity else f"{r.n} / no max set"], _url(event, "room_edit", r.pk) if can_edit else None)
         for r in Room.objects.filter(event=event).annotate(n=Count("teams"))
     ]
-    return _list(request, event, "rooms", "Rooms", ["Room", "Block", "Floor", "Teams / max", "Notes"], rows,
+    return _list(request, event, "rooms", "Rooms", ["Room", "Teams / max capacity"], rows,
                  add_url=_url(event, "room_add") if can_edit else None, add_label="Add a room",
-                 intro="Codes like R206 are read as block R, floor 2, room 06. Set max teams for automatic room assignment. "
-                       "Rooms can also come from Excel (Room, Max teams, Block, Floor, Notes) on the hackathon page.")
+                 intro="Give each room's number (like L502: block L, floor 5, room 02) and how many teams fit. "
+                       "Rooms can also come from Excel, with a room number column and a capacity column.")
 
 
 @never_cache
@@ -346,7 +365,7 @@ def room_edit(request, slug, pk=None):
             with transaction.atomic():
                 form.save()
         except IntegrityError:
-            form.add_error("name", "Another room already has this name.")
+            form.add_error("name", "There is already a room with this number in this hackathon.")
         else:
             messages.success(request, "Room saved.")
             return redirect("hackathon_manage_rooms", slug)
@@ -387,7 +406,7 @@ def faculty(request, slug):
             _url(event, "faculty_edit", f.pk) if can_edit else None,
         ))
     return _list(request, event, "faculty", "Faculty", ["Name", "Email", "Employee ID", "Department", "Teams to judge"] + [d.label for d in defs],
-                 rows, add_url=_url(event, "faculty_add") if can_edit else None, add_label="Add a faculty member")
+                 rows, add_url=_url(event, "faculty_add") if can_edit else None, add_label="Add a faculty member", import_kind="faculty")
 
 
 class FacultyActiveForm(forms.Form):

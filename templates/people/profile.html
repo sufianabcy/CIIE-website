@@ -6,7 +6,7 @@
   <header class="page-head mb-4">
     <span class="eyebrow">{% if first_time %}Almost there{% else %}Account{% endif %}</span>
     <h1 class="heading-3">{% if first_time %}One step before you register{% else %}Your profile{% endif %}</h1>
-    {% if first_time %}<p>We ask once, so you never retype it for each event. Your name is printed on certificates exactly as you type it.</p>{% endif %}
+    {% if first_time %}<p>{% if user.kind == "faculty" %}Just your name, department and phone. We ask once.{% else %}We ask once, so you never retype it for each event. Your name is printed on certificates exactly as you type it.{% endif %}</p>{% endif %}
   </header>
   <form method="post" class="form-card" novalidate data-validate>
     {% csrf_token %}
@@ -28,12 +28,22 @@
     <div class="d-flex gap-3 align-items-start">
       <span class="step-num" aria-hidden="true">{% include "ui/icon.html" with name="student" size="sm" %}</span>
       <div>
+        {% if user.kind == "faculty" %}
+        <h2 class="heading-6 mb-2" id="kl-status">KL faculty email</h2>
+        {% if user.is_kl_verified %}
+          <p class="mb-0"><span class="pass-status">{% include "ui/icon.html" with name="check-circle" %}Verified</span><br><span class="caption-2 text-secondary">{{ user.kl_email }}</span></p>
+        {% else %}
+          <p class="text-secondary">Not verified. Add your KL email (ending in {{ kl_domains|join:" or " }}) and enter the code we send to it.</p>
+          <a class="btn btn-quiet btn-sm" href="{% url 'account_email' %}">Verify my KL faculty email</a>
+        {% endif %}
+        {% else %}
         <h2 class="heading-6 mb-2" id="kl-status">KL student status</h2>
         {% if user.is_kl_verified %}
           <p class="mb-0"><span class="pass-status">{% include "ui/icon.html" with name="check-circle" %}Verified as KL</span>{% if user.student_id %} <span class="text-secondary">ID {{ user.student_id }}</span>{% endif %}<br><span class="caption-2 text-secondary">Through {{ user.kl_email }}</span></p>
         {% else %}
           <p class="text-secondary">Not verified as KL. If you are a KL student, add your KL email (ending in {{ kl_domains|join:" or " }}) and enter the code we send to it. Some events are for KL students only.</p>
           <a class="btn btn-quiet btn-sm" href="{% url 'account_email' %}">Add my KL email</a>
+        {% endif %}
         {% endif %}
       </div>
     </div>

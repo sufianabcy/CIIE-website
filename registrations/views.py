@@ -26,7 +26,29 @@ def register_view(request, slug):
     needs_kl = event.kl_only and not person.is_kl_verified
     questions = event.questions.filter(is_hidden=False)
     form = RegistrationForm(request.POST or None, questions=questions)
-    if request.method == "POST" and open_now and not needs_kl and form.is_valid():
+    team_form = None
+    if event.is_hackathon and (event.team_size_max or 1) > 1:
+        from hackathon.forms import TeamRegistrationForm
+
+        team_form = TeamRegistrationForm(request.POST or None, event=event, leader=person, prefix="team")
+    solo = False
+    if request.method == "POST" and team_form is not None and team_form.is_valid():
+        solo = team_form.cleaned_data["solo"]  # entering alone: registered like any event, without a team yet
+    if request.method == "POST" and open_now and not needs_kl and form.is_valid() and team_form is not None and not solo:
+        if team_form.is_valid():
+            from hackathon.services import register_team
+
+            try:
+                _, registration = register_team(event, person, team_form.cleaned_data["team_name"], team_form.cleaned_data["members"])
+            except RegistrationError as exc:
+                messages.error(request, str(exc))
+                return redirect(event)
+            registration.answers = form.answers()
+            registration.save(update_fields=["answers"])
+            send_confirmation(registration)
+            messages.success(request, "Your team is registered. Your teammates have been emailed; your room and timings will show here.")
+            return redirect(registration.get_home_url())
+    elif request.method == "POST" and open_now and not needs_kl and form.is_valid() and (team_form is None or solo):
         try:
             registration, created = register(event=event, person=person, answers=form.answers())
         except RegistrationError as exc:
@@ -42,7 +64,7 @@ def register_view(request, slug):
     return render(
         request,
         "registrations/register.html",
-        {"event": event, "form": form, "open_now": open_now, "closed_reason": reason, "needs_kl": needs_kl},
+        {"event": event, "form": form, "team_form": team_form, "open_now": open_now, "closed_reason": reason, "needs_kl": needs_kl},
     )
 
 

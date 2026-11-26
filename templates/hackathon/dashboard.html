@@ -157,7 +157,7 @@
   <form method="post" action="{% url 'hackathon_upload' event.slug 'rooms' %}" enctype="multipart/form-data" class="file-row mb-2">{% csrf_token %}
     {{ upload_form.file }}<button class="btn btn-quiet" type="submit">Upload rooms Excel</button>
   </form>
-  <p class="caption-2 text-secondary">Columns: <strong>Room</strong> (like R206: block R, floor 2), <strong>Max teams</strong>, and optional Block, Floor, Notes. <a href="{% url 'hackathon_template' event.slug 'rooms' %}">Sample file</a>.</p>
+  <p class="caption-2 text-secondary">Columns: <strong>Room</strong> number (like L502) and <strong>Max teams</strong>. <a href="{% url 'hackathon_template' event.slug 'rooms' %}">Sample file</a>.</p>
   {% endif %}
   <h3 class="heading-6 mt-3">Or the other way round: faculty to a room</h3>
   {% endif %}

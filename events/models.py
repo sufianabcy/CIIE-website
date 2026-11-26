@@ -73,6 +73,12 @@ class Event(models.Model):
     )
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
     kind = models.CharField(max_length=20, choices=Kind.choices, default=Kind.NORMAL)
+    team_size_min = models.PositiveSmallIntegerField(
+        "smallest team", default=1, help_text="Hackathons: fewest members a team may register with (1 allows solo entries)."
+    )
+    team_size_max = models.PositiveSmallIntegerField(
+        "largest team", default=6, help_text="Hackathons: most members in a team, including the leader."
+    )
     show_jury_to_students = models.BooleanField(
         default=False, help_text="Hackathons: let each team see which faculty are judging them."
     )

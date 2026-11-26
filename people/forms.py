@@ -33,6 +33,18 @@ class ProfileForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        if self.instance.kind == Person.Kind.FACULTY:
+            # Faculty: name, department and phone only. College and year are student details (kept, not asked).
+            for name in ("institution", "year_of_study"):
+                del self.fields[name]
+            self.fields["full_name"].label = "Name"
+            self.fields["full_name"].help_text = "Your full name"
+            self.fields["branch"].label = "Department"
+            for name in ("full_name", "phone", "branch"):
+                self.fields[name].required = True
+            for field in self.fields.values():
+                field.widget.attrs.setdefault("class", "form-control")
+            return
         for name in ("full_name", "phone", "institution"):
             self.fields[name].required = True
         if self.instance.is_kl_verified:

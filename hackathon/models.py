@@ -90,21 +90,29 @@ class Supervisor(models.Model):
         return [label for name, (label, _, _) in PERMISSIONS.items() if getattr(self, name)]
 
 
-ROOM_CODE = re.compile(r"^\s*([A-Za-z]+)\s*-?\s*(\d)(\d+)\s*$")
+ROOM_CODE = re.compile(r"^([A-Z]+)(\d+)(\d\d)$")
+
+
+def clean_room_code(code: str) -> str:
+    """Upper-case, no spaces or dashes: " l-502 " -> "L502"."""
+    return re.sub(r"[\s-]+", "", code or "").upper()
 
 
 def parse_room_code(code: str):
-    """ "R206" -> ("R", "2", "06"): block letters, then the floor digit, then the room number. None if it doesn't fit."""
-    match = ROOM_CODE.match(code or "")
-    return (match.group(1).upper(), match.group(2), match.group(3)) if match else None
+    """Letters = block, last two digits = room, digits between = floor: L502 -> ("L", "5", "02"), L1002 -> ("L", "10", "02").
+
+    None if it isn't letters followed by at least three digits.
+    """
+    match = ROOM_CODE.match(clean_room_code(code))
+    return (match.group(1), str(int(match.group(2))), match.group(3)) if match else None
 
 
 @pghistory.track()
 class Room(models.Model):
     event = models.ForeignKey("events.Event", on_delete=models.PROTECT, related_name="rooms")
-    name = models.CharField("room code", max_length=100, help_text="For example R206: block R, floor 2, room 06.")
+    name = models.CharField("room number", max_length=100, help_text="For example L502: block L, floor 5, room 02.")
     building = models.CharField("building / notes", max_length=150, blank=True)
-    capacity = models.PositiveIntegerField("max teams", null=True, blank=True, help_text="How many teams fit. Needed for automatic room assignment.")
+    capacity = models.PositiveIntegerField("max capacity (teams)", null=True, blank=True, help_text="How many teams fit. Used by the automatic room assignment.")
     block = models.CharField(max_length=20, blank=True, help_text="Read from the code; change it if the code doesn't follow the pattern.")
     floor = models.CharField(max_length=10, blank=True, help_text="Read from the code; change it if the code doesn't follow the pattern.")
     code_unread = models.BooleanField("code could not be read", default=False, editable=False)
@@ -114,13 +122,14 @@ class Room(models.Model):
         constraints = [models.UniqueConstraint("event", Lower("name"), name="room_name_unique_per_event")]
 
     def __str__(self):
-        return f"{self.name} ({self.building})" if self.building else self.name
+        return self.name  # people see just the room number, like L502
 
     def save(self, *args, **kwargs):
+        # Block and floor always come from the room number, so they can't drift from it.
         parsed = parse_room_code(self.name)
         if parsed:
-            self.block = self.block or parsed[0]
-            self.floor = self.floor or parsed[1]
+            self.name = clean_room_code(self.name)
+            self.block, self.floor = parsed[0], parsed[1]
         self.code_unread = parsed is None and not (self.block and self.floor)
         super().save(*args, **kwargs)
 
@@ -165,11 +174,15 @@ class TeamMember(models.Model):
     registration = models.OneToOneField(
         "registrations.Registration", on_delete=models.PROTECT, related_name="team_membership"
     )
+    is_leader = models.BooleanField("team leader", default=False)
     extra = models.JSONField(default=dict, blank=True)
 
     class Meta:
-        ordering = ["team", "registration__person__full_name"]
+        ordering = ["team", "-is_leader", "registration__person__full_name"]
         verbose_name = "team member"
+        constraints = [
+            models.UniqueConstraint(fields=["team"], condition=Q(is_leader=True), name="one_leader_per_team"),
+        ]
 
     def __str__(self):
         return f"{self.registration.person} in {self.team}"
@@ -477,6 +490,8 @@ class ImportUpload(models.Model):
     content = models.BinaryField()
     created_at = models.DateTimeField(auto_now_add=True)
     mapping = models.JSONField(default=dict, blank=True, help_text="Target field to column index, as last chosen.")
+    sheet_name = models.CharField(max_length=100, blank=True, help_text="Empty: the first sheet.")
+    header_row = models.PositiveIntegerField(default=0, help_text="1-based row holding the column names. 0: the first non-empty row.")
     result = models.JSONField(default=dict, blank=True, help_text="Summary and skipped rows, once imported.")
     imported_at = models.DateTimeField(null=True, blank=True)
 

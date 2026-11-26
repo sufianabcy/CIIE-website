@@ -121,3 +121,70 @@ class ChangeMarksForm(MarksForm):
             label="Reason (recorded, and shown in the marks Excel)", max_length=500,
             widget=forms.TextInput(attrs={"class": "form-control"}),
         )
+
+
+class TeamRegistrationForm(forms.Form):
+    """A hackathon team, registered by its leader (the person signed in) with the teammates' details."""
+
+    team_name = forms.CharField(label="Team name", max_length=150, required=False)
+
+    def __init__(self, *args, event, leader, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.event, self.leader = event, leader
+        self.slots = list(range(2, (event.team_size_max or 1) + 1))
+        for n in self.slots:
+            self.fields[f"m{n}_name"] = forms.CharField(label=f"Member {n} name", max_length=150, required=False,
+                                                        widget=forms.TextInput(attrs={"placeholder": "Name", "aria-label": f"Member {n} name"}))
+            self.fields[f"m{n}_email"] = forms.EmailField(label=f"Member {n} email", required=False,
+                                                         widget=forms.EmailInput(attrs={"placeholder": "Email", "aria-label": f"Member {n} email"}))
+            self.fields[f"m{n}_student_id"] = forms.CharField(label=f"Member {n} KL ID", max_length=20, required=False,
+                                                              widget=forms.TextInput(attrs={"placeholder": "KL ID", "aria-label": f"Member {n} KL ID"}))
+        for field in self.fields.values():
+            field.widget.attrs.setdefault("class", "form-control")
+
+    def member_rows(self):
+        return [(n, self[f"m{n}_name"], self[f"m{n}_email"], self[f"m{n}_student_id"]) for n in self.slots]
+
+    def clean(self):
+        from people.models import normalise_email
+
+        from .models import Team, TeamMember
+        from .services import _find_person
+
+        cleaned = super().clean()
+        name = " ".join((cleaned.get("team_name") or "").split())
+        if name and Team.objects.filter(event=self.event, name__iexact=name).exists():
+            self.add_error("team_name", "Another team already has this name.")
+        cleaned["team_name"] = name
+        members, seen = [], {normalise_email(self.leader.email), (self.leader.student_id or "").lower()} - {None, ""}
+        for n in self.slots:
+            m = {"name": (cleaned.get(f"m{n}_name") or "").strip(), "email": normalise_email(cleaned.get(f"m{n}_email")) or "",
+                 "student_id": (cleaned.get(f"m{n}_student_id") or "").strip()}
+            if not any(m.values()):
+                continue
+            if not (m["email"] or m["student_id"]):
+                self.add_error(f"m{n}_email", "Give their email or KL ID.")
+                continue
+            for key in ("email", "student_id"):
+                value = m[key].lower()
+                if value and value in seen:
+                    self.add_error(f"m{n}_{key}", "This person is already in the team (or is you).")
+                if value:
+                    seen.add(value)
+            person, clash = _find_person(m["email"], m["student_id"])
+            if clash:
+                self.add_error(f"m{n}_email", f"These details are {clash}.")
+            elif person and TeamMember.objects.filter(team__event=self.event, registration__person=person).exists():
+                self.add_error(f"m{n}_email", f"{person.display_name} is already in a team for this hackathon.")
+            elif not person and not m["name"]:
+                self.add_error(f"m{n}_name", "Give their name: they don't have an account yet.")
+            members.append(m)
+        size = len(members) + 1
+        low, high = self.event.team_size_min or 1, self.event.team_size_max or 1
+        if not name and (members or low > 1):
+            self.add_error("team_name", "Give your team a name.")
+        cleaned["solo"] = not name and not members and low <= 1
+        if not low <= size <= high:
+            raise forms.ValidationError(f"Teams here have {low} to {high} members, including you. This team has {size}.")
+        cleaned["members"] = members
+        return cleaned

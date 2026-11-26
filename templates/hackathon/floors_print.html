@@ -5,7 +5,7 @@
 <p class="no-print"><button onclick="window.print()">Print</button></p>
 <h1>{{ event.title }} · By floor{% if round %} · {{ round.name }}{% endif %}</h1>
 {% for key, rooms in floors %}
-  <h2>Block {{ key.0 }}, floor {{ key.1 }}</h2>
+  <h2>Floor {{ key.1 }} (block {{ key.0 }})</h2>
   {% for r in rooms %}
   <table>
     <tr><th colspan="{% if can_progress %}5{% else %}4{% endif %}">{{ r.room.name }} · faculty: {% for f in r.faculty %}{{ f.faculty }}{% if f.attendance %} ({{ f.attendance.present|yesno:"present,absent" }}){% endif %}{% if not forloop.last %}, {% endif %}{% empty %}none{% endfor %}</th></tr>

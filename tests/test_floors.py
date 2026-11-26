@@ -58,8 +58,15 @@ def hack(make_event, make_person):
     return {"event": event, "round": r1, "faculty": faculty}
 
 
-def test_room_codes_give_block_and_floor(hack):
+def test_room_numbers_give_block_and_floor(hack):
+    assert parse_room_code("L502") == ("L", "5", "02")
     assert parse_room_code("R206") == ("R", "2", "06")
+    assert parse_room_code("L1002") == ("L", "10", "02")
+    assert parse_room_code(" l 502 ") == ("L", "5", "02")
+    for bad in ("L12", "502", "Main hall", "L5O2", ""):
+        assert parse_room_code(bad) is None, bad
+    room = Room.objects.create(event=hack["event"], name=" l1002 ")
+    assert (room.name, room.block, room.floor, str(room)) == ("L1002", "L", "10", "L1002")
     assert parse_room_code("s-101") == ("S", "1", "01")
     assert parse_room_code("Main hall") is None
     odd = Room.objects.create(event=hack["event"], name="Main hall")
@@ -263,9 +270,11 @@ def _wizard(client, slug, kind, file):
 def test_rooms_volunteers_and_member_allocations_import(client, hack, admin_user):
     event, round1 = hack["event"], hack["round"]
     client.force_login(admin_user)
-    page = _wizard(client, event.slug, "rooms", xlsx([["Room", "Max teams", "Notes"], ["R206", 4, "Projector"], ["Main hall", 10, ""], ["R207", "many", ""]]))
-    assert b"2 room(s) added" in page.content
-    assert Room.objects.get(event=event, name="R206").capacity == 4 and Room.objects.get(event=event, name="Main hall").code_unread
+    page = _wizard(client, event.slug, "rooms", xlsx([["Room", "Max teams", "Notes"], ["r 206", 4, "Projector"], ["Main hall", 10, ""], ["R207", "many", ""]]))
+    assert b"1 room(s) added" in page.content
+    r206 = Room.objects.get(event=event, name="R206")
+    assert (r206.capacity, r206.block, r206.floor) == (4, "R", "2")
+    assert not Room.objects.filter(event=event, name__icontains="hall").exists()
     _wizard(client, event.slug, "volunteers", xlsx([["Name", "Email", "See marking progress"], ["Vee", "vee@example.com", "No"]]))
     vee = Volunteer.objects.get(event=event, person__email="vee@example.com")
     assert vee.can_team_attendance and not vee.can_view_progress
@@ -279,3 +288,27 @@ def test_exports_have_block_floor_and_room(client, judged, admin_user):
     event = judged["event"]
     rows = list(load_workbook(BytesIO(build_export(event, "allocations", admin_user)[1]))["Allocations"].iter_rows(values_only=True))
     assert rows[0][:4] == ("Round", "Block", "Floor", "Room") and rows[1][1] == "R" and rows[1][2] == "2"
+
+
+def test_room_form_asks_only_number_and_capacity(client, hack, admin_user):
+    event = hack["event"]
+    client.force_login(admin_user)
+    form = client.get(reverse("hackathon_manage_room_add", args=[event.slug])).content.decode()
+    assert 'name="name"' in form and 'name="capacity"' in form
+    for hidden in ("block", "floor", "building"):
+        assert f'name="{hidden}"' not in form
+    bad = client.post(reverse("hackathon_manage_room_add", args=[event.slug]), {"name": "Main hall", "capacity": 3})
+    assert b"Use a room number like L502" in bad.content
+    client.post(reverse("hackathon_manage_room_add", args=[event.slug]), {"name": "l502", "capacity": 3})
+    room = Room.objects.get(event=event, name="L502")
+    assert (room.block, room.floor, room.capacity) == ("L", "5", 3)
+    dupe = client.post(reverse("hackathon_manage_room_add", args=[event.slug]), {"name": "L 502", "capacity": 2})
+    assert b"There is already a room L502" in dupe.content
+    # Students see just the room number.
+    team = Team.objects.filter(event=event).first()
+    team.room = room
+    team.save()
+    student = team.members.first().registration.person
+    client.force_login(student)
+    page = client.get(reverse("my_hackathon", args=[event.slug])).content.decode()
+    assert "<dd>L502</dd>" in page and "Block L" not in page and "Floor 5" not in page

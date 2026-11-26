@@ -5,6 +5,7 @@ from . import day_views, manage_views, views
 urlpatterns = [
     path("manage/<slug:slug>/hackathon/", views.dashboard, name="hackathon_dashboard"),
     path("manage/<slug:slug>/hackathon/upload/<slug:kind>/", views.upload, name="hackathon_upload"),
+    path("manage/<slug:slug>/hackathon/import/", views.import_start, name="hackathon_import_start"),
     path("manage/<slug:slug>/hackathon/import/<int:pk>/", views.import_step, name="hackathon_import"),
     path("manage/<slug:slug>/hackathon/import/<int:pk>/skipped/", views.import_skipped, name="hackathon_import_skipped"),
     path("manage/<slug:slug>/hackathon/template/<slug:kind>/", views.template, name="hackathon_template"),

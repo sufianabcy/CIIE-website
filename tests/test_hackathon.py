@@ -1026,8 +1026,11 @@ def test_import_auto_matches_by_header_and_shows_columns_by_letter(client, hack,
     page = wizard(client, hack.slug, "students", upload, action=None)  # just upload, then the matching page
     page = client.get(reverse("hackathon_import", args=[hack.slug, ImportUpload.objects.get().pk]))
     body = page.content.decode()
-    assert "Match the columns" in body
-    assert "A (column 1): Student Name" in body and "D (column 4): T-shirt size" in body
+    assert "What is each column?" in body
+    # One row per Excel column, with its letter, name, an example value and the guessed use.
+    assert re.search(r"<strong>A</strong></td>\s*<td>Student Name</td>\s*<td[^>]*>Asha</td>", body)
+    assert re.search(r'name="col_3".*?<option value="f:shirt" selected>', body, re.S)
+    assert [c["target"] for c in page.context["columns"]] == ["name", "email", None, "f:shirt", "student_id"]
     assert "Not matched to any field, so ignored: C (column 3): Shoe size" in body
     item = ImportUpload.objects.get()
     from hackathon import imports
@@ -1151,11 +1154,11 @@ def test_portal_editing_needs_the_right_switch_and_role(client, setup):
     client.force_login(sup.person)
     assert client.get(reverse("hackathon_manage_teams", args=[slug])).status_code == 200  # can look
     assert client.get(reverse("hackathon_manage_team_edit", args=[slug, team.pk])).status_code == 403
-    assert client.post(reverse("hackathon_manage_room_add", args=[slug]), {"name": "R9"}).status_code == 403
+    assert client.post(reverse("hackathon_manage_room_add", args=[slug]), {"name": "R901"}).status_code == 403
     sup.can_edit_teams = True
     sup.save()
-    client.post(reverse("hackathon_manage_room_add", args=[slug]), {"name": "R9", "building": "C Block"})
-    assert Room.objects.filter(event=event, name="R9").exists()
+    client.post(reverse("hackathon_manage_room_add", args=[slug]), {"name": "r901", "capacity": 4})
+    assert Room.objects.filter(event=event, name="R901", floor="9", capacity=4).exists()
     client.post(reverse("hackathon_manage_team_edit", args=[slug, team.pk]), {"name": "Alpha 2", "room": "", "project_title": "", "project_description": "", "mentor": "", "mentor_name": ""})
     team.refresh_from_db()
     assert team.name == "Alpha 2"

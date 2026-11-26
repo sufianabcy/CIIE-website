@@ -27,7 +27,7 @@
       <div class="table-responsive"><table class="table table-sm align-middle mb-0">
         <thead><tr><th>Room</th><th>Faculty</th><th>Teams</th><th class="text-end">Used / max</th></tr></thead>
         <tbody>{% for room, groups, used in plan.rooms %}<tr>
-          <td><strong>{{ room.name }}</strong><div class="caption-2 text-secondary">Block {{ room.block|default:"?" }}, floor {{ room.floor|default:"?" }}</div></td>
+          <td><strong>{{ room.name }}</strong></td>
           <td>{% for g in groups %}{% for f in g.faculty %}{{ f }}{% if not forloop.last %}, {% endif %}{% endfor %}{% if not forloop.last and g.faculty %}<br>{% endif %}{% empty %}—{% endfor %}</td>
           <td>{% for g in groups %}{% for t in g.teams %}{{ t.name }}{% if not forloop.last %}, {% endif %}{% endfor %}{% if not forloop.last %}; {% endif %}{% empty %}—{% endfor %}</td>
           <td class="text-end num">{{ used }} / {{ room.capacity }}</td>

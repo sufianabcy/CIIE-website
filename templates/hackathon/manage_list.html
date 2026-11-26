@@ -9,9 +9,13 @@
     <h1 class="heading-3">{{ title }}</h1>
     {% if intro %}<p>{{ intro }}</p>{% endif %}
   </div>
-  {% if add_url %}<a class="btn btn-primary" href="{{ add_url }}">{% include "ui/icon.html" with name="plus" %}{{ add_label }}</a>{% endif %}
+  <div class="d-flex flex-wrap gap-2">
+    {% if import_url %}<a class="btn btn-quiet" href="{{ import_url }}">{% include "ui/icon.html" with name="download" %}Import from Excel</a>{% endif %}
+    {% if add_url %}<a class="btn btn-primary" href="{{ add_url }}">{% include "ui/icon.html" with name="plus" %}{{ add_label }}</a>{% endif %}
+  </div>
 </header>
 {% include "hackathon/_manage_nav.html" %}
+{% if filters %}<div class="d-flex gap-2 mb-3">{% for label, url, on in filters %}<a class="btn btn-sm {% if on %}btn-ink{% else %}btn-quiet{% endif %}" href="{{ url }}">{{ label }}</a>{% endfor %}</div>{% endif %}
 {% if rows %}
 <div class="panel"><div class="table-responsive"><table class="table table-sm align-middle mb-0">
   <thead><tr>{% for h in headers %}<th>{{ h }}</th>{% endfor %}<th></th></tr></thead>

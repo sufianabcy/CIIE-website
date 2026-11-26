@@ -20,7 +20,7 @@
         <dl class="detail-list mb-0">
           {% if team.project_title %}<div><dt>Project</dt><dd>{{ team.project_title }}</dd></div>{% endif %}
           {% if team.project_description %}<div><dt>Description</dt><dd style="white-space:pre-wrap">{{ team.project_description }}</dd></div>{% endif %}
-          <div><dt>Room</dt><dd>{% if team.room %}{{ team.room.name }}{% if team.room.building %} · {{ team.room.building }}{% endif %}{% else %}Not allocated yet{% endif %}</dd></div>
+          <div><dt>Room</dt><dd>{% if team.room %}{{ team.room.name }}{% else %}Not allocated yet{% endif %}</dd></div>
           {% if team.mentor_display %}<div><dt>Mentor</dt><dd>{{ team.mentor_display }}</dd></div>{% endif %}
           <div><dt>Members</dt><dd>{% for p in members %}{{ p.display_name }}{% if p.pk == person.pk %} (you){% endif %}{% if not forloop.last %}<br>{% endif %}{% endfor %}</dd></div>
         </dl>
