@@ -11,6 +11,7 @@ urlpatterns = [
     path("e/<slug:slug>/", views.event_detail, name="event_detail"),
     path("manage/", views.manage, name="manage"),
     path("manage/<slug:slug>/report/", views.report, name="event_report"),
+    path("manage/<slug:slug>/registration/", views.toggle_registration, name="event_toggle_registration"),
 ]
 
 from . import exports  # noqa: E402

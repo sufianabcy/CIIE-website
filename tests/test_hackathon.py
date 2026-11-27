@@ -559,7 +559,8 @@ def test_student_page_shows_own_team_and_nothing_of_other_teams(client, setup):
     page = client.get(reverse("my_hackathon", args=[event.slug]))
     assert page.status_code == 200
     body = page.content
-    assert b"Alpha project" in body and b"Alpha student" in body and b"R1" in body and b"Prof. Outside" in body
+    assert b"Alpha project" in body and b"Alpha student" in body and b"R1" in body
+    assert b"Prof. Outside" not in body  # the mentor isn't shown to students
     assert b"Round 1" in body and b"Round 2" in body
     for other in (b"Beta", b"Gamma", b"Gamma secret plan", b"Beta student"):
         assert other not in body
@@ -582,7 +583,7 @@ def test_student_page_needs_your_own_confirmed_hackathon_registration(client, se
     assert client.get(reverse("my_hackathon", args=[hack.slug])).status_code == 404
 
 
-def test_jury_shows_only_when_switched_on_and_only_for_own_team(client, setup):
+def test_students_never_see_their_jury_or_any_faculty_name(client, setup):
     event = setup["event"]
     r1, r2 = setup["rooms"]
     a, b, c = setup["faculty"]
@@ -595,7 +596,7 @@ def test_jury_shows_only_when_switched_on_and_only_for_own_team(client, setup):
     event.show_jury_to_students = True
     event.save()
     body = client.get(url).content
-    assert b"Your jury:</strong> Dr. A" in body and b"Dr. B" not in body
+    assert b"Your jury" not in body and b"Dr. A" not in body and b"Dr. B" not in body
 
 
 def test_marks_show_only_after_publishing_and_only_own_submitted_marks(client, setup, admin_user):

@@ -9,6 +9,9 @@ from django.urls import reverse
 from django.utils import timezone
 
 
+CLOSED_TO_REGISTRATION = "Participants are added by the organisers."
+
+
 class EventQuerySet(models.QuerySet):
     def public(self):
         return self.filter(status=Event.Status.PUBLISHED, is_practice=False)
@@ -73,6 +76,10 @@ class Event(models.Model):
     )
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
     kind = models.CharField(max_length=20, choices=Kind.choices, default=Kind.NORMAL)
+    registration_enabled = models.BooleanField(
+        "open for registration", default=True,
+        help_text="Off: nobody can register on the site; organisers add participants (Excel, Add person, the hackathon page).",
+    )
     team_size_min = models.PositiveSmallIntegerField(
         "smallest team", default=1, help_text="Hackathons: fewest members a team may register with (1 allows solo entries)."
     )
@@ -161,6 +168,8 @@ class Event(models.Model):
         now = timezone.now()
         if self.status == self.Status.CANCELLED:
             return False, "This event was cancelled."
+        if not self.registration_enabled:
+            return False, CLOSED_TO_REGISTRATION
         if self.status != self.Status.PUBLISHED:
             return False, "Registration has not opened yet."
         if not site.registration_open:

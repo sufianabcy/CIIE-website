@@ -147,3 +147,21 @@ def cancel_view(request, code):
         except RegistrationError as exc:
             messages.error(request, str(exc))
     return redirect("my_registrations")
+
+
+def my_events_for(person):
+    """(upcoming, past) confirmed registrations, however the person was added (registered, imported, added by hand)."""
+    now = timezone.now()
+    registrations = (
+        Registration.objects.filter(person=person, status=Registration.Status.CONFIRMED)
+        .select_related("event").order_by("event__starts_at")
+    )
+    upcoming = [r for r in registrations if r.event.ends_at >= now]
+    past = [r for r in registrations if r.event.ends_at < now][::-1]
+    return upcoming, past
+
+
+@login_required
+def my_events(request):
+    upcoming, past = my_events_for(request.user)
+    return render(request, "registrations/my_events.html", {"upcoming": upcoming, "past": past})

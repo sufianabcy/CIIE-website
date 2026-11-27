@@ -165,7 +165,7 @@ def test_students_see_submitted_or_pending_but_no_numbers_until_released(client,
     a.submitted_at = timezone.now()
     a.save()
     page = client.get(url).content.decode()
-    assert "Marks submitted" in page and "8.75" not in page
+    assert "Marking done" in page and "8.75" not in page
     round1.release_marks_at = timezone.now() + timedelta(hours=1)
     round1.save()
     assert "8.75" not in client.get(url).content.decode()

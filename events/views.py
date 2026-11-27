@@ -1,9 +1,11 @@
 import segno
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Q
 from django.http import Http404
-from django.shortcuts import get_object_or_404, render
+from django.shortcuts import get_object_or_404, redirect, render
+from django.views.decorators.http import require_POST
 from django.urls import reverse
 
 from checkin.models import CheckIn
@@ -44,7 +46,12 @@ def event_list(request):
     events = events.completed() if tab == "completed" else events.upcoming()
     if query:
         events = events.filter(Q(title__icontains=query) | Q(summary__icontains=query) | Q(venue__icontains=query))
-    return render(request, "events/list.html", {"events": events[:60], "tab": tab, "q": query})
+    mine = []
+    if request.user.is_authenticated:
+        from registrations.views import my_events_for
+
+        mine = my_events_for(request.user)[0][:4]
+    return render(request, "events/list.html", {"events": events[:60], "tab": tab, "q": query, "my_events": mine})
 
 
 def event_detail(request, slug):
@@ -142,3 +149,20 @@ def report(request, slug):
         "events/report.html",
         {"event": event, "numbers": numbers, "missing": missing},
     )
+
+
+@login_required
+@require_POST
+def toggle_registration(request, slug):
+    """One-click "Open for registration" switch, for admins and the event's coordinators and supervisors."""
+    from hackathon.access import oversees
+
+    event = get_object_or_404(Event, slug=slug)
+    if not (event.coordinated_by(request.user) or (event.is_hackathon and oversees(request.user, event))):
+        raise PermissionDenied
+    event.registration_enabled = request.POST.get("open") == "1"
+    event.save(update_fields=["registration_enabled"])
+    messages.success(request, "Registration is open on the site." if event.registration_enabled
+                     else "Registration is closed: participants are added by the organisers.")
+    target = request.POST.get("next", "")
+    return redirect(target if target.startswith("/") and not target.startswith("//") else "manage")

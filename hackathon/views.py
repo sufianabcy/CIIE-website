@@ -520,6 +520,11 @@ def team_marks(team, round_):
     return {"rows": rows, "total": (sum(totals, Decimal("0")) / len(totals)).quantize(Decimal("0.01")), "judges": len(submitted)}
 
 
+# What a student sees about their own hackathon. Mentor and jury are hidden; set these to True to show them again.
+SHOW_MENTOR_TO_STUDENTS = False
+SHOW_JURY_TO_STUDENTS = False
+
+
 @never_cache
 @login_required
 def my_hackathon(request, slug):
@@ -538,7 +543,7 @@ def my_hackathon(request, slug):
     rounds = []
     for round_ in Round.objects.filter(event=event).prefetch_related("criteria"):
         jury = []
-        if team and event.show_jury_to_students:
+        if team and SHOW_JURY_TO_STUDENTS and event.show_jury_to_students:
             jury = [
                 a.faculty.person.display_name
                 for a in Assignment.objects.filter(round=round_, team=team).select_related("faculty__person").order_by("faculty__person__full_name")
@@ -556,7 +561,7 @@ def my_hackathon(request, slug):
     return render(
         request, "hackathon/my_hackathon.html",
         {"event": event, "registration": registration, "person": request.user, "team": team, "members": members, "rounds": rounds,
-         "extra_details": extra_details},
+         "extra_details": extra_details, "show_mentor": SHOW_MENTOR_TO_STUDENTS},
     )
 
 

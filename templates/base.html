@@ -57,7 +57,7 @@
         <li><a href="{% url 'home' %}#how">How it works</a></li>
         <li><a href="{% url 'home' %}#faq">FAQ</a></li>
         {% if user.is_authenticated %}
-          <li><a href="{% url 'my_registrations' %}" {% if page == 'my_registrations' or page == 'pass' %}aria-current="page"{% endif %}>My passes</a></li>
+          <li><a href="{% url 'my_events' %}" {% if page == 'my_events' or page == 'my_registrations' or page == 'pass' or page == 'my_hackathon' %}aria-current="page"{% endif %}>My events</a></li>
           {% if user.is_faculty or user.is_supervisor %}
             <li><a href="{% url 'staff_home' %}" {% if page == 'staff_home' or page == 'hackathon_judge_event' or page == 'hackathon_mark' %}aria-current="page"{% endif %}>Judging</a></li>
           {% elif user.volunteer_roles.exists %}
@@ -81,7 +81,7 @@
             </button>
             <ul class="dropdown-menu dropdown-menu-end mt-2">
               <li><h2 class="dropdown-header">{{ user.full_name|default:"Signed in" }}<br>{{ user.email }}</h2></li>
-              <li><a class="dropdown-item" href="{% url 'my_registrations' %}">{% include "ui/icon.html" with name="ticket" %}My passes</a></li>
+              <li><a class="dropdown-item" href="{% url 'my_events' %}">{% include "ui/icon.html" with name="ticket" %}My events</a></li>
               <li><a class="dropdown-item" href="{% url 'profile' %}">{% include "ui/icon.html" with name="user" %}Profile</a></li>
               {% if user.has_usable_password or user.is_faculty or user.is_supervisor %}<li><a class="dropdown-item" href="{% url 'password_change' %}">{% include "ui/icon.html" with name="shield" %}{% if user.has_usable_password %}Change{% else %}Set a{% endif %} password</a></li>{% endif %}
               {% if user.is_staff %}<li><a class="dropdown-item" href="{% url 'admin:index' %}">{% include "ui/icon.html" with name="gear" %}Admin</a></li>{% endif %}
@@ -109,7 +109,7 @@
       <li style="--i:2"><a href="{% url 'home' %}#how">How it works {% include "ui/icon.html" with name="arrow-right" %}</a></li>
       <li style="--i:3"><a href="{% url 'home' %}#faq">FAQ {% include "ui/icon.html" with name="arrow-right" %}</a></li>
       {% if user.is_authenticated %}
-        <li style="--i:4"><a href="{% url 'my_registrations' %}" {% if page == 'my_registrations' %}aria-current="page"{% endif %}>My passes {% include "ui/icon.html" with name="arrow-right" %}</a></li>
+        <li style="--i:4"><a href="{% url 'my_events' %}" {% if page == 'my_events' %}aria-current="page"{% endif %}>My events {% include "ui/icon.html" with name="arrow-right" %}</a></li>
         {% if user.is_faculty or user.is_supervisor %}<li style="--i:5"><a href="{% url 'staff_home' %}">Judging {% include "ui/icon.html" with name="arrow-right" %}</a></li>{% elif user.volunteer_roles.exists %}<li style="--i:5"><a href="{% url 'staff_home' %}">Volunteering {% include "ui/icon.html" with name="arrow-right" %}</a></li>{% endif %}
         {% if user.is_coordinator or user.is_supervisor or user.door_events.exists %}<li style="--i:5"><a href="{% url 'manage' %}" {% if page == 'manage' %}aria-current="page"{% endif %}>Run events {% include "ui/icon.html" with name="arrow-right" %}</a></li>{% endif %}
       {% endif %}
@@ -166,7 +166,7 @@
           <h2>Your account</h2>
           <ul>
             {% if user.is_authenticated %}
-              <li><a href="{% url 'my_registrations' %}">My passes</a></li>
+              <li><a href="{% url 'my_events' %}">My events</a></li>
               <li><a href="{% url 'profile' %}">Profile</a></li>
             {% else %}
               <li><a href="{% url 'signin' %}">Sign in</a></li>

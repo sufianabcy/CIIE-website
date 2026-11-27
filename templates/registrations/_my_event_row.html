@@ -1,0 +1,5 @@
+<li><a class="reg-row mark-row" href="{% if r.event.is_hackathon %}{% url 'my_hackathon' r.event.slug %}{% else %}{{ r.get_pass_url }}{% endif %}">
+  <span><span class="r-title">{{ r.event.title }}</span> <span class="tag{% if r.event.is_hackathon %} tag-amber{% endif %}">{{ r.event.is_hackathon|yesno:"Hackathon,Event" }}</span><br>
+    <span class="caption-2 text-secondary">{{ r.event.starts_at|date:"D j M Y, g:i A" }}{% if not r.event.is_hackathon and r.event.venue %} · {{ r.event.venue }}{% endif %}</span></span>
+  {% include "ui/icon.html" with name="arrow-right" %}
+</a></li>

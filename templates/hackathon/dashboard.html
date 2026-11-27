@@ -16,6 +16,12 @@
 </header>
 {% include "hackathon/_manage_nav.html" %}
 
+<form method="post" action="{% url 'event_toggle_registration' event.slug %}" class="d-flex flex-wrap align-items-center gap-2 mb-3">{% csrf_token %}
+  <input type="hidden" name="next" value="{{ request.path }}"><input type="hidden" name="open" value="{{ event.registration_enabled|yesno:'0,1' }}">
+  <span class="tag {% if event.registration_enabled %}tag-green{% endif %}">{% if event.registration_enabled %}Open for registration on the site{% else %}Not open for registration: participants are added by the organisers{% endif %}</span>
+  <button class="btn btn-quiet btn-sm" type="submit">{{ event.registration_enabled|yesno:"Close registration,Open registration" }}</button>
+</form>
+
 <div class="stat-grid mb-4">
   <div class="stat-card"><div class="stat-value">{{ students }}</div><div class="stat-label">students</div></div>
   <div class="stat-card"><div class="stat-value">{{ teams|length }}</div><div class="stat-label">teams in {{ rooms|length }} room{{ rooms|length|pluralize }}</div></div>

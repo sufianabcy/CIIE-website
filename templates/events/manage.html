@@ -53,6 +53,7 @@
         <div class="run-k">Set up and after</div>
         <div class="link-row">
           <a href="{% url 'admin:events_event_change' e.pk %}">{% include "ui/icon.html" with name="gear" %}Setup</a>
+          <form method="post" action="{% url 'event_toggle_registration' e.slug %}" class="d-inline">{% csrf_token %}<input type="hidden" name="open" value="{{ e.registration_enabled|yesno:'0,1' }}"><button class="btn btn-link btn-sm p-0" type="submit">{{ e.registration_enabled|yesno:"Close registration,Open registration" }}</button></form>
           {% if e.is_hackathon %}<a href="{% url 'hackathon_dashboard' e.slug %}">{% include "ui/icon.html" with name="gavel" %}Hackathon</a>{% endif %}
           {% if user.is_portal_admin %}<a href="{% url 'hackathon_invites' e.slug %}">{% include "ui/icon.html" with name="mail" %}Sign-in invites</a>{% endif %}
           <a href="{% url 'admin:results_result_changelist' %}?event__id__exact={{ e.pk }}">{% include "ui/icon.html" with name="trophy" %}Results</a>

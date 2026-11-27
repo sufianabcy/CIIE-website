@@ -21,11 +21,11 @@
           {% if team.project_title %}<div><dt>Project</dt><dd>{{ team.project_title }}</dd></div>{% endif %}
           {% if team.project_description %}<div><dt>Description</dt><dd style="white-space:pre-wrap">{{ team.project_description }}</dd></div>{% endif %}
           <div><dt>Room</dt><dd>{% if team.room %}{{ team.room.name }}{% else %}Not allocated yet{% endif %}</dd></div>
-          {% if team.mentor_display %}<div><dt>Mentor</dt><dd>{{ team.mentor_display }}</dd></div>{% endif %}
+          {% if show_mentor and team.mentor_display %}<div><dt>Mentor</dt><dd>{{ team.mentor_display }}</dd></div>{% endif %}
           <div><dt>Members</dt><dd>{% for p in members %}{{ p.display_name }}{% if p.pk == person.pk %} (you){% endif %}{% if not forloop.last %}<br>{% endif %}{% endfor %}</dd></div>
         </dl>
         {% else %}
-        <p class="text-secondary mb-0">The organisers haven't put you in a team yet. Your team, room and mentor show up here once they do.</p>
+        <p class="text-secondary mb-0">The organisers haven't put you in a team yet. Your team and room show up here once they do.</p>
         {% endif %}
       </section>
     </div>
@@ -63,7 +63,7 @@
     {% elif r.released %}
       <p class="caption-2 text-secondary mb-0">Results are out, but your team has no submitted marks for this round.</p>
     {% else %}
-      {% if r.status %}<p class="mb-1"><span class="tag {% if r.status == 'submitted' %}tag-green{% else %}tag-amber{% endif %}" data-testid="marks-status">{% if r.status == 'submitted' %}Marks submitted{% else %}Pending{% endif %}</span></p>{% endif %}
+      {% if r.status %}<p class="mb-1"><span class="tag {% if r.status == 'submitted' %}tag-green{% else %}tag-amber{% endif %}" data-testid="marks-status">{% if r.status == 'submitted' %}Marking done{% else %}Pending{% endif %}</span></p>{% endif %}
       <p class="caption-2 text-secondary mb-0">Your marks appear here {% if r.round.release_marks_at %}from {{ r.round.release_marks_at|date:"D j M, g:i A" }}{% else %}when the organisers release them{% endif %}.</p>
     {% endif %}
   </section>

@@ -39,7 +39,7 @@ class EventAdmin(admin.ModelAdmin):
     change_list_template = "admin/events/event/change_list.html"
     # The first screen when creating an event: just enough to save it. Everything else comes after.
     add_fieldsets = [
-        (None, {"fields": ["title", "kind", "status"]}),
+        (None, {"fields": ["title", "kind", "status", "registration_enabled"]}),
         ("When and where", {"fields": [("starts_at", "ends_at"), "venue"]}),
     ]
     HELP = {
@@ -55,7 +55,7 @@ class EventAdmin(admin.ModelAdmin):
     inlines = [QuestionInline]
 
     fieldsets = [
-        ("Basics", {"fields": ["title", "slug", "kind", "status", "summary", "description", "venue"]}),
+        ("Basics", {"fields": ["title", "slug", "kind", "status", "registration_enabled", "summary", "description", "venue"]}),
         ("Dates", {"fields": [("starts_at", "ends_at"), ("registration_opens_at", "registration_closes_at")]}),
         (
             "Hackathon",

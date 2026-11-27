@@ -47,6 +47,10 @@ def register(
     created_by=None,
 ) -> tuple[Registration, bool]:
     """Register a person. Returns (registration, created). Safe to call twice."""
+    from events.models import CLOSED_TO_REGISTRATION
+
+    if source == Registration.Source.ONLINE and not event.registration_enabled:
+        raise RegistrationError(CLOSED_TO_REGISTRATION)
     answers = answers or {}
     takes_seat = source in Registration.SEAT_SOURCES
     for _attempt in range(3):
