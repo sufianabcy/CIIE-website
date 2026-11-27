@@ -136,6 +136,8 @@ class ImportReport:
     problems: list[str] = field(default_factory=list)  # rows (or parts) skipped
     warnings: list[str] = field(default_factory=list)  # done, but someone should look
     added: list[int] = field(default_factory=list)  # registrations new to the event (for the "you've been added" email)
+    removed: list[str] = field(default_factory=list)  # "Replace the old list": who or what was removed
+    kept: list[str] = field(default_factory=list)  # ... and what was kept, with why
 
     def summary(self, noun: str) -> str:
         text = f"{self.created} {noun} added, {self.updated} updated."
@@ -841,6 +843,56 @@ def allocate_room(round_, faculty, room) -> tuple[int, list[str]]:
         made += 1
     if not room.teams.exists():
         notes.append(f"{room.name} has no teams yet. Allocate again after adding them.")
+    return made, notes
+
+
+@transaction.atomic
+def allocate_teams(round_, faculty_list, teams) -> tuple[int, list[str]]:
+    """Website allocation of a jury panel: every chosen faculty member judges every chosen team in this round.
+
+    The teams must all be in one room (one faculty member judges one room per round). Teams a faculty member mentors,
+    belongs to or takes attendance for are skipped for them, with a note. All or nothing when a rule is broken.
+    """
+    from .models import volunteer_conflict
+    from .rubric import eligible_team_ids
+
+    faculty_list, teams = list(faculty_list), list(teams)
+    if not faculty_list or not teams:
+        raise AllocationError("Tick at least one faculty member and at least one team.")
+    if any(x.event_id != round_.event_id for x in [*faculty_list, *teams]):
+        raise AllocationError("The round, faculty and teams must belong to the same event.")
+    rooms = {t.room_id for t in teams}
+    if len(rooms) > 1:
+        names = ", ".join(sorted({t.room.name if t.room else "no room" for t in teams}))
+        raise AllocationError(f"Pick teams from one room: one faculty member judges one room per round. You picked teams in {names}.")
+    room_id = rooms.pop()
+    for faculty in faculty_list:
+        elsewhere = Assignment.objects.filter(round=round_, faculty=faculty).exclude(
+            Q(team__room__isnull=True) if room_id is None else Q(team__room_id=room_id)).select_related("team__room").first()
+        if elsewhere:
+            where = elsewhere.team.room.name if elsewhere.team.room else "a team with no room"
+            raise AllocationError(f"{faculty} already judges in {where} in {round_}. One faculty member judges one room per round; "
+                                  "remove that allocation first, or pick teams in that room.")
+    ids = eligible_team_ids(round_)
+    made, notes = 0, []
+    for team in teams:
+        if ids is not None and team.pk not in ids:
+            notes.append(f"Skipped {team.name}: it did not advance to {round_.name}.")
+            continue
+        for faculty in faculty_list:
+            if team.mentor_id == faculty.person_id:
+                notes.append(f"Skipped {team.name} for {faculty}: they mentor it.")
+                continue
+            why = member_conflict(faculty.person_id, team) or volunteer_conflict(faculty.person_id, team)
+            if why:
+                notes.append(f"Skipped {team.name} for {faculty}: {why}")
+                continue
+            if Assignment.objects.filter(round=round_, faculty=faculty, team=team).exists():
+                continue
+            assignment = Assignment(round=round_, faculty=faculty, team=team, source=Assignment.Source.WEBSITE)
+            assignment.full_clean()
+            assignment.save()
+            made += 1
     return made, notes
 
 

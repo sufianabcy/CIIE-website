@@ -76,16 +76,20 @@ def _style(form):
 
 
 def _list(request, event, section, title, headers, rows, add_url=None, intro="", add_label="Add", import_kind=None, filters=None,
-          extra_url=None, extra_label="", second_add_url=None, second_add_label=""):
+          extra_url=None, extra_label="", second_add_url=None, second_add_label="", bulk=None, **extra):
+    """rows: (cells, edit url, delete url, send button, id for the ticked-rows actions). bulk: {"url", "actions":
+    [(value, label, confirm text with N for the count)], "teams" or "rooms" for the actions that need one}."""
     rows = [{"cells": r[0], "edit": r[1] if len(r) > 1 else None, "delete": r[2] if len(r) > 2 else None,
-             "send": r[3] if len(r) > 3 else None} for r in rows]
+             "send": r[3] if len(r) > 3 else None, "id": r[4] if len(r) > 4 else None} for r in rows]
+    if bulk is not None and not bulk.get("actions"):
+        bulk = None
     import_url = None
     if import_kind and allowed(request.user, event, "can_import"):
         import_url = reverse("hackathon_import_start", args=[event.slug]) + f"?kind={import_kind}"
     return render(request, "hackathon/manage_list.html", _ctx(
         request, event, section, title=title, headers=headers, rows=rows, add_url=add_url, intro=intro, add_label=add_label,
         import_url=import_url, filters=filters or [], extra_url=extra_url, extra_label=extra_label,
-        second_add_url=second_add_url, second_add_label=second_add_label,
+        second_add_url=second_add_url, second_add_label=second_add_label, bulk=bulk, **extra,
     ))
 
 
@@ -129,6 +133,7 @@ def students(request, slug):
             _url(event, "student_edit", r.pk) if can_edit else None,
             None,
             _send_button(request, event, "students", p, states.get(p.pk)) if can_send else None,
+            r.pk,
         ))
     return _list(request, event, "students", "Students",
                  ["Name", "Email", "KL ID", "Team", "Room"] + [d.label for d in defs] + (["Login details"] if can_send else []), rows,
@@ -136,7 +141,12 @@ def students(request, slug):
                  filters=[("All students", "?", not no_team), ("Not in a team", "?no_team=1", no_team)],
                  intro="Each student's team is shown here; change it on the student's page.",
                  extra_url=reverse("hackathon_login_details", args=[event.slug, "students"]) if can_send else None,
-                 extra_label="Email login details")
+                 extra_label="Email login details",
+                 bulk={"url": _url(event, "students_bulk"), "teams": _teams_by_number(event) if can_edit else None, "rooms": None,
+                       "actions": ([("team", "Put in a team", ""),
+                                    ("remove", "Remove from this hackathon", "Remove the N ticked students from this hackathon?")]
+                                   if can_edit else [])
+                                  + ([("email", "Email login details", "Email new login details to the N ticked students?")] if can_send else [])})
 
 
 class TeamChoiceForm(forms.Form):
@@ -280,6 +290,9 @@ def teams(request, slug):
         request, event, "teams", title="Teams", rows=rows, can_edit=can_edit, low=low, high=high,
         free=list(services.not_in_a_team(event)), teams_for_choice=[(r["team"], r["size"]) for r in rows],
         locked_reason=services.teams_locked_reason(event),
+        bulk={"url": _url(event, "teams_bulk"), "teams": None, "rooms": list(Room.objects.filter(event=event)),
+              "actions": [("room", "Move to a room", ""),
+                          ("delete", "Delete", "Delete the N ticked teams? Their students go to Not in a team.")]} if can_edit else None,
         add_url=_url(event, "team_add") if can_edit else None,
         import_url=(reverse("hackathon_import_start", args=[event.slug]) + "?kind=teams") if allowed(request.user, event, "can_import") else None,
     ))
@@ -519,12 +532,17 @@ def faculty(request, slug):
             _url(event, "faculty_edit", f.pk) if can_edit else None,
             None,
             _send_button(request, event, "faculty", p, states.get(p.pk)) if p.pk in sendable else None,
+            f.pk,
         ))
     return _list(request, event, "faculty", "Faculty",
                  ["Name", "Email", "Employee ID", "Department", "Teams to judge"] + [d.label for d in defs] + (["Login details"] if can_send else []),
                  rows, add_url=_url(event, "faculty_add") if can_edit else None, add_label="Add a faculty member", import_kind="faculty",
                  extra_url=reverse("hackathon_login_details", args=[event.slug, "faculty"]) if can_send else None,
-                 extra_label="Email login details")
+                 extra_label="Email login details",
+                 bulk={"url": _url(event, "faculty_bulk"), "teams": None, "rooms": None,
+                       "actions": ([("remove", "Remove from this hackathon", "Remove the N ticked faculty? Anyone with allocations is switched off instead.")]
+                                   if can_edit else [])
+                                  + ([("email", "Email login details", "Email new login details to the N ticked faculty?")] if can_send else [])})
 
 
 # --- Login details by email (temporary passwords) -------------------------------------------------
@@ -1087,8 +1105,54 @@ def allocations(request, slug):
         for a in Assignment.objects.filter(round__event=event).select_related("round", "team__room", "faculty__person")
         .annotate(n=Count("scores")).order_by("round__position", "team__room__name", "faculty__person__full_name", "team__name")
     ]
+    extra = {}
+    if can_edit:
+        from .models import team_number_order
+
+        by_room = {}
+        for team in sorted(Team.objects.filter(event=event).select_related("room"), key=team_number_order):
+            by_room.setdefault(team.room, []).append(team)
+        extra = {"top_template": "hackathon/_allocate_teams.html", "alloc_rounds": list(Round.objects.filter(event=event)),
+                 "alloc_faculty": list(EventFaculty.objects.filter(event=event, is_active=True).select_related("person")),
+                 "alloc_rooms": sorted(by_room.items(), key=lambda kv: (kv[0] is None, kv[0].name if kv[0] else ""))}
     return _list(request, event, "allocations", "Allocations", ["Round", "Room", "Faculty", "Team", "How", "Marks"], rows,
-                 intro="Allocate whole rooms on the hackathon page. Remove single allocations here.")
+                 intro="Pick a jury panel and their teams below, or allocate whole rooms on the hackathon page. Remove single allocations here.",
+                 **extra)
+
+
+@login_required
+@require_POST
+def allocate_teams(request, slug):
+    """A jury panel: every ticked faculty member judges every ticked team (all in one room) in the chosen round."""
+    event = overseen_event(request, slug)
+    require(request.user, event, "can_edit_allocations")
+    round_ = Round.objects.filter(event=event, pk=request.POST.get("round")).first() if request.POST.get("round", "").isdigit() else None
+    faculty_ids = [int(x) for x in request.POST.getlist("faculty") if x.isdigit()]
+    team_ids = [int(x) for x in request.POST.getlist("teams") if x.isdigit()]
+    faculty_list = list(EventFaculty.objects.filter(event=event, is_active=True, pk__in=faculty_ids).select_related("person"))
+    teams = list(Team.objects.filter(event=event, pk__in=team_ids).select_related("room"))
+    every_round = request.POST.get("rounds") == "all"
+    if round_ is None and not every_round:
+        messages.error(request, "Choose a round.")
+        return redirect("hackathon_manage_allocations", slug)
+    rounds = list(Round.objects.filter(event=event)) if every_round else [round_]
+    made, notes = 0, []
+    try:
+        with transaction.atomic():  # every round or none
+            for r in rounds:
+                n, round_notes = services.allocate_teams(r, faculty_list, teams)
+                made += n
+                notes += [f"{r}: {note}" for note in round_notes] if every_round else round_notes
+    except (services.AllocationError, ValidationError) as exc:
+        text = " ".join(exc.messages) if isinstance(exc, ValidationError) else str(exc)
+        messages.error(request, (f"Nothing was allocated. {text}" if every_round else text))
+        return redirect("hackathon_manage_allocations", slug)
+    where = "every round (the same jury and room)" if every_round else str(round_)
+    messages.success(request, f"{made} allocation{'s' if made != 1 else ''} made in {where}: "
+                              f"{len(faculty_list)} faculty × {len(teams)} team{'s' if len(teams) != 1 else ''}.")
+    for note in notes:
+        messages.warning(request, note)
+    return redirect("hackathon_manage_allocations", slug)
 
 
 @login_required
@@ -1405,3 +1469,121 @@ def rubric_import(request, slug):
         ctx.update(spec=spec, plan=rubric_file.plan(event, spec),
                    content=raw.decode("utf-8-sig") if isinstance(raw, bytes) else raw)
     return render(request, "hackathon/rubric_import.html", _ctx(request, event, "rounds", **ctx))
+
+
+# --- Ticked rows on the Students, Teams and Faculty lists ---------------------------------------------
+
+
+def _teams_by_number(event):
+    from .models import team_number_order
+
+    return sorted(Team.objects.filter(event=event), key=team_number_order)
+
+
+def _ticked(request, queryset):
+    ids = [int(x) for x in request.POST.getlist("ids") if x.isdigit()]
+    return list(queryset.filter(pk__in=ids))
+
+
+def _email_logins(request, event, who, people):
+    """Send login details to ticked people this user may send to; the rest are counted, never sent."""
+    if not can_send_logins(request.user, event, who):
+        raise PermissionDenied
+    sendable = {p.pk for p in login_people(request.user, event, who)[0]}
+    role = {"faculty": "faculty", "students": "student"}[who]
+    sent = sum(send_login_details(p, event=event, role=role) for p in people if p.pk in sendable)
+    not_sent = len(people) - sent
+    if sent:
+        messages.success(request, f"Login details emailed to {sent}. Each has a new temporary password, valid for a week.")
+    if not_sent:
+        messages.info(request, f"{not_sent} not sent: no email, sent a moment ago, or not someone you can reset.")
+
+
+@login_required
+@require_POST
+def students_bulk(request, slug):
+    from . import bulk
+
+    event = overseen_event(request, slug)
+    regs = _ticked(request, _student_regs(event))
+    action = request.POST.get("do")
+    if not regs:
+        messages.error(request, "Tick at least one student.")
+    elif action == "email":
+        _email_logins(request, event, "students", [r.person for r in regs])
+    elif action == "remove":
+        require(request.user, event, "can_edit_teams")
+        removed, notes = bulk.remove_students(event, regs, request.user)
+        messages.success(request, f"{removed} student{'s' if removed != 1 else ''} removed from this hackathon.")
+        for note in notes:
+            messages.warning(request, note)
+    elif action == "team":
+        require(request.user, event, "can_edit_teams")
+        team = Team.objects.filter(event=event, pk=request.POST.get("team")).first() if request.POST.get("team", "").isdigit() else None
+        try:
+            team, notes = bulk.put_in_team(event, regs, team=team, new_name=request.POST.get("new_name", ""))
+        except services.TeamError as exc:
+            messages.error(request, str(exc))
+        else:
+            messages.success(request, f"{len(regs)} student{'s' if len(regs) != 1 else ''} now in {team.name}.")
+            for note in notes:
+                messages.warning(request, note)
+    else:
+        raise Http404
+    return redirect("hackathon_manage_students", slug)
+
+
+@login_required
+@require_POST
+def teams_bulk(request, slug):
+    from . import bulk
+
+    event = overseen_event(request, slug)
+    require(request.user, event, "can_edit_teams")
+    teams = _ticked(request, Team.objects.filter(event=event))
+    action = request.POST.get("do")
+    if not teams:
+        messages.error(request, "Tick at least one team.")
+    elif action == "delete":
+        deleted, kept = bulk.delete_teams(teams)
+        messages.success(request, f"{deleted} team{'s' if deleted != 1 else ''} deleted. Their students are under Not in a team.")
+        for note in kept:
+            messages.warning(request, note)
+    elif action == "room":
+        room = Room.objects.filter(event=event, pk=request.POST.get("room")).first() if request.POST.get("room", "").isdigit() else None
+        if room is None:
+            messages.error(request, "Choose a room.")
+        else:
+            problems = bulk.move_teams_problems(teams, room)
+            if problems:
+                for p in problems:
+                    messages.error(request, p)
+            else:
+                moved = bulk.move_teams(teams, room)
+                messages.success(request, f"{moved} team{'s' if moved != 1 else ''} moved to {room.name}.")
+    else:
+        raise Http404
+    return redirect("hackathon_manage_teams", slug)
+
+
+@login_required
+@require_POST
+def faculty_bulk(request, slug):
+    from . import bulk
+
+    event = overseen_event(request, slug)
+    roles = _ticked(request, EventFaculty.objects.filter(event=event).select_related("person"))
+    action = request.POST.get("do")
+    if not roles:
+        messages.error(request, "Tick at least one faculty member.")
+    elif action == "email":
+        _email_logins(request, event, "faculty", [r.person for r in roles if r.is_active])
+    elif action == "remove":
+        require(request.user, event, "can_add_faculty")
+        removed, off = bulk.remove_faculty(roles)
+        messages.success(request, f"{removed} removed from this hackathon's faculty.")
+        if off:
+            messages.warning(request, f"{off} {'has' if off == 1 else 'have'} allocations, so they were switched off instead of removed.")
+    else:
+        raise Http404
+    return redirect("hackathon_manage_faculty", slug)

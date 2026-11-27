@@ -1,0 +1,23 @@
+<form id="bulk-form" method="post" action="{{ bulk.url }}" class="panel mb-3 d-flex flex-wrap align-items-end gap-2" data-testid="bulk-bar"
+      onsubmit="var d=this.elements['do'], o=d.options[d.selectedIndex], n=document.querySelectorAll('input[name=ids][form=bulk-form]:checked').length; if(!n){alert('Tick at least one row first.');return false;} return !o.dataset.confirm || confirm(o.dataset.confirm.replace('N', n));">{% csrf_token %}
+  <div><label class="form-label" for="bulk-do">With the ticked rows</label>
+    <select id="bulk-do" name="do" class="form-select" style="min-width:14rem">{% for value, label, confirm in bulk.actions %}<option value="{{ value }}"{% if confirm %} data-confirm="{{ confirm }}"{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+  {% if bulk.teams is not None %}
+  <div><label class="form-label" for="bulk-team">Team (for "Put in a team")</label>
+    <select id="bulk-team" name="team" class="form-select" style="min-width:12rem"><option value="">Choose a team</option>{% for t in bulk.teams %}<option value="{{ t.pk }}">{% if t.number %}{{ t.number }}. {% endif %}{{ t.name }}</option>{% endfor %}</select></div>
+  <div><label class="form-label" for="bulk-new-team">or a new team name</label><input id="bulk-new-team" name="new_name" class="form-control" maxlength="150"></div>
+  {% endif %}
+  {% if bulk.rooms is not None %}
+  <div><label class="form-label" for="bulk-room">Room (for "Move to a room")</label>
+    <select id="bulk-room" name="room" class="form-select" style="min-width:10rem"><option value="">Choose a room</option>{% for r in bulk.rooms %}<option value="{{ r.pk }}">{{ r.name }}{% if r.capacity %} (max {{ r.capacity }}){% endif %}</option>{% endfor %}</select></div>
+  {% endif %}
+  <button class="btn btn-primary" type="submit">Do it</button>
+  <span class="caption-2 text-secondary pb-2">Tick rows in the list below, or tick the box in the header for all.</span>
+</form>
+<script>
+  document.addEventListener("change", function (e) {
+    if (e.target.matches("[data-bulk-all]")) {
+      document.querySelectorAll("input[name=ids][form=bulk-form]").forEach(function (box) { box.checked = e.target.checked; });
+    }
+  });
+</script>

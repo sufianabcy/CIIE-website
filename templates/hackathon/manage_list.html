@@ -17,11 +17,14 @@
   </div>
 </header>
 {% include "hackathon/_manage_nav.html" %}
+{% if top_template %}{% include top_template %}{% endif %}
 {% if filters %}<div class="d-flex gap-2 mb-3">{% for label, url, on in filters %}<a class="btn btn-sm {% if on %}btn-ink{% else %}btn-quiet{% endif %}" href="{{ url }}">{{ label }}</a>{% endfor %}</div>{% endif %}
 {% if rows %}
+{% if bulk %}{% include "hackathon/_bulk_bar.html" %}{% endif %}
 <div class="panel"><div class="table-responsive"><table class="table table-sm align-middle mb-0">
-  <thead><tr>{% for h in headers %}<th>{{ h }}</th>{% endfor %}<th></th></tr></thead>
+  <thead><tr>{% if bulk %}<th><input type="checkbox" class="form-check-input" aria-label="Tick all" data-bulk-all></th>{% endif %}{% for h in headers %}<th>{{ h }}</th>{% endfor %}<th></th></tr></thead>
   <tbody>{% for row in rows %}<tr>
+    {% if bulk %}<td>{% if row.id %}<input type="checkbox" class="form-check-input" name="ids" value="{{ row.id }}" form="bulk-form" aria-label="Tick {{ row.cells.0 }}">{% endif %}</td>{% endif %}
     {% for c in row.cells %}<td>{{ c }}</td>{% endfor %}
     <td class="text-end text-nowrap">
       {% if row.send %}<form method="post" action="{{ row.send.url }}" class="d-inline"{% if row.send.confirm %} onsubmit="return confirm('{{ row.send.confirm|escapejs }}');"{% endif %}>{% csrf_token %}<input type="hidden" name="person" value="{{ row.send.person }}"><button class="btn btn-quiet btn-sm" type="submit">{% include "ui/icon.html" with name="mail" %}{{ row.send.label }}</button></form>{% endif %}

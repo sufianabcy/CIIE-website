@@ -416,7 +416,31 @@ def _columns(mapping):
     return {i: key for key, i in mapping.items() if i is not None}
 
 
-def _run(event, kind, content_or_rows, mapping, only_rows, user, options=None):
+def replacing(kind, options) -> bool:
+    from .bulk import REPLACE_KINDS
+
+    return kind in REPLACE_KINDS and bool((options or {}).get("replace"))
+
+
+def _run(event, kind, content_or_rows, mapping, only_rows, user, options=None, keys=None):
+    """The import, and with "Replace the old list" the removal of old rows: teams before the import (the sheet makes
+    them again), students and faculty after it (those not in the sheet)."""
+    from . import bulk
+
+    if not replacing(kind, options) or keys is None:
+        return _import(event, kind, content_or_rows, mapping, only_rows, user, options)
+    if kind == "teams":
+        plan = bulk.apply_replace(event, kind, keys, by=user)
+        report = _import(event, kind, content_or_rows, mapping, only_rows, user, options)
+    else:
+        report = _import(event, kind, content_or_rows, mapping, only_rows, user, options)
+        plan = bulk.apply_replace(event, kind, keys, by=user)
+    report.removed = [bulk._label(r) for r in plan.remove]
+    report.kept = [f"{bulk._label(r)}: {why}" for r, why in plan.keep]
+    return report
+
+
+def _import(event, kind, content_or_rows, mapping, only_rows, user, options=None):
     upload = content_or_rows
     columns = _columns(mapping)
     if kind == "students":
@@ -439,13 +463,16 @@ def _run(event, kind, content_or_rows, mapping, only_rows, user, options=None):
 
 def _dry_run(event, kind, mapping, rows, headers, skip, options=None):
     """Run the import inside a transaction that is always rolled back, to collect its row problems."""
+    from .bulk import sheet_keys
+
+    keys = sheet_keys(kind, headers, rows, mapping) if replacing(kind, options) else None
     buffer = normalized(headers, rows)
     only = {line for line in range(2, len(rows) + 2) if line not in skip}
     result = services.ImportReport()
     try:
         with transaction.atomic():
             buffer.seek(0)
-            result = _run(event, kind, buffer, mapping, only, None, options)
+            result = _run(event, kind, buffer, mapping, only, None, options, keys)
             raise _Rollback
     except _Rollback:
         pass
@@ -455,7 +482,10 @@ def _dry_run(event, kind, mapping, rows, headers, skip, options=None):
 def run_import(upload, mapping, only_rows, user):
     headers, rows, _ = read_item(upload)
     headers, rows, mapping = with_constants(headers, rows, mapping, upload.constants)
-    return _run(upload.event, upload.kind, normalized(headers, rows), mapping, only_rows, user, upload.options)
+    from .bulk import sheet_keys
+
+    keys = sheet_keys(upload.kind, headers, rows, mapping) if replacing(upload.kind, upload.options) else None
+    return _run(upload.event, upload.kind, normalized(headers, rows), mapping, only_rows, user, upload.options, keys)
 
 
 def remember(event, kind, headers, mapping):

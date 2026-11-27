@@ -1,0 +1,30 @@
+<section class="panel mb-4" aria-labelledby="panel-title" data-testid="allocate-teams">
+  <h2 class="panel-title" id="panel-title">{% include "ui/icon.html" with name="gavel" %}Allocate a jury panel to teams</h2>
+  <p class="caption-2 text-secondary">Tick one or more faculty and the teams they should judge. Every ticked faculty member judges every ticked team. In each round a faculty member judges teams in one room only, so tick teams from one room.</p>
+  {% if alloc_rounds and alloc_faculty and alloc_rooms %}
+  <form method="post" action="{% url 'hackathon_allocate_teams' event.slug %}">{% csrf_token %}
+    <fieldset class="mb-3"><legend class="form-label">Rounds</legend>
+      <label class="d-flex gap-2 align-items-center"><input class="form-check-input" type="radio" name="rounds" value="all" checked> Every round: the same jury judges these teams in the same room in all rounds</label>
+      <label class="d-flex gap-2 align-items-center mt-1"><input class="form-check-input" type="radio" name="rounds" value="one"> Only this round (a different jury in other rounds):
+        <select name="round" class="form-select form-select-sm" style="max-width:16rem" aria-label="Round">{% for r in alloc_rounds %}<option value="{{ r.pk }}">{{ r.name }}</option>{% endfor %}</select></label>
+    </fieldset>
+    <div class="row g-4">
+      <div class="col-md-5">
+        <h3 class="heading-6">Faculty</h3>
+        {% for f in alloc_faculty %}<label class="d-flex gap-2 align-items-center caption-2"><input type="checkbox" class="form-check-input" name="faculty" value="{{ f.pk }}"> {{ f.person.display_name }}{% if f.person.employee_id %} ({{ f.person.employee_id }}){% endif %}</label>{% endfor %}
+      </div>
+      <div class="col-md-7">
+        <h3 class="heading-6">Teams</h3>
+        {% for room, teams in alloc_rooms %}
+        <fieldset class="mb-2"><legend class="caption-2 fw-semibold mb-1">{% if room %}{{ room.name }}{% else %}No room yet{% endif %}</legend>
+          {% for t in teams %}<label class="d-flex gap-2 align-items-center caption-2"><input type="checkbox" class="form-check-input" name="teams" value="{{ t.pk }}"> {% if t.number %}{{ t.number }}. {% endif %}{{ t.name }}</label>{% endfor %}
+        </fieldset>
+        {% endfor %}
+      </div>
+    </div>
+    <button class="btn btn-primary mt-3" type="submit">{% include "ui/icon.html" with name="plus" %}Allocate</button>
+  </form>
+  {% else %}
+  <p class="text-secondary mb-0">Add rounds, faculty and teams first.</p>
+  {% endif %}
+</section>

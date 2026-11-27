@@ -248,6 +248,14 @@ def import_step(request, slug, pk):
     if request.method == "POST" and item.kind == "students" and request.POST.get("team_mode") in services.TEAM_MODES:
         item.options = {**item.options, "team_mode": request.POST["team_mode"]}
         item.save(update_fields=["options"])
+    from . import bulk
+
+    can_replace = item.kind in bulk.REPLACE_KINDS and allowed(request.user, event, bulk.replace_permission(item.kind))
+    if request.method == "POST" and request.POST.get("old_list") in ("add", "replace"):
+        item.options = {**item.options, "replace": can_replace and request.POST["old_list"] == "replace"}
+        item.save(update_fields=["options"])
+    if item.options.get("replace") and not can_replace:
+        raise PermissionDenied
     c_headers, c_rows, c_mapping = imports.with_constants(headers, rows, mapping, item.constants)
     mode = imports.team_mode(c_mapping, item.options) if item.kind == "students" else ""
     no_team = imports.no_team_rows(c_headers, c_rows, c_mapping, numbers, mode) if item.kind == "students" else []
@@ -262,7 +270,12 @@ def import_step(request, slug, pk):
     errors, warnings = imports.sheet_checks(c_headers, c_rows, c_mapping, targets_, item.kind, item.options.get("team_mode", ""))
     warnings += teams_preview.get("warnings", [])
     errors = twice + errors
-    problems, step, new_people = None, 2, 0
+    problems, step, new_people, replace_plan = None, 2, 0, None
+    if action in ("check", "import") and not errors and imports.replacing(item.kind, item.options):
+        replace_plan = bulk.replace_plan(event, item.kind, bulk.sheet_keys(item.kind, c_headers, c_rows, c_mapping))
+    if action == "import" and replace_plan and replace_plan.remove and request.POST.get("confirm_replace") != "1":
+        messages.error(request, "Tick the box to confirm removing the old rows that aren't in this sheet.")
+        action = "check"
     if action in ("check", "import") and not errors:
         found, new_people = imports.row_checks(event, item.kind, c_headers, c_rows, c_mapping, targets_, want_new=True,
                                                options=item.options)
@@ -284,8 +297,12 @@ def import_step(request, slug, pk):
                 line = message.split(":")[0].split(",")[0].replace("Row ", "")
                 if line.isdigit():
                     skipped.setdefault(line, []).append(message)
-            item.result = {"summary": report.summary(noun), "added": report.created, "updated": report.updated, "emailed": emailed,
-                           "skipped": skipped, "warnings": imports.real_rows(report.warnings, numbers)}
+            summary = report.summary(noun)
+            if report.removed:
+                summary += f" {len(report.removed)} removed (not in the new sheet)."
+            item.result = {"summary": summary, "added": report.created, "updated": report.updated, "emailed": emailed,
+                           "skipped": skipped, "warnings": imports.real_rows(report.warnings, numbers),
+                           "removed": report.removed, "kept": report.kept}
             item.imported_at = timezone.now()
             item.save(update_fields=["result", "imported_at"])
             imports.remember(event, item.kind, headers, {k: v for k, v in mapping.items() if v is not None and v < len(headers)})
@@ -299,7 +316,9 @@ def import_step(request, slug, pk):
         "valid_count": len(rows) - len(problems or {}), "row_count": len(rows), "can_fields": can_fields, "new_people": new_people,
         "can_define_fields": allowed(request.user, event, "can_manage_fields"),
         "no_team": no_team, "leaving": leaving, "team_mode": mode, "team_modes": services.TEAM_MODES.items(),
-        "team_summary": teams_preview.get("summary", ""),
+        "team_summary": teams_preview.get("summary", ""), "can_replace": can_replace, "replacing": imports.replacing(item.kind, item.options),
+        "replace_remove": [bulk._label(r) for r in replace_plan.remove] if replace_plan else [],
+        "replace_keep": [(bulk._label(r), why) for r, why in replace_plan.keep] if replace_plan else [],
     })
 
 

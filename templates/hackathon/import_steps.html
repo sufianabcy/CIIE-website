@@ -17,6 +17,8 @@
     <p class="mb-2">{{ result.added }} added, {{ result.updated }} updated, {{ result.skipped|length }} row{{ result.skipped|length|pluralize }} skipped.{% if result.emailed %} {{ result.emailed }} {{ result.emailed|pluralize:"person,people" }} emailed that they've been added.{% endif %}</p>
     {% if result.skipped %}<a class="btn btn-quiet btn-sm" href="{% url 'hackathon_import_skipped' event.slug item.pk %}">{% include "ui/icon.html" with name="download" %}Skipped rows and why (Excel)</a>{% endif %}
   </section>
+  {% if result.removed %}<section class="panel mb-4" data-testid="removed"><h2 class="panel-title">{% include "ui/icon.html" with name="minus" %}Removed: not in the new sheet ({{ result.removed|length }})</h2><p class="caption-2 mb-0">{{ result.removed|join:" · " }}</p></section>{% endif %}
+  {% if result.kept %}<section class="panel mb-4"><h2 class="panel-title">{% include "ui/icon.html" with name="info" %}Not in the new sheet, but kept ({{ result.kept|length }})</h2><ul class="mb-0">{% for k in result.kept %}<li>{{ k }}</li>{% endfor %}</ul></section>{% endif %}
   {% if result.warnings %}<section class="panel mb-4"><h2 class="panel-title">{% include "ui/icon.html" with name="warning" %}Done, but check</h2><ul class="mb-0">{% for w in result.warnings %}<li>{{ w }}</li>{% endfor %}</ul></section>{% endif %}
   {% if result.skipped %}<section class="panel mb-4"><h2 class="panel-title">{% include "ui/icon.html" with name="x-circle" %}Skipped</h2><ul class="mb-0">{% for line, reasons in result.skipped.items %}{% for r in reasons %}<li class="text-danger">{{ r }}</li>{% endfor %}{% endfor %}</ul></section>{% endif %}
   <a class="btn btn-primary" href="{% url 'hackathon_dashboard' event.slug %}">Back to the hackathon page</a>
@@ -63,6 +65,17 @@
       {% endfor %}
     </section>
 
+    {% if can_replace %}
+    <section class="panel mb-4" aria-labelledby="old-list">
+      <h2 class="panel-title" id="old-list">The list you have now</h2>
+      <div class="d-flex flex-column gap-1">
+        <label class="d-flex gap-2 align-items-center"><input class="form-check-input" type="radio" name="old_list" value="add"{% if not replacing %} checked{% endif %}> Add to it: new rows are added, rows already here are updated</label>
+        <label class="d-flex gap-2 align-items-center"><input class="form-check-input" type="radio" name="old_list" value="replace"{% if replacing %} checked{% endif %}> Replace it: {% if item.kind == "teams" %}delete the current teams and make them again from this sheet{% else %}remove {% if item.kind == "faculty" %}faculty{% else %}students{% endif %} who are not in this sheet{% endif %}</label>
+      </div>
+      <p class="caption-2 text-secondary mt-2 mb-0">Anything with allocations, marks or attendance is never removed; it's kept and listed. You'll see who would be removed before anything is saved.</p>
+    </section>
+    {% endif %}
+
     {% if item.kind == "students" %}
     <section class="panel mb-4" aria-labelledby="team-mode">
       <h2 class="panel-title" id="team-mode">Form teams by:</h2>
@@ -82,6 +95,15 @@
       <h2 class="panel-title">{% if problems %}{% include "ui/icon.html" with name="warning" %}{{ problems|length }} of {{ row_count }} rows have problems{% else %}{% include "ui/icon.html" with name="check-circle" %}All {{ row_count }} rows look right{% endif %}</h2>
       {% if problems %}<ul class="mb-0">{% for line, msgs in problems %}{% for m in msgs %}<li class="text-danger">{{ m }}</li>{% endfor %}{% endfor %}</ul>{% endif %}
       <p class="caption-2 text-secondary mt-2 mb-0">Nothing has been saved yet.</p>
+      {% if replacing %}
+      <div class="alert alert-warning mt-3 mb-0" data-testid="replace-plan">
+        {% if replace_remove %}<strong>Replace: {{ replace_remove|length }} {% if item.kind == "teams" %}current team{{ replace_remove|length|pluralize }} will be deleted (their students go to Not in a team){% else %}{% if item.kind == "faculty" %}faculty member{{ replace_remove|length|pluralize }}{% else %}student{{ replace_remove|length|pluralize }}{% endif %} not in this sheet will be removed from this hackathon{% endif %}:</strong>
+        <span class="caption-2">{{ replace_remove|slice:":20"|join:" · " }}{% if replace_remove|length > 20 %} and {{ replace_remove|length|add:"-20" }} more{% endif %}</span>
+        <label class="d-flex gap-2 align-items-center mt-2"><input type="checkbox" name="confirm_replace" value="1" class="form-check-input"> Yes, remove {{ replace_remove|pluralize:"it,them" }}</label>
+        {% else %}Replace: nothing to remove; everyone here is in this sheet.{% endif %}
+        {% if replace_keep %}<div class="mt-2"><strong>Kept anyway:</strong><ul class="mb-0">{% for name, why in replace_keep %}<li>{{ name }}: {{ why }}</li>{% endfor %}</ul></div>{% endif %}
+      </div>
+      {% endif %}
       {% if new_people %}<label class="d-flex gap-2 align-items-center mt-3"><input type="checkbox" name="email_new" value="1" checked class="form-check-input"> Email the {{ new_people }} {{ new_people|pluralize:"person,people" }} new to this event that they've been added</label>{% endif %}
     </section>
     {% endif %}
