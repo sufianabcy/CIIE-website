@@ -8,7 +8,7 @@
 </table>
 <p><a href="{{ signin_url }}" style="display:inline-block; background:#0b5ed7; color:#fff; padding:10px 18px; border-radius:6px; text-decoration:none">Sign in</a></p>
 <p>When you sign in you'll choose your own password straight away. The temporary one works until {{ expires_at|date:"j M Y, g:i A" }}.</p>
-{% if role == "faculty" %}<p>Once signed in, the <a href="{{ home_url }}">Judging page</a> lists the teams allocated to you.</p>{% elif event and event.is_hackathon %}<p>Once signed in you can see <a href="{{ home_url }}">your team, room, round timings</a> and, once released, your marks.</p>{% endif %}
+{% if role == "faculty" %}<p>Once signed in, the <a href="{{ home_url }}">Judging page</a> lists the teams allocated to you.</p>{% elif role == "helper" %}<p>Once signed in, your menu shows <a href="{{ home_url }}">Supervising or Volunteering</a> for this hackathon.</p>{% elif event and event.is_hackathon %}<p>Once signed in you can see <a href="{{ home_url }}">your team, room, round timings</a> and, once released, your marks.</p>{% endif %}
 <p style="color:#57606a">Forgot your password later, or this one expired? Use <a href="{{ reset_url }}">Forgot password</a> on the sign-in page and we'll email you a code to set a new one.</p>
 <p>{{ club_name }}<br><span style="color:#57606a">Questions: {{ contact_email }}</span></p>
 </body></html>

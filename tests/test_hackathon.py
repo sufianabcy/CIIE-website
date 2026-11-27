@@ -502,7 +502,7 @@ def test_portal_pages_load_and_the_admin_has_no_hackathon_models(client, setup, 
     services.allocate_room(setup["rounds"][0], setup["faculty"][0], setup["rooms"][0])
     supervisor = services.add_supervisor(event, Person.objects.create_user(email="sup@example.com", full_name="Sup"))[0].person
     slug = event.slug
-    lists = ["students", "teams", "rooms", "faculty", "supervisors", "rounds", "allocations", "fields"]
+    lists = ["students", "teams", "rooms", "faculty", "helpers", "rounds", "allocations", "fields"]
     edits = [
         ("hackathon_manage_team_edit", setup["teams"]["Alpha"].pk), ("hackathon_manage_room_edit", setup["rooms"][0].pk),
         ("hackathon_manage_round_edit", setup["rounds"][0].pk), ("hackathon_manage_faculty_edit", setup["faculty"][0].pk),

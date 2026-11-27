@@ -37,6 +37,26 @@ PERMISSIONS = {
 }
 DEFAULTS = {name: default for name, (_, _, default) in PERMISSIONS.items()}
 
+# How the switches are grouped on the supervisor form (every switch is in exactly one group; a test checks).
+PERMISSION_GROUPS = [
+    ("Teams", ["can_edit_teams"]),
+    ("Rooms and allocation", ["can_edit_allocations"]),
+    ("Rounds and rubric", ["can_edit_rounds", "can_publish"]),
+    ("Marks", ["can_view_marks", "can_change_marks", "can_reopen_marks", "can_download"]),
+    ("People", ["can_add_faculty", "can_approve_requests", "can_make_logins", "can_email_participants", "can_import", "can_manage_fields"]),
+    ("Day of the event", ["can_take_attendance", "can_view_floors"]),
+]
+
+# Presets fill the switches in; an admin can still change single switches afterwards. Switches not listed are off.
+# Every supervisor can look at the hackathon's teams and rooms; the presets add what they may change.
+PRESETS = {
+    "floor": ("Floor supervisor", "Attendance and floor lists; they can look at teams but not change them.",
+              ["can_take_attendance", "can_view_floors"]),
+    "marks": ("Marks supervisor", "View and change marks (with a reason), reopen marksheets, download Excel.",
+              ["can_view_marks", "can_change_marks", "can_reopen_marks", "can_download"]),
+    "full": ("Full helper", "Everything except publishing results.", [name for name in PERMISSIONS if name != "can_publish"]),
+}
+
 # Volunteers: on-the-day help. There is deliberately no switch for marks: volunteers never see them.
 VOLUNTEER_PERMISSIONS = {
     "can_team_attendance": ("Team attendance", "Mark teams (and their members) present or absent in each round.", True),

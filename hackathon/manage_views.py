@@ -26,7 +26,7 @@ from registrations.services import RegistrationError, cancel, register
 
 from . import fields as detail_fields
 from . import services
-from .access import PERMISSIONS, allowed, is_admin, overseen_event, permissions_for, require
+from .access import PERMISSION_GROUPS, PERMISSIONS, PRESETS, allowed, is_admin, overseen_event, permissions_for, require
 from . import rooms as room_tools
 from .access import VOLUNTEER_PERMISSIONS
 from .models import Assignment, Criterion, EventFaculty, FieldDefinition, Room, Round, Supervisor, Team, TeamMember, Volunteer
@@ -50,7 +50,7 @@ def friendly_clash(view):
 
 SECTIONS = [
     ("students", "Students"), ("teams", "Teams"), ("rooms", "Rooms"), ("faculty", "Faculty"),
-    ("supervisors", "Supervisors"), ("volunteers", "Volunteers"), ("rounds", "Rounds and rubric"), ("allocations", "Allocations"), ("fields", "Fields"),
+    ("helpers", "Supervisors & volunteers"), ("rounds", "Rounds and rubric"), ("allocations", "Allocations"), ("fields", "Fields"),
 ]
 
 
@@ -76,7 +76,7 @@ def _style(form):
 
 
 def _list(request, event, section, title, headers, rows, add_url=None, intro="", add_label="Add", import_kind=None, filters=None,
-          extra_url=None, extra_label=""):
+          extra_url=None, extra_label="", second_add_url=None, second_add_label=""):
     rows = [{"cells": r[0], "edit": r[1] if len(r) > 1 else None, "delete": r[2] if len(r) > 2 else None,
              "send": r[3] if len(r) > 3 else None} for r in rows]
     import_url = None
@@ -85,6 +85,7 @@ def _list(request, event, section, title, headers, rows, add_url=None, intro="",
     return render(request, "hackathon/manage_list.html", _ctx(
         request, event, section, title=title, headers=headers, rows=rows, add_url=add_url, intro=intro, add_label=add_label,
         import_url=import_url, filters=filters or [], extra_url=extra_url, extra_label=extra_label,
+        second_add_url=second_add_url, second_add_label=second_add_label,
     ))
 
 
@@ -449,7 +450,7 @@ def can_send_logins(user, event, who) -> bool:
     """Faculty: admins, or supervisors given "Make faculty passwords". Students: admins only."""
     if who == "faculty":
         return allowed(user, event, "can_make_logins")
-    return who == "students" and is_admin(user)
+    return who in ("students", "helpers") and is_admin(user)
 
 
 def login_people(user, event, who):
@@ -457,6 +458,12 @@ def login_people(user, event, who):
     if who == "faculty":
         people = [f.person for f in EventFaculty.objects.filter(event=event, is_active=True).select_related("person")
                   .order_by("person__full_name")]
+    elif who == "helpers":
+        found = {}
+        for model in (Supervisor, Volunteer):
+            for row in model.objects.filter(event=event, is_active=True).select_related("person"):
+                found.setdefault(row.person.pk, row.person)
+        people = sorted(found.values(), key=lambda p: p.display_name.lower())
     else:
         people = [r.person for r in _student_regs(event)]
     allowed_, skipped = [], []
@@ -491,13 +498,13 @@ def _send_button(request, event, who, person, state):
 def login_details(request, slug, who):
     """Email login details: to everyone not sent yet, to everyone, or (from the list) to one person."""
     event = overseen_event(request, slug)
-    if who not in ("faculty", "students"):
+    if who not in ("faculty", "students", "helpers"):
         raise Http404
     if not can_send_logins(request.user, event, who):
         raise PermissionDenied
     people, skipped = login_people(request.user, event, who)
     states = login_states(people)
-    noun = "faculty member(s)" if who == "faculty" else "student(s)"
+    noun = {"faculty": "faculty member(s)", "students": "student(s)", "helpers": "supervisor(s) and volunteer(s)"}[who]
     if request.method == "POST":
         if request.POST.get("person"):
             targets = [p for p in people if str(p.pk) == request.POST["person"]]
@@ -509,7 +516,7 @@ def login_details(request, slug, who):
             targets = [p for p in people if p.email]
         else:
             raise Http404
-        role = "faculty" if who == "faculty" else "student"
+        role = {"faculty": "faculty", "students": "student", "helpers": "helper"}[who]
         sent = sum(send_login_details(p, event=event, role=role) for p in targets)
         if sent:
             messages.success(request, f"Login details emailed to {sent} {noun}. Each has a new temporary password, "
@@ -587,34 +594,66 @@ def faculty_remove(request, slug, pk):
     return redirect("hackathon_manage_faculty", slug)
 
 
-# --- Supervisors (admins only) -----------------------------------------------------------
+# --- Supervisors and volunteers: one tab, one Add form (admins only) --------------------------------------
 
 
-class SupervisorForm(forms.ModelForm):
-    class Meta:
-        model = Supervisor
-        fields = ["kind", "is_active", *PERMISSIONS]
+ROLE_LABELS = {"supervisor": "Supervisor", "volunteer": "Volunteer"}
 
 
-class FindPersonForm(forms.Form):
-    who = forms.CharField(label="Email, employee ID or KL ID of someone on the portal", max_length=254)
-    name = forms.CharField(label="Or, for someone new: their name", max_length=150, required=False)
+class HelperForm(forms.Form):
+    """Who they are. The same person is reused if they're already on the portal (as faculty or a student)."""
+
+    name = forms.CharField(max_length=150)
+    role = forms.ChoiceField(choices=list(ROLE_LABELS.items()), widget=forms.RadioSelect(attrs={"class": "form-check-input"}))
+    employee_id = forms.CharField(label="Employee ID", max_length=50, required=False,
+                                  help_text="For faculty and staff. Someone new with an employee ID is added as Faculty.")
+    student_id = forms.CharField(label="KL ID", max_length=20, required=False,
+                                 help_text="For students. Someone new with a KL ID is added as a Student.")
+    email = forms.EmailField(required=False, help_text="Optional. Needed to email them their login details.")
+    phone = forms.CharField(max_length=20, required=False)
 
     def clean(self):
         cleaned = super().clean()
-        who = (cleaned.get("who") or "").strip()
-        person = (
-            Person.objects.filter(email__iexact=who).first() or Person.objects.filter(kl_email__iexact=who).first()
-            or Person.objects.filter(employee_id__iexact=who).first() or Person.objects.filter(student_id__iexact=who).first()
-        ) if who else None
-        if not person:
-            if "@" in who and cleaned.get("name"):
-                person = Person(email=who, full_name=cleaned["name"], source=Person.Source.IMPORT)
-                person.set_unusable_password()
-            else:
-                raise ValidationError("Nobody matches. To add someone new, give their email and their name.")
-        cleaned["person"] = person
+        has_emp, has_kl = bool((cleaned.get("employee_id") or "").strip()), bool((cleaned.get("student_id") or "").strip())
+        if not (has_emp or has_kl):
+            raise ValidationError("Give their employee ID or their KL ID.")
+        if has_emp and has_kl:
+            raise ValidationError("Give an employee ID or a KL ID, not both.")
         return cleaned
+
+
+class SupervisorSwitchesForm(forms.ModelForm):
+    class Meta:
+        model = Supervisor
+        fields = ["kind", "is_active", *PERMISSIONS]
+        labels = {"kind": "Type", "is_active": "Active at this hackathon"}
+
+    def __init__(self, *args, adding=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        if adding:
+            del self.fields["kind"]  # from the person: an employee ID makes them Faculty, a KL ID a Student
+        for name, (label, help_text, _) in PERMISSIONS.items():
+            self.fields[name].label = label[0].upper() + label[1:]
+            self.fields[name].help_text = help_text
+
+    def groups(self):
+        return [(title, [self[name] for name in names]) for title, names in PERMISSION_GROUPS]
+
+
+class VolunteerSettingsForm(forms.ModelForm):
+    class Meta:
+        model = Volunteer
+        fields = ["is_active", "rooms", *VOLUNTEER_PERMISSIONS]
+        labels = {"is_active": "Active at this hackathon", "rooms": "Rooms they look after"}
+        widgets = {"rooms": forms.CheckboxSelectMultiple(attrs={"class": "form-check-input"})}
+
+    def __init__(self, *args, event, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["rooms"].queryset = Room.objects.filter(event=event).order_by("block", "floor", "name")
+        self.fields["rooms"].help_text = "They see only these rooms: their teams and faculty, and take attendance there."
+        for name, (label, help_text, _) in VOLUNTEER_PERMISSIONS.items():
+            self.fields[name].label = label[0].upper() + label[1:]
+            self.fields[name].help_text = help_text
 
 
 def _admin_only(request):
@@ -622,19 +661,108 @@ def _admin_only(request):
         raise PermissionDenied
 
 
+def _with_preset(request, prefix):
+    """A preset button: the posted form with that preset's switches, to look at before saving (nothing is saved)."""
+    key = request.POST.get("preset")
+    if request.method != "POST" or key not in PRESETS:
+        return None, None
+    data = request.POST.copy()
+    on = set(PRESETS[key][2])
+    for name in PERMISSIONS:
+        field = f"{prefix}-{name}"
+        if name in on:
+            data[field] = "on"
+        else:
+            data.pop(field, None)
+    return data, PRESETS[key][0]
+
+
+@never_cache
+@login_required
+def helpers(request, slug):
+    """Supervisors and volunteers, with a Role column and a filter. Faculty (judges) are on the Faculty tab."""
+    event = overseen_event(request, slug)
+    admin = is_admin(request.user)
+    role = request.GET.get("role", "")
+    supervisors_ = list(Supervisor.objects.filter(event=event).select_related("person"))
+    volunteers_ = list(Volunteer.objects.filter(event=event).select_related("person").prefetch_related("rooms"))
+    people = [s.person for s in supervisors_] + [v.person for v in volunteers_]
+    can_send = admin
+    states = login_states(people) if can_send else {}
+    rows = []
+    for kind, row in [("supervisor", s) for s in supervisors_] + [("volunteer", v) for v in volunteers_]:
+        if role and role != kind:
+            continue
+        p = row.person
+        rooms = ", ".join(r.name for r in row.rooms.all()) if kind == "volunteer" else ""
+        can = ", ".join(row.switch_labels) or ("only look" if kind == "supervisor" else "nothing yet")
+        edit = _url(event, f"{kind}_edit", row.pk) if admin else None
+        rows.append((
+            [p.display_name, ROLE_LABELS[kind], p.employee_id or p.student_id or "—", p.email or "—",
+             rooms or ("—" if kind == "volunteer" else ""), "Yes" if row.is_active else "No", can]
+            + ([_state_cell(states[p.pk])] if can_send else []),
+            edit, None,
+            _send_button(request, event, "helpers", p, states.get(p.pk)) if can_send and p.pk != request.user.pk else None,
+        ))
+    rows.sort(key=lambda r: (r[0][0].lower(), r[0][1]))
+    return _list(request, event, "helpers", "Supervisors & volunteers",
+                 ["Name", "Role", "Employee ID / KL ID", "Email", "Rooms", "Active", "Can"] + (["Login details"] if can_send else []), rows,
+                 add_url=_url(event, "supervisor_add") if admin else None, add_label="Add a supervisor",
+                 extra_url=reverse("hackathon_login_details", args=[event.slug, "helpers"]) if can_send else None,
+                 extra_label="Email login details",
+                 second_add_url=_url(event, "volunteer_add") if admin else None, second_add_label="Add a volunteer",
+                 import_kind="helpers" if admin else None,
+                 filters=[("Everyone", "?", not role), ("Supervisors", "?role=supervisor", role == "supervisor"),
+                          ("Volunteers", "?role=volunteer", role == "volunteer")],
+                 intro="Supervisors oversee this hackathon with the switches an admin gives them. Volunteers look after their rooms "
+                       "on the day: attendance, and whether marks are submitted, never the marks. Only admins add them or change "
+                       "what they can do. Faculty who judge are on the Faculty tab.")
+
+
+@never_cache
+@login_required
+@friendly_clash
+def helper_add(request, slug, role="supervisor"):
+    """Add a supervisor or a volunteer: name, role, an employee ID or KL ID, optional email and phone, then their
+    switches (supervisors) or rooms (volunteers). Someone already on the portal gets the role; no second account."""
+    event = overseen_event(request, slug)
+    _admin_only(request)
+    data, preset = _with_preset(request, "s")
+    posted = data or (request.POST if request.method == "POST" else None)
+    person_form = _style(HelperForm(posted, prefix="p", initial={"role": request.GET.get("role", role)}))
+    sup_form = _style(SupervisorSwitchesForm(posted, prefix="s", adding=True))
+    vol_form = _style(VolunteerSettingsForm(posted, prefix="v", event=event))
+    if preset:
+        messages.info(request, f"Filled in the {preset} switches. Change any of them, then save.")
+    elif request.method == "POST" and person_form.is_valid():
+        d = person_form.cleaned_data
+        settings_form = sup_form if d["role"] == "supervisor" else vol_form
+        if settings_form.is_valid():
+            switches = {n: settings_form.cleaned_data[n] for n in (PERMISSIONS if d["role"] == "supervisor" else VOLUNTEER_PERMISSIONS)}
+            try:
+                with transaction.atomic():
+                    row, created = services.add_helper(
+                        event, d["role"], d["name"], d["employee_id"], d["student_id"], d["email"], d["phone"],
+                        rooms=list(settings_form.cleaned_data["rooms"]) if d["role"] == "volunteer" else None, switches=switches)
+                    row.is_active = settings_form.cleaned_data["is_active"]
+                    row.save(update_fields=["is_active"])
+            except services.HelperError as exc:
+                person_form.add_error(None, str(exc)[0].upper() + str(exc)[1:] + ".")
+            else:
+                how = "added" if created else "already on the portal: the role was added to their account"
+                messages.success(request, f"{row.person.display_name} ({ROLE_LABELS[d['role']]}): {how}.")
+                return redirect(reverse("hackathon_manage_helpers", args=[slug]))
+    return render(request, "hackathon/helper_form.html", _ctx(
+        request, event, "helpers", title="Add a supervisor or volunteer", person_form=person_form, sup_form=sup_form,
+        vol_form=vol_form, presets=[(k, label, help_text) for k, (label, help_text, _) in PRESETS.items()],
+        role=(posted.get("p-role") if posted else None) or request.GET.get("role", role), back=_url(event, "helpers"),
+    ))
+
+
 @never_cache
 @login_required
 def supervisors(request, slug):
-    event = overseen_event(request, slug)
-    admin = is_admin(request.user)
-    rows = [
-        ([s.person.display_name, s.get_kind_display(), "Yes" if s.is_active else "No", ", ".join(s.switch_labels) or "only look"],
-         _url(event, "supervisor_edit", s.pk) if admin else None)
-        for s in Supervisor.objects.filter(event=event).select_related("person")
-    ]
-    return _list(request, event, "supervisors", "Supervisors", ["Name", "Type", "Active", "Can"], rows,
-                 add_url=_url(event, "supervisor_add") if admin else None, add_label="Add a supervisor",
-                 intro="Only admins add supervisors or change what they can do.")
+    return redirect(reverse("hackathon_manage_helpers", args=[slug]) + "?role=supervisor")
 
 
 @never_cache
@@ -643,28 +771,24 @@ def supervisors(request, slug):
 def supervisor_edit(request, slug, pk=None):
     event = overseen_event(request, slug)
     _admin_only(request)
-    row = get_object_or_404(Supervisor, pk=pk, event=event) if pk else None
-    find = None if row else _style(FindPersonForm(request.POST or None, prefix="p"))
-    form = _style(SupervisorForm(request.POST or None, instance=row, prefix="s"))
-    for name, (_, help_text, _) in PERMISSIONS.items():
-        form.fields[name].help_text = help_text
-    if request.method == "POST" and form.is_valid() and (find is None or find.is_valid()):
+    if pk is None:
+        return helper_add(request, slug, role="supervisor")
+    row = get_object_or_404(Supervisor, pk=pk, event=event)
+    data, preset = _with_preset(request, "s")
+    form = _style(SupervisorSwitchesForm(data or request.POST or None, instance=row, prefix="s"))
+    if preset:
+        messages.info(request, f"Filled in the {preset} switches. Change any of them, then save.")
+    elif request.method == "POST" and form.is_valid():
         with transaction.atomic():
-            if row is None:
-                person = find.cleaned_data["person"]
-                if not person.pk:
-                    person.save()
-                row, _ = services.add_supervisor(event, person, form.cleaned_data["kind"])
-            for name in ["kind", "is_active", *PERMISSIONS]:
-                setattr(row, name, form.cleaned_data[name])
-            row.save()
+            row = form.save()
             services.add_supervisor(event, row.person, row.kind)  # keeps the Supervisor (and Faculty) role in step
         messages.success(request, f"Saved {row.person.display_name}.")
-        return redirect("hackathon_manage_supervisors", slug)
-    forms_ = [find, form] if find else [form]
-    return _form(request, event, "supervisors", f"Edit {row.person.display_name}" if row else "Add a supervisor", forms_,
-                 back=_url(event, "supervisors"), delete_url=_url(event, "supervisor_remove", row.pk) if row else None,
-                 delete_label="Remove as supervisor")
+        return redirect("hackathon_manage_helpers", slug)
+    return render(request, "hackathon/helper_form.html", _ctx(
+        request, event, "helpers", title=f"Edit {row.person.display_name} (Supervisor)", sup_form=form, row=row, role="supervisor",
+        presets=[(k, label, help_text) for k, (label, help_text, _) in PRESETS.items()], back=_url(event, "helpers"),
+        delete_url=_url(event, "supervisor_remove", row.pk), delete_label="Remove as supervisor",
+    ))
 
 
 @login_required
@@ -678,7 +802,7 @@ def supervisor_remove(request, slug, pk):
     if not person.supervisor_roles.exists():
         person.groups.remove(*person.groups.filter(name="Supervisor"))
     messages.success(request, f"{person.display_name} is no longer a supervisor here.")
-    return redirect("hackathon_manage_supervisors", slug)
+    return redirect("hackathon_manage_helpers", slug)
 
 
 # --- Rounds and rubric -----------------------------------------------------------------------
@@ -993,29 +1117,13 @@ def field_delete(request, slug, pk):
     return redirect("hackathon_manage_fields", slug)
 
 
-# --- Volunteers (admins only) ----------------------------------------------------------------
-
-
-class VolunteerForm(forms.ModelForm):
-    class Meta:
-        model = Volunteer
-        fields = ["is_active", *VOLUNTEER_PERMISSIONS]
+# --- Volunteers (the tab and Add form are above) -----------------------------------------------------
 
 
 @never_cache
 @login_required
 def volunteers(request, slug):
-    event = overseen_event(request, slug)
-    admin = is_admin(request.user)
-    rows = [
-        ([v.person.display_name, v.person.email or "", v.person.login_id or "", "Yes" if v.is_active else "No", ", ".join(v.switch_labels) or "nothing yet"],
-         _url(event, "volunteer_edit", v.pk) if admin else None)
-        for v in Volunteer.objects.filter(event=event).select_related("person")
-    ]
-    return _list(request, event, "volunteers", "Volunteers", ["Name", "Email", "Login ID", "Active", "Can"], rows,
-                 add_url=_url(event, "volunteer_add") if admin else None, add_label="Add a volunteer",
-                 intro="Volunteers take attendance and see which marks are submitted, never the marks. Only admins add them and choose what they can do. "
-                       "Make their temporary passwords with the logins on the hackathon page.")
+    return redirect(reverse("hackathon_manage_helpers", args=[slug]) + "?role=volunteer")
 
 
 @never_cache
@@ -1024,26 +1132,25 @@ def volunteers(request, slug):
 def volunteer_edit(request, slug, pk=None):
     event = overseen_event(request, slug)
     _admin_only(request)
-    row = get_object_or_404(Volunteer, pk=pk, event=event) if pk else None
-    find = None if row else _style(FindPersonForm(request.POST or None, prefix="p"))
-    form = _style(VolunteerForm(request.POST or None, instance=row, prefix="v"))
-    for name, (_, help_text, _) in VOLUNTEER_PERMISSIONS.items():
-        form.fields[name].help_text = help_text
-    if request.method == "POST" and form.is_valid() and (find is None or find.is_valid()):
-        with transaction.atomic():
-            if row is None:
-                person = find.cleaned_data["person"]
-                if not person.pk:
-                    person.save()
-                row, _ = services.add_volunteer(event, person)
-            for name in ["is_active", *VOLUNTEER_PERMISSIONS]:
-                setattr(row, name, form.cleaned_data[name])
-            row.save()
-        messages.success(request, f"Saved {row.person.display_name}.")
-        return redirect("hackathon_manage_volunteers", slug)
-    return _form(request, event, "volunteers", f"Edit {row.person.display_name}" if row else "Add a volunteer",
-                 [find, form] if find else [form], back=_url(event, "volunteers"),
-                 delete_url=_url(event, "volunteer_remove", row.pk) if row else None, delete_label="Remove as volunteer")
+    if pk is None:
+        return helper_add(request, slug, role="volunteer")
+    row = get_object_or_404(Volunteer, pk=pk, event=event)
+    form = _style(VolunteerSettingsForm(request.POST or None, instance=row, prefix="v", event=event))
+    if request.method == "POST" and form.is_valid():
+        try:
+            with transaction.atomic():
+                saved = form.save(commit=False)
+                saved.save()
+                services.set_volunteer_rooms(saved, list(form.cleaned_data["rooms"]))
+        except services.HelperError as exc:
+            form.add_error("rooms", str(exc))
+        else:
+            messages.success(request, f"Saved {row.person.display_name}.")
+            return redirect("hackathon_manage_helpers", slug)
+    return render(request, "hackathon/helper_form.html", _ctx(
+        request, event, "helpers", title=f"Edit {row.person.display_name} (Volunteer)", vol_form=form, row=row, role="volunteer",
+        back=_url(event, "helpers"), delete_url=_url(event, "volunteer_remove", row.pk), delete_label="Remove as volunteer",
+    ))
 
 
 @login_required
@@ -1057,7 +1164,7 @@ def volunteer_remove(request, slug, pk):
     if not person.volunteer_roles.exists():
         person.groups.remove(*person.groups.filter(name="Volunteer"))
     messages.success(request, f"{person.display_name} is no longer a volunteer here.")
-    return redirect("hackathon_manage_volunteers", slug)
+    return redirect("hackathon_manage_helpers", slug)
 
 
 # --- Rubric settings (per hackathon) ----------------------------------------------------------

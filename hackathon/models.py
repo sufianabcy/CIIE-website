@@ -308,6 +308,16 @@ def room_conflict(round_id, faculty_id, team, exclude_pk=None) -> str:
     return f"In this round they already judge teams in {where}; one faculty member judges one room per round, and {team.name} is in {here}."
 
 
+def volunteer_conflict(person_id, team) -> str:
+    """Why this person can't judge this team: they volunteer (take attendance) in its room. Or ""."""
+    if not team.room_id:
+        return ""
+    if Volunteer.objects.filter(event_id=team.event_id, person_id=person_id, is_active=True, rooms=team.room_id).exists():
+        return (f"They volunteer in {team.room.name}, where they take attendance for {team.name}, "
+                "so they can't judge it. Change their rooms on the Supervisors & volunteers tab first.")
+    return ""
+
+
 @pghistory.track()
 class Assignment(models.Model):
     """This faculty member judges this team in this round."""
@@ -355,6 +365,9 @@ class Assignment(models.Model):
             problem = room_conflict(self.round_id, self.faculty_id, self.team, exclude_pk=self.pk)
             if problem:
                 raise ValidationError(problem)
+        problem = volunteer_conflict(self.faculty.person_id, self.team)
+        if problem:
+            raise ValidationError(problem)
 
     @property
     def is_submitted(self) -> bool:
@@ -553,6 +566,10 @@ class Volunteer(models.Model):
     is_active = models.BooleanField(default=True)
     extra = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    rooms = models.ManyToManyField(
+        "Room", blank=True, related_name="volunteers",
+        help_text="The rooms they look after. They see only these rooms, and take attendance only there.",
+    )
     # Labels and defaults: hackathon.access.VOLUNTEER_PERMISSIONS. Only admins change these. There is no switch for marks.
     can_team_attendance = models.BooleanField("team attendance", default=True, help_text="Mark teams (and their members) present or absent in each round.")
     can_faculty_attendance = models.BooleanField("faculty attendance", default=True, help_text="Mark faculty present or absent in each round.")

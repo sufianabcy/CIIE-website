@@ -4,17 +4,21 @@
 {% block content %}
 {% if is_overseer %}<a class="back-link" href="{% url 'hackathon_dashboard' event.slug %}">{% include "ui/icon.html" with name="arrow-left" %}{{ event.title }}</a>{% endif %}
 <header class="tool-head">
-  <div><span class="eyebrow">{{ event.title }}</span><h1 class="heading-3">By floor</h1>
-  <p>Rooms floor by floor: their faculty, teams{% if can_team_att or can_faculty_att %}, attendance{% endif %}{% if can_progress %} and which marks are submitted (done or pending){% endif %}.</p></div>
+  <div><span class="eyebrow">{{ event.title }}{% if mine %} · Volunteering{% endif %}</span><h1 class="heading-3">{% if mine %}Your rooms{% else %}By floor{% endif %}</h1>
+  <p>{% if mine %}The rooms you look after, round by round: their teams and members, the faculty judging there{% else %}Rooms floor by floor: their faculty, teams{% endif %}{% if can_team_att or can_faculty_att %}, attendance{% endif %}{% if can_progress %} and which marks are submitted (done or pending){% endif %}.{% if mine %} You never see marks or other rooms.{% endif %}</p></div>
 </header>
+{% if not has_rooms %}
+<div class="empty-state" data-testid="no-rooms"><h2 class="heading-5">No rooms assigned to you yet</h2><p>The organisers assign each volunteer their rooms. Check back soon.</p></div>
+{% else %}
 <form method="get" class="d-flex flex-wrap gap-2 mb-4">
-  <select name="floor" class="form-select form-select-lg" style="max-width:12rem" aria-label="Floor" onchange="this.form.submit()"><option value="">All floors</option>{% for f in floor_choices %}<option value="{{ f }}"{% if f == floor %} selected{% endif %}>Floor {{ f }}</option>{% endfor %}</select>
-  <select name="block" class="form-select form-select-lg" style="max-width:12rem" aria-label="Block" onchange="this.form.submit()"><option value="">All blocks</option>{% for b in blocks %}<option value="{{ b }}"{% if b == block %} selected{% endif %}>Block {{ b }}</option>{% endfor %}</select>
+  {% if not mine %}<select name="floor" class="form-select form-select-lg" style="max-width:12rem" aria-label="Floor" onchange="this.form.submit()"><option value="">All floors</option>{% for f in floor_choices %}<option value="{{ f }}"{% if f == floor %} selected{% endif %}>Floor {{ f }}</option>{% endfor %}</select>
+  <select name="block" class="form-select form-select-lg" style="max-width:12rem" aria-label="Block" onchange="this.form.submit()"><option value="">All blocks</option>{% for b in blocks %}<option value="{{ b }}"{% if b == block %} selected{% endif %}>Block {{ b }}</option>{% endfor %}</select>{% endif %}
   <select name="round" class="form-select form-select-lg" style="max-width:16rem" aria-label="Round" onchange="this.form.submit()">{% for r in rounds %}<option value="{{ r.pk }}"{% if r.pk == round.pk %} selected{% endif %}>{{ r.name }}</option>{% endfor %}</select>
   <a class="btn btn-quiet btn-lg" href="?{{ request.GET.urlencode }}&print=1" target="_blank">{% include "ui/icon.html" with name="printer" %}Print</a>
-  <a class="btn btn-quiet btn-lg" href="{% url 'hackathon_floors_export' event.slug %}?{{ request.GET.urlencode }}">{% include "ui/icon.html" with name="download" %}Excel</a>
+  {% if can_floors %}<a class="btn btn-quiet btn-lg" href="{% url 'hackathon_floors_export' event.slug %}?{{ request.GET.urlencode }}">{% include "ui/icon.html" with name="download" %}Excel</a>{% endif %}
   {% if can_team_att or can_faculty_att %}<a class="btn btn-quiet btn-lg" href="{% url 'hackathon_attendance_export' event.slug %}">{% include "ui/icon.html" with name="download" %}Attendance</a>{% endif %}
 </form>
 {% include "hackathon/_floor_rooms.html" %}
 {% if unroomed and not floor and not block %}<section class="panel"><h2 class="panel-title">Teams without a room</h2><p class="mb-0">{% for t in unroomed %}{{ t.name }}{% if not forloop.last %}, {% endif %}{% endfor %}</p></section>{% endif %}
+{% endif %}
 {% endblock %}

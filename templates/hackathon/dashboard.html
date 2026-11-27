@@ -95,15 +95,11 @@
   </form>
   {% endif %}
   {% if is_admin %}
-  <form method="post" action="{% url 'hackathon_upload' event.slug 'supervisors' %}" enctype="multipart/form-data" class="file-row mb-2">{% csrf_token %}
+  <form method="post" action="{% url 'hackathon_upload' event.slug 'helpers' %}" enctype="multipart/form-data" class="file-row mb-2">{% csrf_token %}
     {{ upload_form.file }}
-    <button class="btn btn-quiet" type="submit">Upload supervisors Excel</button>
+    <button class="btn btn-quiet" type="submit">Upload supervisors and volunteers Excel</button>
   </form>
-  <form method="post" action="{% url 'hackathon_upload' event.slug 'volunteers' %}" enctype="multipart/form-data" class="file-row mb-2">{% csrf_token %}
-    {{ upload_form.file }}<button class="btn btn-quiet" type="submit">Upload volunteers Excel</button>
-  </form>
-  <p class="caption-2 text-secondary">Volunteers: Name, Email or KL ID, Phone, and optional Yes/No columns for each of their permissions. <a href="{% url 'hackathon_template' event.slug 'volunteers' %}">Sample file</a>. Or add them on the <a href="{% url 'hackathon_manage_volunteers' event.slug %}">Volunteers</a> page.</p>
-  <p class="caption-2 text-secondary">Supervisors: same columns plus <strong>Type</strong> (Faculty or Student), and optional Yes/No columns named after any permission below (for example <strong>Change marks</strong>). <a href="{% url 'hackathon_template' event.slug 'supervisors' %}">Sample file</a>. To add one by hand, or change what one can do, use <a href="{% url 'hackathon_manage_supervisors' event.slug %}">Supervisors</a>.</p>
+  <p class="caption-2 text-secondary">One row per person: <strong>Name</strong>, <strong>Role</strong> (Supervisor or Volunteer), an <strong>Employee ID</strong> or a <strong>KL ID</strong>, and optional Email, Phone and, for volunteers, <strong>Rooms</strong> (like L502, L503). Yes/No columns named after a permission (for example <strong>Change marks</strong>) set it. People already on the portal get the role on their own account. To add one by hand, or change what one can do, use <a href="{% url 'hackathon_manage_helpers' event.slug %}">Supervisors &amp; volunteers</a>.</p>
   {% endif %}
   {% if faculty or supervisors %}
   <div class="table-responsive"><table class="table table-sm align-middle mb-0">

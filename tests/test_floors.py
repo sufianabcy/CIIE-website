@@ -170,6 +170,7 @@ def judged(hack):
     a.save()
     person = Person.objects.create_user(email="vol@example.com", full_name="Vol Unteer")
     volunteer = services.add_volunteer(event, person)[0]
+    volunteer.rooms.set(Room.objects.filter(event=event))  # volunteers see and mark only their rooms
     return {**hack, "assignment": a, "volunteer": volunteer}
 
 

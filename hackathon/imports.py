@@ -18,7 +18,10 @@ from . import services
 from .fields import clean_value, ensure_fields
 
 KINDS = {"students": "Students (one row per student)", "teams": "Teams (one row per team, with its members)",
-         "faculty": "Faculty", "supervisors": "Supervisors", "volunteers": "Volunteers", "allocations": "Allocations", "rooms": "Rooms"}
+         "faculty": "Faculty (judges)", "helpers": "Supervisors and volunteers (one row per person, with a Role column)",
+         "allocations": "Allocations", "rooms": "Rooms"}
+# Older separate kinds, still accepted by direct links (the Supervisors & volunteers tab uses "helpers").
+OLD_KINDS = {"supervisors": "Supervisors", "volunteers": "Volunteers"}
 # Where "+ New field" adds a custom field, by import type.
 NEW_FIELD_FOR = {"students": "student", "faculty": "faculty"}
 
@@ -81,6 +84,18 @@ def targets(event, kind, user=None) -> list[Target]:
     elif kind == "rooms":
         for key, label in (("name", "Room number (like L502)"), ("capacity", "Max capacity (teams)")):
             out.append(Target(key, label, key == "name", services.ROOM_COLUMNS[key]))
+    elif kind == "helpers":
+        from .access import PERMISSIONS, VOLUNTEER_PERMISSIONS
+
+        for key, label, required in (("name", "Name", True), ("role", "Role (Supervisor or Volunteer)", True),
+                                     ("employee_id", "Employee ID (makes a Faculty person if new)", False),
+                                     ("student_id", "KL ID (makes a Student if new)", False), ("email", "Email", False),
+                                     ("phone", "Phone", False), ("rooms", "Rooms, for volunteers (like L502, L503)", False)):
+            out.append(Target(key, label, required, services.HELPER_COLUMNS[key]))
+        for key, aliases in services._switch_columns().items():
+            out.append(Target(key, f"Supervisor permission: {PERMISSIONS[key][0]} (Yes/No)", False, aliases))
+        for key, aliases in services._volunteer_switch_columns().items():
+            out.append(Target(key, f"Volunteer permission: {VOLUNTEER_PERMISSIONS[key][0]} (Yes/No)", False, aliases))
     elif kind == "volunteers":
         from .access import VOLUNTEER_PERMISSIONS
 
@@ -283,6 +298,8 @@ def sheet_checks(headers, rows, mapping, targets_, kind):
         errors.append("Use at least one column as a member's email or KL ID, so the members can be found or added.")
     if kind == "students" and mapping.get("email") is None and mapping.get("student_id") is None:
         errors.append("Match an Email or a KL ID column, so each student can be matched or created.")
+    if kind == "helpers" and mapping.get("employee_id") is None and mapping.get("student_id") is None:
+        errors.append("Match an Employee ID or a KL ID column: people are matched by employee ID, then KL ID, then email.")
     if kind == "allocations" and all(mapping.get(k) is None for k in ("room", "team", "member")):
         errors.append("Match a Team, a team member or a Room column.")
     chosen = [i for i in mapping.values() if i is not None]
@@ -364,6 +381,8 @@ def _run(event, kind, content_or_rows, mapping, only_rows, user, blank_teams=ser
         return services.import_staff(event, upload, "supervisor", columns=columns, only_rows=only_rows)
     if kind == "volunteers":
         return services.import_staff(event, upload, "volunteer", columns=columns, only_rows=only_rows)
+    if kind == "helpers":
+        return services.import_helpers(event, upload, columns=columns, only_rows=only_rows)
     if kind == "rooms":
         return services.import_rooms(event, upload, columns=columns, only_rows=only_rows)
     if kind == "teams":
