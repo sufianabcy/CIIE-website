@@ -51,9 +51,12 @@ class MoveTeamForm(forms.Form):
 
 
 class MarksForm(forms.Form):
-    def __init__(self, *args, criteria, scores, assignment, **kwargs):
+    def __init__(self, *args, criteria, scores, assignment, extras=None, **kwargs):
+        """extras: {"prompts": [...], "red_flags": [...], "self_score_max": N, "recommendations": [...] (final round),
+        "allow_override": bool}. Without extras the form has just the marks and remarks."""
         super().__init__(*args, **kwargs)
         self.criteria = list(criteria)
+        self.extras = extras or {}
         for c in self.criteria:
             self.fields[f"c_{c.pk}"] = forms.DecimalField(
                 label=c.label, help_text=c.description, required=False, min_value=0, max_value=c.max_marks,
@@ -64,6 +67,45 @@ class MarksForm(forms.Form):
             required=False, max_length=2000, initial=assignment.remarks,
             widget=forms.Textarea(attrs={"class": "form-control", "rows": 3}),
         )
+        x = self.extras
+        self.prompts = list(x.get("prompts") or [])
+        for i, prompt in enumerate(self.prompts):
+            self.fields[f"comment_{i}"] = forms.CharField(
+                label=prompt, required=False, max_length=1000, initial=(assignment.comments or {}).get(prompt, ""),
+                widget=forms.Textarea(attrs={"class": "form-control", "rows": 2}),
+            )
+        if x.get("red_flags"):
+            self.fields["red_flags"] = forms.MultipleChoiceField(
+                label="Red flags", required=False, choices=[(f, f) for f in x["red_flags"]],
+                initial=assignment.red_flags or [], widget=forms.CheckboxSelectMultiple,
+            )
+        if x.get("self_score_max"):
+            self.fields["self_score"] = forms.DecimalField(
+                label=f"Student self-score (out of {x['self_score_max']})", required=False, min_value=0,
+                max_value=x["self_score_max"], decimal_places=2, max_digits=6, initial=assignment.self_score,
+                widget=forms.NumberInput(attrs={"class": "form-control", "style": "max-width:8rem"}),
+            )
+        if x.get("recommendations"):
+            self.fields["recommendation"] = forms.ChoiceField(
+                label="Recommendation", required=False, initial=assignment.recommendation,
+                choices=[("", "—")] + [(r, r) for r in x["recommendations"]], widget=forms.Select(attrs={"class": "form-select"}),
+            )
+        if x.get("allow_override"):
+            self.fields["advance_anyway"] = forms.BooleanField(
+                label="Recommend advancing this team anyway (for example, it pivoted well)", required=False,
+                initial=assignment.advance_anyway,
+            )
+
+    def comment_rows(self):
+        return [self[f"comment_{i}"] for i in range(len(self.prompts))]
+
+    def extra_values(self):
+        d = self.cleaned_data
+        out = {"comments": {p: (d.get(f"comment_{i}") or "").strip() for i, p in enumerate(self.prompts)}}
+        for key in ("red_flags", "self_score", "recommendation", "advance_anyway"):
+            if key in self.fields:
+                out[key] = d.get(key)
+        return out
 
     def rows(self):
         return [(c, self[f"c_{c.pk}"]) for c in self.criteria]

@@ -80,6 +80,7 @@ class Person(AbstractBaseUser, PermissionsMixin):
     branch = models.CharField(max_length=100, blank=True)
     year_of_study = models.CharField("year", max_length=20, blank=True)
 
+    designation = models.CharField(max_length=150, blank=True, help_text="For faculty, e.g. Professor & HoD.")
     employee_id = models.CharField(
         "employee ID", max_length=50, blank=True, help_text="For faculty. Used to match faculty in Excel uploads."
     )

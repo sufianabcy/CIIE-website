@@ -73,14 +73,15 @@ def _style(form):
     return form
 
 
-def _list(request, event, section, title, headers, rows, add_url=None, intro="", add_label="Add", import_kind=None, filters=None):
+def _list(request, event, section, title, headers, rows, add_url=None, intro="", add_label="Add", import_kind=None, filters=None,
+          extra_url=None, extra_label=""):
     rows = [{"cells": r[0], "edit": r[1] if len(r) > 1 else None, "delete": r[2] if len(r) > 2 else None} for r in rows]
     import_url = None
     if import_kind and allowed(request.user, event, "can_import"):
         import_url = reverse("hackathon_import_start", args=[event.slug]) + f"?kind={import_kind}"
     return render(request, "hackathon/manage_list.html", _ctx(
         request, event, section, title=title, headers=headers, rows=rows, add_url=add_url, intro=intro, add_label=add_label,
-        import_url=import_url, filters=filters or [],
+        import_url=import_url, filters=filters or [], extra_url=extra_url, extra_label=extra_label,
     ))
 
 
@@ -573,19 +574,38 @@ def supervisor_remove(request, slug, pk):
 # --- Rounds and rubric -----------------------------------------------------------------------
 
 
+RUBRIC_FIELDS = ["focus", "suggested_questions", "total_marks", "weight", "min_total", "key_criterion", "key_min_band",
+                 "allow_override", "prompts_text"]
+
+
 class RoundForm(forms.ModelForm):
+    prompts_text = forms.CharField(label="Comment prompts (one per line)", required=False, widget=forms.Textarea(attrs={"rows": 2}))
+    key_min_band = forms.ChoiceField(label="Key criterion at least", required=False)
+
     class Meta:
         model = Round
-        fields = ["name", "position", "opens_at", "closes_at", "release_marks_at"]
+        fields = ["name", "position", "opens_at", "closes_at", "release_marks_at", "focus", "suggested_questions",
+                  "total_marks", "weight", "min_total", "key_criterion", "key_min_band", "allow_override"]
         widgets = {
             "opens_at": forms.DateTimeInput(attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M"),
             "closes_at": forms.DateTimeInput(attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M"),
             "release_marks_at": forms.DateTimeInput(attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M"),
+            "focus": forms.Textarea(attrs={"rows": 2}),
+            "suggested_questions": forms.Textarea(attrs={"rows": 3}),
         }
 
     def __init__(self, *args, event, **kwargs):
+        from . import rubric
+
         super().__init__(*args, **kwargs)
         self.instance.event = event
+        self.fields["key_criterion"].queryset = self.instance.criteria.all() if self.instance.pk else Criterion.objects.none()
+        self.fields["key_min_band"].choices = [("", "—")] + [(b["name"], b["name"]) for b in rubric.bands(event)]
+        self.fields["prompts_text"].initial = "\n".join(rubric.prompts(self.instance))
+        self.fields["total_marks"].required = False
+
+    def clean_total_marks(self):
+        return self.cleaned_data.get("total_marks") or 100
 
     def clean(self):
         cleaned = super().clean()
@@ -595,7 +615,17 @@ class RoundForm(forms.ModelForm):
         position = cleaned.get("position")
         if position and Round.objects.filter(event=self.instance.event, position=position).exclude(pk=self.instance.pk).exists():
             self.add_error("position", "Another round already has this number.")
+        if cleaned.get("key_criterion") and not cleaned.get("key_min_band"):
+            self.add_error("key_min_band", "Choose the band the key criterion must reach.")
         return cleaned
+
+    def save(self, commit=True):
+        round_ = super().save(commit=False)
+        if "prompts_text" in self.cleaned_data and not self.fields["prompts_text"].disabled:
+            round_.comment_prompts = [p.strip() for p in self.cleaned_data["prompts_text"].splitlines() if p.strip()]
+        if commit:
+            round_.save()
+        return round_
 
 
 class BaseCriterionFormSet(forms.BaseInlineFormSet):
@@ -614,7 +644,9 @@ class BaseCriterionFormSet(forms.BaseInlineFormSet):
 class CriterionForm(forms.ModelForm):
     class Meta:
         model = Criterion
-        fields = ["position", "label", "description", "max_marks"]
+        fields = ["position", "label", "tag", "max_marks", "strong_text", "weak_text", "description"]
+        widgets = {"strong_text": forms.Textarea(attrs={"rows": 2}), "weak_text": forms.Textarea(attrs={"rows": 2})}
+        labels = {"description": "Guidance"}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -643,37 +675,69 @@ def rounds(request, slug):
         for r in Round.objects.filter(event=event).prefetch_related("criteria")
     ]
     return _list(request, event, "rounds", "Rounds and rubric", ["Round", "Opens", "Closes", "State", "Rubric"], rows,
-                 add_url=_url(event, "round_add") if can_edit else None, add_label="Add a round")
+                 add_url=_url(event, "round_add") if can_edit else None, add_label="Add a round",
+                 intro="Each round's criteria, descriptors and advancement rule are on its page. Bands, red flags, weights and recommendations: "
+                       + ("see Rubric settings." if not allowed(request.user, event, "can_manage_fields") else "use the Rubric settings button."),
+                 extra_url=reverse("hackathon_rubric_settings", args=[event.slug]) if allowed(request.user, event, "can_manage_fields") else None,
+                 extra_label="Rubric settings")
 
 
 @never_cache
 @login_required
 def round_edit(request, slug, pk=None):
+    """A round: its times, and (with the fields switch) its rubric. The rubric locks once marks exist."""
+    from . import rubric
+
     event = overseen_event(request, slug)
     require(request.user, event, "can_edit_rounds")
     round_ = get_object_or_404(Round, pk=pk, event=event) if pk else None
+    if request.method == "POST" and request.POST.get("action") == "unlock" and round_:
+        if not is_admin(request.user):
+            raise PermissionDenied
+        if request.POST.get("confirm") != "1":
+            messages.error(request, "Tick the box to confirm unlocking a rubric that already has marks.")
+        else:
+            round_.rubric_unlocked = True
+            round_.save(update_fields=["rubric_unlocked"])
+            messages.warning(request, f"The rubric for {round_.name} is unlocked. Changing it changes how existing marks read.")
+        return redirect("hackathon_manage_round_edit", slug, pk)
+    can_rubric = allowed(request.user, event, "can_manage_fields")
+    locked = bool(round_ and rubric.is_locked(round_))
     form = _style(RoundForm(request.POST or None, instance=round_, event=event,
                             initial=None if round_ else {"position": (event.rounds.count() + 1)}))
     if not allowed(request.user, event, "can_publish"):
         form.fields["release_marks_at"].disabled = True
         form.fields["release_marks_at"].help_text = "Only people who can publish results set this."
-    formset = CriterionFormSet(request.POST or None, instance=round_ or Round(event=event), prefix="c")
+    if not can_rubric or locked:
+        for name in RUBRIC_FIELDS:
+            form.fields[name].disabled = True
+    formset = CriterionFormSet(request.POST if request.method == "POST" and can_rubric and not locked else None,
+                               instance=round_ or Round(event=event), prefix="c")
     for f in formset.forms:
         _style(f)
-    if request.method == "POST" and form.is_valid() and formset.is_valid():
+        if not can_rubric or locked:
+            for field in f.fields.values():
+                field.disabled = True
+    formset_ok = not (request.method == "POST" and can_rubric and not locked) or formset.is_valid()
+    if request.method == "POST" and form.is_valid() and formset_ok:
         try:
             with transaction.atomic():
                 saved = form.save()
-                formset.instance = saved
-                formset.save()
+                if can_rubric and not locked:
+                    formset.instance = saved
+                    formset.save()
         except IntegrityError:
             form.add_error("position", "Another round already has this number.")
         else:
             messages.success(request, f"Saved {saved.name}.")
+            for problem in (rubric.total_problem(saved), rubric.weights_problem(event)):
+                if problem:
+                    messages.warning(request, problem)
             return redirect("hackathon_manage_rounds", slug)
     return _form(request, event, "rounds", f"Edit {round_.name}" if round_ else "Add a round", [form], back=_url(event, "rounds"),
                  delete_url=_url(event, "round_delete", round_.pk) if round_ else None, extra_template="hackathon/_criteria.html",
-                 formset=formset)
+                 formset=formset, locked=locked, can_rubric=can_rubric, round_obj=round_,
+                 round_total=round_.total_marks if round_ else 100)
 
 
 @login_required
@@ -884,3 +948,86 @@ def volunteer_remove(request, slug, pk):
         person.groups.remove(*person.groups.filter(name="Volunteer"))
     messages.success(request, f"{person.display_name} is no longer a volunteer here.")
     return redirect("hackathon_manage_volunteers", slug)
+
+
+# --- Rubric settings (per hackathon) ----------------------------------------------------------
+
+
+class RubricSettingsForm(forms.Form):
+    bands_text = forms.CharField(label="Scoring bands (one per line: name and the lowest %, highest first)", widget=forms.Textarea(attrs={"rows": 4}))
+    red_flags_text = forms.CharField(label="Red flags faculty can tick (one per line)", required=False, widget=forms.Textarea(attrs={"rows": 4}))
+    self_score_max = forms.IntegerField(label="Student self-score out of", min_value=1, max_value=1000)
+    recommendations_text = forms.CharField(label="Recommendations for the final round (one per line)", required=False, widget=forms.Textarea(attrs={"rows": 3}))
+
+    def __init__(self, *args, rounds, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.rounds = rounds
+        for r in rounds:
+            self.fields[f"w_{r.pk}"] = forms.DecimalField(label=f"Weight of {r.name}", min_value=0, max_value=1, decimal_places=2, max_digits=4)
+
+    def clean_bands_text(self):
+        import re
+
+        bands = []
+        for line in self.cleaned_data["bands_text"].splitlines():
+            if not line.strip():
+                continue
+            m = re.match(r"^\s*(.+?)\s+(\d+(?:\.\d+)?)\s*%?\s*$", line)
+            if not m:
+                raise ValidationError(f"\"{line.strip()}\" should look like \"Strong 85\".")
+            bands.append({"name": m.group(1), "min": float(m.group(2))})
+        bands.sort(key=lambda b: -b["min"])
+        if not bands or bands[-1]["min"] != 0:
+            raise ValidationError("The lowest band must start at 0%.")
+        return bands
+
+    def clean(self):
+        from decimal import Decimal
+
+        cleaned = super().clean()
+        weights = [cleaned.get(f"w_{r.pk}") for r in self.rounds]
+        if self.rounds and None not in weights and abs(sum(weights, Decimal(0)) - 1) >= Decimal("0.005"):
+            raise ValidationError(f"The round weights add up to {sum(weights, Decimal(0)).normalize():f}; they must add up to 1.")
+        return cleaned
+
+
+@never_cache
+@login_required
+def rubric_settings(request, slug):
+    from . import rubric
+
+    event = overseen_event(request, slug)
+    require(request.user, event, "can_manage_fields")
+    settings_row = rubric.settings_for(event)
+    rounds = list(Round.objects.filter(event=event))
+    if request.method == "POST" and request.POST.get("action") == "copy":
+        from events.models import Event
+
+        source = get_object_or_404(Event, pk=request.POST.get("source"), kind=Event.Kind.HACKATHON)
+        made = rubric.copy_rubric(source, event)
+        messages.success(request, f"Copied {made} round(s) and the rubric settings from {source.title}. Rounds that already have marks were left alone.")
+        return redirect("hackathon_rubric_settings", slug)
+    initial = {
+        "bands_text": "\n".join(f"{b['name']} {b['min']:g}" for b in rubric.bands(event)),
+        "red_flags_text": "\n".join(settings_row.red_flags), "self_score_max": settings_row.self_score_max,
+        "recommendations_text": "\n".join(settings_row.recommendations),
+        **{f"w_{r.pk}": rubric.weight(r) for r in rounds},
+    }
+    form = _style(RubricSettingsForm(request.POST or None, rounds=rounds, initial=initial))
+    if request.method == "POST" and form.is_valid():
+        d = form.cleaned_data
+        settings_row.bands = d["bands_text"]
+        settings_row.red_flags = [x.strip() for x in d["red_flags_text"].splitlines() if x.strip()]
+        settings_row.self_score_max = d["self_score_max"]
+        settings_row.recommendations = [x.strip() for x in d["recommendations_text"].splitlines() if x.strip()]
+        settings_row.save()
+        for r in rounds:
+            r.weight = d[f"w_{r.pk}"]
+            r.save(update_fields=["weight"])
+        messages.success(request, "Rubric settings saved.")
+        return redirect("hackathon_rubric_settings", slug)
+    from events.models import Event
+
+    others = Event.objects.filter(kind=Event.Kind.HACKATHON).exclude(pk=event.pk).order_by("-starts_at")
+    return _form(request, event, "rounds", "Rubric settings", [form], back=_url(event, "rounds"),
+                 extra_template="hackathon/_rubric_copy.html", others=others)

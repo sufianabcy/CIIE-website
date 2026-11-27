@@ -441,9 +441,10 @@ def test_admin_changes_a_submitted_mark_with_a_recorded_reason(client, setup, ad
     assert assignment.scores.get(criterion=idea).marks == 9
     change = MarkChange.objects.get(assignment=assignment)
     assert (change.changed_by, change.reason, change.before["Idea"], change.after["Idea"]) == (admin_user, "Typo by judge", 3, 9)
-    rows = sheet(build_export(event, "marks", admin_user)[1], "R1 Round 1 marks")
-    row = next(r for r in rows[1:] if r[0] == "Alpha")
-    assert row[rows[0].index("Last changed: reason")] == "Typo by judge" and row[rows[0].index("Changed by")] == "Admin One"
+    rows = sheet(build_export(event, "marks", admin_user)[1], "R1 Round 1")
+    header = next(r for r in rows if r[0] == "Team")
+    row = next(r for r in rows if r[0] == "Alpha")
+    assert row[header.index("Idea (/10)")] == 9
     log = sheet(build_export(event, "marks", admin_user)[1], "Mark changes")
     assert log[1][2:7] == ("Marks changed", "Round 1", "Alpha", "Dr. A", "Typo by judge")
     # Reopening is recorded too, and lets the faculty member edit again.
@@ -467,7 +468,7 @@ def test_students_and_outsiders_reach_nothing(client, setup, make_person):
 # --- Exports ----------------------------------------------------------------------
 
 
-def test_marks_export_per_round_with_summaries(setup, admin_user):
+def test_marks_export_final_rounds_and_rubric(setup, admin_user):
     event = setup["event"]
     a, b, _ = setup["faculty"]
     round1 = setup["rounds"][0]
@@ -479,16 +480,19 @@ def test_marks_export_per_round_with_summaries(setup, admin_user):
         services.save_marks(assignment, {idea: marks[0], demo: marks[1]}, "ok", submit=True)
     _, content = build_export(event, "marks", admin_user)
     names = load_workbook(BytesIO(content)).sheetnames
-    assert names[:6] == ["R1 Round 1 marks", "R1 Round 1 summary", "R2 Round 2 marks", "R2 Round 2 summary", "Mark changes", "Overall"]
-    rows = sheet(content, "R1 Round 1 marks")
-    header = rows[0]
-    assert header[:6] == ("Team", "Block", "Floor", "Room", "Faculty", "Employee ID")
-    alpha_a = next(r for r in rows[1:] if r[0] == "Alpha" and r[header.index("Faculty")] == "Dr. A")
-    assert alpha_a[header.index("Idea (/10)")] == 8 and alpha_a[header.index("Total")] == 20 and alpha_a[header.index("Status")] == "Submitted"
-    summary = sheet(content, "R1 Round 1 summary")
-    assert summary[1][:2] == (1, "Alpha") and summary[1][summary[0].index("Average total")] == 21
-    overall = sheet(content, "Overall")
-    assert overall[1][1] == "Alpha"
+    assert names[:5] == ["Final", "R1 Round 1", "R2 Round 2", "Rubric", "Mark changes"]
+    rows = sheet(content, "R1 Round 1")
+    assert rows[0][0] == "Marking in progress: 2 of 4 marksheets submitted"
+    header = rows[1]
+    assert header[:4] == ("Team", "Room", "Evaluator", "Employee ID")
+    alpha_a = next(r for r in rows[2:] if r[0] == "Alpha" and r[header.index("Evaluator")] == "Dr. A")
+    assert alpha_a[header.index("Idea (/10)")] == 8 and alpha_a[header.index("Idea band")] == "Adequate"
+    assert alpha_a[header.index("Total")] == 20 and alpha_a[header.index("Status")] == "Submitted"
+    final = sheet(content, "Final")
+    header = final[1]
+    alpha = next(r for r in final[2:] if r[0] == "Alpha")
+    assert alpha[header.index("Round 1 (out of 100)")] == 70 and alpha[header.index("Rank")] == 1
+    assert alpha[header.index("Weighted total (out of 100)")] is None  # Round 2 not marked yet
     teams = sheet(build_export(event, "teams", admin_user)[1], "Teams")
     assert ("Gamma", "Gamma project", None, "R2") == teams[[r[0] for r in teams].index("Gamma")][:4]
 
@@ -699,7 +703,7 @@ def test_faculty_request_is_pending_with_no_access_until_approved(client, setup,
     assert req.status == FacultyRequest.Status.APPROVED and req.decided_by == admin_user
     assert applicant.is_faculty and applicant.employee_id == "KLF500" and applicant.branch == "CSE"
     role = EventFaculty.objects.get(person=applicant)
-    assert role.event == event and role.extra == {"Designation": "Assistant Professor"}
+    assert role.event == event and applicant.designation == "Assistant Professor"
     # Exactly that: faculty at that event, nothing more.
     assert not applicant.is_supervisor and not applicant.is_staff
     mail = OutboxEmail.objects.filter(to_email="new@kluniversity.in").latest("pk")
@@ -998,7 +1002,7 @@ def test_builtin_fields_come_first_and_name_email_stay_required(client, hack, ad
 
     student = ensure_fields(hack, "student")
     assert [d.builtin for d in student] == ["name", "email", "phone", "student_id", "branch", "year"]
-    assert [d.builtin for d in ensure_fields(hack, "faculty")] == ["name", "email", "employee_id", "department", "phone"]
+    assert [d.builtin for d in ensure_fields(hack, "faculty")] == ["name", "email", "employee_id", "designation", "department", "phone"]
     client.force_login(admin_user)
     email = FieldDefinition.objects.get(event=hack, applies_to="student", builtin="email")
     client.post(reverse("hackathon_manage_field_edit", args=[hack.slug, email.pk]), {"label": "Email ID", "position": 1})

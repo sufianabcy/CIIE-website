@@ -205,6 +205,20 @@ class Round(models.Model):
     results_published_at = models.DateTimeField(
         null=True, blank=True, help_text="When set, each team can see its own marks for this round."
     )
+    focus = models.TextField("focus", blank=True, help_text="What this round is about, shown to faculty.")
+    suggested_questions = models.TextField(blank=True, help_text="Questions faculty can ask, shown on the marksheet.")
+    total_marks = models.DecimalField("round total", max_digits=6, decimal_places=2, default=100,
+                                      help_text="The criteria's max marks should add up to this.")
+    weight = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True,
+                                 help_text="Share of the weighted total, e.g. 0.25. All rounds together make 1.")
+    min_total = models.DecimalField("advance with at least", max_digits=6, decimal_places=2, null=True, blank=True,
+                                    help_text="Optional: the average total a team needs to go to the next round.")
+    key_criterion = models.ForeignKey("Criterion", null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+                                      help_text="Optional: a criterion that must reach a band to advance.")
+    key_min_band = models.CharField("key criterion at least", max_length=40, blank=True)
+    allow_override = models.BooleanField("evaluators may recommend advancing anyway", default=False)
+    comment_prompts = models.JSONField(default=list, blank=True, help_text="One prompt per line, filled in by faculty for each team.")
+    rubric_unlocked = models.BooleanField(default=False, editable=False, help_text="An admin unlocked the rubric after marks exist.")
     release_marks_at = models.DateTimeField(
         "show marks to students from", null=True, blank=True,
         help_text="Teams see their own marks for this round automatically from this time.",
@@ -253,6 +267,9 @@ class Criterion(models.Model):
 
     round = models.ForeignKey(Round, on_delete=models.CASCADE, related_name="criteria")
     label = models.CharField(max_length=200)
+    tag = models.CharField(max_length=20, blank=True, help_text="A short tag, e.g. Q3.")
+    strong_text = models.TextField("strong looks like", blank=True)
+    weak_text = models.TextField("weak looks like", blank=True)
     description = models.CharField(
         "guidance", max_length=500, blank=True, help_text="What faculty should look for. Shown next to the marks box."
     )
@@ -305,6 +322,11 @@ class Assignment(models.Model):
     team = models.ForeignKey(Team, on_delete=models.PROTECT, related_name="assignments")
     source = models.CharField(max_length=20, choices=Source.choices, default=Source.WEBSITE)
     remarks = models.TextField(blank=True)
+    comments = models.JSONField(default=dict, blank=True, help_text="The round's comment prompts and the answers.")
+    red_flags = models.JSONField(default=list, blank=True)
+    self_score = models.DecimalField("student self-score", max_digits=6, decimal_places=2, null=True, blank=True)
+    recommendation = models.CharField(max_length=100, blank=True)
+    advance_anyway = models.BooleanField("recommend advancing anyway", default=False)
     submitted_at = models.DateTimeField(
         null=True, blank=True, help_text="Once submitted, the faculty member can no longer change the marks."
     )
@@ -500,6 +522,7 @@ class ImportUpload(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     mapping = models.JSONField(default=dict, blank=True, help_text="Target field to column index, as last chosen.")
     sheet_name = models.CharField(max_length=100, blank=True, help_text="Empty: the first sheet.")
+    constants = models.JSONField(default=dict, blank=True, help_text="Fields not in the sheet, with one value for every row.")
     header_row = models.PositiveIntegerField(default=0, help_text="1-based row holding the column names. 0: the first non-empty row.")
     result = models.JSONField(default=dict, blank=True, help_text="Summary and skipped rows, once imported.")
     imported_at = models.DateTimeField(null=True, blank=True)
@@ -570,3 +593,35 @@ class Attendance(models.Model):
             models.UniqueConstraint(fields=["round", "team"], condition=Q(undone_at__isnull=True, team__isnull=False), name="one_live_team_attendance"),
             models.UniqueConstraint(fields=["round", "faculty"], condition=Q(undone_at__isnull=True, faculty__isnull=False), name="one_live_faculty_attendance"),
         ]
+
+
+DEFAULT_BANDS = [{"name": "Strong", "min": 85}, {"name": "Adequate", "min": 60}, {"name": "Weak", "min": 30}, {"name": "Missing", "min": 0}]
+DEFAULT_PROMPTS = ["One strength to tell the team", "One thing the team must test next"]
+DEFAULT_RECOMMENDATIONS = ["Pursue as a startup", "Refine and re-test", "Pivot to a new problem"]
+
+
+class RubricSettings(models.Model):
+    """Per hackathon: scoring bands, red flags, the self-score scale and recommendation categories."""
+
+    event = models.OneToOneField("events.Event", on_delete=models.CASCADE, related_name="rubric_settings")
+    bands = models.JSONField(default=list, help_text="Highest first: name and the lowest percentage, e.g. Strong from 85%.")
+    red_flags = models.JSONField(default=list, blank=True)
+    self_score_max = models.PositiveSmallIntegerField("student self-score out of", default=50)
+    recommendations = models.JSONField(default=list, blank=True)
+
+    def __str__(self):
+        return f"Rubric settings for {self.event}"
+
+
+@pghistory.track()
+class RoundOutcome(models.Model):
+    """Whether a team goes on from a round, as confirmed by an admin."""
+
+    round = models.ForeignKey(Round, on_delete=models.CASCADE, related_name="outcomes")
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="outcomes")
+    advanced = models.BooleanField()
+    decided_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    decided_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["round", "team"], name="one_outcome_per_team_round")]

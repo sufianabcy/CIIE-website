@@ -16,7 +16,7 @@ class SignInForm(forms.Form):
 class ProfileForm(forms.ModelForm):
     class Meta:
         model = Person
-        fields = ["full_name", "phone", "institution", "branch", "year_of_study"]
+        fields = ["full_name", "phone", "institution", "branch", "year_of_study", "designation"]
         labels = {
             "full_name": "Your name, as it should appear on certificates",
             "phone": "Phone number",
@@ -37,6 +37,7 @@ class ProfileForm(forms.ModelForm):
             # Faculty: name, department and phone only. College and year are student details (kept, not asked).
             for name in ("institution", "year_of_study"):
                 del self.fields[name]
+            self.fields["designation"].label = "Designation"
             self.fields["full_name"].label = "Name"
             self.fields["full_name"].help_text = "Your full name"
             self.fields["branch"].label = "Department"
@@ -45,6 +46,7 @@ class ProfileForm(forms.ModelForm):
             for field in self.fields.values():
                 field.widget.attrs.setdefault("class", "form-control")
             return
+        del self.fields["designation"]  # a faculty detail
         for name in ("full_name", "phone", "institution"):
             self.fields[name].required = True
         if self.instance.is_kl_verified:

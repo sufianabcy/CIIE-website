@@ -49,6 +49,20 @@
       </table></div>
     </section>
 
+    <section class="panel mb-4">
+      <h2 class="panel-title">Fields not in the sheet</h2>
+      <p class="caption-2 text-secondary">Set one value for every row, for example Department = MDIE.</p>
+      {% for key, value in constant_rows %}
+      <div class="d-flex flex-wrap gap-2 mb-2">
+        <select class="form-select form-select-sm" style="max-width:18rem" name="const_key_{{ forloop.counter0 }}" aria-label="Field">
+          <option value="">Choose a field</option>
+          {% for t in unmapped %}<option value="{{ t.key }}"{% if t.key == key %} selected{% endif %}>{{ t.label }}</option>{% endfor %}
+        </select>
+        <input class="form-control form-control-sm" style="max-width:18rem" name="const_val_{{ forloop.counter0 }}" value="{{ value }}" aria-label="Value for every row" placeholder="Value for every row">
+      </div>
+      {% endfor %}
+    </section>
+
     {% if step == 3 %}
     <section class="panel mb-4">
       <h2 class="panel-title">{% if problems %}{% include "ui/icon.html" with name="warning" %}{{ problems|length }} of {{ row_count }} rows have problems{% else %}{% include "ui/icon.html" with name="check-circle" %}All {{ row_count }} rows look right{% endif %}</h2>

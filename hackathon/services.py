@@ -31,9 +31,10 @@ from .models import Assignment, EventFaculty, Room, Round, Score, Supervisor, Te
 PERSON_COLUMNS = {
     "name": ["name", "full name", "student name", "participant name", "faculty name", "name of the faculty", "faculty", "judge", "judge name", "supervisor", "supervisor name"],
     "email": ["email", "email id", "e mail", "mail", "mail id", "email address", "student email", "faculty email", "official email", "kl email"],
-    "phone": ["phone", "mobile", "contact", "phone number", "mobile number", "contact number", "mobile no", "phone no", "whatsapp"],
+    "phone": ["phone", "mobile", "contact", "phone number", "mobile number", "contact number", "contact no", "mobile no", "phone no", "whatsapp"],
     "student_id": ["kl id", "student id", "id number", "university id", "roll no", "roll number", "registration number", "reg no", "regd no"],
-    "employee_id": ["employee id", "emp id", "empid", "emp no", "employee no", "employee number", "faculty id", "staff id"],
+    "employee_id": ["employee id", "emp id", "empid", "emp no", "employee no", "employee number", "faculty id", "staff id", "id no"],
+    "designation": ["designation", "post", "position", "title of the post"],
     "branch": ["branch", "department", "dept", "school", "programme", "program"],
     "year": ["year", "year of study", "study year"],
     "institution": ["institution", "college", "university", "institute"],
@@ -47,7 +48,7 @@ STUDENT_COLUMNS = {
     "mentor": ["mentor", "mentor name", "mentor email", "guide", "faculty mentor"],
 }
 STAFF_COLUMNS = {
-    **{k: PERSON_COLUMNS[k] for k in ("name", "email", "phone", "employee_id", "branch", "student_id")},
+    **{k: PERSON_COLUMNS[k] for k in ("name", "email", "phone", "employee_id", "branch", "student_id", "designation")},
     "kind": ["type", "role", "supervisor type", "faculty or student"],
 }
 ALLOCATION_COLUMNS = {
@@ -186,7 +187,10 @@ def _upsert_person(data) -> tuple[Person | None, bool, str]:
         "institution": data.get("institution") or "",
         "student_id": student_id,
         "employee_id": employee_id,
+        "designation": " ".join((data.get("designation") or "").split()),
     }
+    if values["phone"]:
+        values["phone"] = re.sub(r"\D", "", values["phone"]) or values["phone"]  # digits only
     created = person is None
     if created:
         if not values["full_name"]:
@@ -554,8 +558,14 @@ def allocate_room(round_, faculty, room) -> tuple[int, list[str]]:
             f"{faculty} already judges in {where} in {round_}. One faculty member judges one room per round; "
             f"remove that allocation first."
         )
+    from .rubric import eligible_team_ids
+
     made, notes = 0, []
+    ids = eligible_team_ids(round_)
     for team in room.teams.all():
+        if ids is not None and team.pk not in ids:
+            notes.append(f"Skipped {team.name}: it did not advance to {round_.name}.")
+            continue
         if team.mentor_id == faculty.person_id:
             notes.append(f"Skipped {team.name}: {faculty} mentors it.")
             continue
@@ -701,7 +711,13 @@ def import_allocations(event, upload, columns=None, only_rows=None) -> ImportRep
                 report.problems.append(f"Row {line}: no room called \"{data.get('room', '')}\".")
                 continue
             teams = list(room.teams.all())
+        from .rubric import eligible_team_ids
+
+        ids = eligible_team_ids(round_)
         for team in teams:
+            if ids is not None and team.pk not in ids:
+                report.problems.append(f"Row {line}: {team.name} did not advance to {round_.name}. Not allocated.")
+                continue
             if team.mentor_id == faculty.person_id:
                 report.problems.append(f"Row {line}: {faculty} mentors {team.name}, so they can't judge it. Not allocated.")
                 continue
@@ -739,8 +755,9 @@ class MarkingClosed(Exception):
 
 
 @transaction.atomic
-def save_marks(assignment, marks: dict, remarks: str, submit: bool):
-    """Faculty saving their own marks. marks: {criterion: Decimal or None}."""
+def save_marks(assignment, marks: dict, remarks: str, submit: bool, extras: dict | None = None):
+    """Faculty saving their own marks. marks: {criterion: Decimal or None}. extras: comments, red flags, self-score,
+    recommendation and "advance anyway" from the marksheet."""
     assignment = Assignment.objects.select_for_update().select_related("round").get(pk=assignment.pk)
     if assignment.is_submitted:
         raise MarkingClosed("These marks are already submitted. Ask an admin if something needs changing.")
@@ -752,6 +769,8 @@ def save_marks(assignment, marks: dict, remarks: str, submit: bool):
         else:
             Score.objects.update_or_create(assignment=assignment, criterion=criterion, defaults={"marks": Decimal(value)})
     assignment.remarks = remarks
+    for key, value in (extras or {}).items():
+        setattr(assignment, key, value if value is not None or key == "self_score" else getattr(assignment, key))
     if submit:
         assignment.submitted_at = timezone.now()
     assignment.save()
@@ -817,7 +836,10 @@ def approve_faculty_request(req, by, note="", allow_duplicates=False):
         person.employee_id = req.employee_id
     person.save()
     if req.event_id:
-        add_faculty(req.event, person, {"Designation": req.designation})
+        if req.designation and not person.designation:
+            person.designation = req.designation
+            person.save(update_fields=["designation"])
+        add_faculty(req.event, person)
     else:
         make_faculty_type(person)
     req.status, req.note, req.decided_by, req.decided_at = FacultyRequest.Status.APPROVED, note, by, timezone.now()

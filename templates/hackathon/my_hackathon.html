@@ -50,6 +50,7 @@
     <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
       <h3 class="heading-6 mb-0">{{ r.round.name }}</h3>
       {% if r.round.state == 'open' %}<span class="tag tag-green">On now</span>{% elif r.round.state == 'upcoming' %}<span class="tag tag-blue">Upcoming</span>{% elif r.round.opens_at %}<span class="tag">Done</span>{% endif %}
+      {% if r.outcome %}<span class="tag {% if r.outcome.advanced %}tag-green{% else %}tag-amber{% endif %}" data-testid="round-outcome">{% if r.outcome.advanced %}Advanced{% if r.next %} to {{ r.next.name }}{% endif %}{% else %}Not advanced{% endif %}</span>{% endif %}
     </div>
     <p class="caption-2 text-secondary mb-2">{% include "ui/icon.html" with name="clock" %}{% if r.round.opens_at %}{{ r.round.opens_at|date:"D j M, g:i A" }}{% if r.round.closes_at %} – {{ r.round.closes_at|date:"g:i A" }}{% endif %}{% else %}Time to be announced{% endif %}</p>
     {% if r.jury %}<p class="mb-2"><strong>Your jury:</strong> {{ r.jury|join:", " }}</p>{% endif %}

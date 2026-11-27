@@ -1,0 +1,10 @@
+{% if others %}
+<section class="panel">
+  <h2 class="panel-title">Copy from another hackathon</h2>
+  <p class="caption-2 text-secondary">Copies the rounds (by their order), each round's criteria and rules, and these settings. Rounds here that already have marks are left alone.</p>
+  <form method="post" class="d-flex flex-wrap gap-2">{% csrf_token %}<input type="hidden" name="action" value="copy">
+    <select name="source" class="form-select form-select-sm" aria-label="Hackathon to copy from">{% for e in others %}<option value="{{ e.pk }}">{{ e.title }}</option>{% endfor %}</select>
+    <button class="btn btn-quiet btn-sm" type="submit" onclick="return confirm('Replace this hackathon\'s rubric with the copy?');">Copy rubric</button>
+  </form>
+</section>
+{% endif %}

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Advance teams · {{ round.name }}{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'hackathon_manage_rounds' event.slug %}">{% include "ui/icon.html" with name="arrow-left" %}Rounds and rubric</a>
+<header class="tool-head">
+  <div>
+    <span class="eyebrow">{{ event.title }}</span>
+    <h1 class="heading-3">Advance teams from {{ round.name }}</h1>
+    <p>{% if round.min_total is not None %}Rule: an average total of at least {{ round.min_total.normalize }}{% if round.key_criterion %}, and {{ round.key_criterion.label }} at least {{ round.key_min_band }}{% endif %}.{% else %}No advancement rule is set for this round.{% endif %}
+      {% if round.allow_override %} Evaluators may recommend advancing a team anyway.{% endif %}
+      {{ submitted }} of {{ total }} marksheets submitted. Teams that meet the rule are ticked; you decide.</p>
+  </div>
+</header>
+<form method="post" class="panel">{% csrf_token %}
+  <div class="table-responsive"><table class="table table-sm align-middle mb-3">
+    <thead><tr><th>Goes on{% if next_round %} to {{ next_round.name }}{% endif %}</th><th>Team</th><th class="text-end">Average total</th><th>Judges</th>{% if round.key_criterion %}<th>{{ round.key_criterion.label }}</th>{% endif %}<th>Rule</th><th>Recommended anyway</th><th>Decided</th></tr></thead>
+    <tbody>{% for r in rows %}<tr>
+      <td><input type="checkbox" class="form-check-input" name="advance" value="{{ r.team.pk }}"{% if r.checked %} checked{% endif %} aria-label="{{ r.team.name }} goes on"></td>
+      <td>{{ r.team.name }}</td>
+      <td class="text-end num">{% if r.score %}{{ r.score.total.normalize }} / {{ round.total_marks.normalize }}{% else %}—{% endif %}</td>
+      <td>{{ r.score.judges|default:0 }}</td>
+      {% if round.key_criterion %}<td>{{ r.key_band|default:"—" }}</td>{% endif %}
+      <td>{% if r.meets %}<span class="tag tag-green">Meets</span>{% else %}<span class="tag">No</span> <span class="caption-2 text-secondary">{{ r.why|join:"; " }}</span>{% endif %}</td>
+      <td>{% if r.override %}<span class="tag tag-amber">Yes</span>{% endif %}</td>
+      <td class="caption-2">{% if r.decided %}{{ r.decided.advanced|yesno:"Went on,Stopped" }}{% else %}not yet{% endif %}</td>
+    </tr>{% empty %}<tr><td colspan="8" class="text-secondary">No teams were judged in this round.</td></tr>{% endfor %}</tbody>
+  </table></div>
+  <label class="d-flex gap-2 align-items-center mb-3"><input type="checkbox" name="confirm" value="1" class="form-check-input"> I've checked the list</label>
+  <button class="btn btn-primary" type="submit">Confirm the teams that go on</button>
+  <p class="caption-2 text-secondary mt-2 mb-0">Only teams that go on appear in the next round's allocation, marksheets and attendance. Students see "Advanced to {{ next_round.name|default:'the next round' }}" or "Not advanced".</p>
+</form>
+{% endblock %}

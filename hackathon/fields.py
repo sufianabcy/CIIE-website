@@ -30,6 +30,7 @@ BUILTINS = {
         ("name", "Name", K.TEXT, "full_name"),
         ("email", "Email", K.EMAIL, "email"),
         ("employee_id", "Employee ID", K.TEXT, "employee_id"),
+        ("designation", "Designation", K.TEXT, "designation"),
         ("department", "Department", K.TEXT, "branch"),
         ("phone", "Phone", K.PHONE, "phone"),
     ],

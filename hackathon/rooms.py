@@ -29,7 +29,12 @@ def random_allocate(round_, per_team=1, copy_from=None, only_unallocated=True, s
     event = round_.event
     made, notes = 0, []
     if copy_from is not None:
+        from .rubric import eligible_team_ids
+
+        ids = eligible_team_ids(round_)
         for a in Assignment.objects.filter(round=copy_from).select_related("team", "faculty"):
+            if ids is not None and a.team_id not in ids:
+                continue
             _, created = Assignment.objects.get_or_create(
                 round=round_, faculty=a.faculty, team=a.team, defaults={"source": Assignment.Source.RANDOM}
             )
@@ -39,7 +44,9 @@ def random_allocate(round_, per_team=1, copy_from=None, only_unallocated=True, s
     if not faculty:
         raise ValidationError("Add faculty first.")
     per_team = max(1, min(int(per_team), len(faculty)))
-    teams = list(Team.objects.filter(event=event))
+    from .rubric import eligible_teams
+
+    teams = list(eligible_teams(round_))
     if only_unallocated:
         done = set(Assignment.objects.filter(round=round_).values_list("team_id", flat=True))
         teams = [t for t in teams if t.pk not in done]
@@ -279,10 +286,15 @@ def floors(event, round_, block="", floor=""):
         for a in Assignment.objects.filter(round=round_).select_related("faculty__person", "team"):
             status[a.team_id].append((a.faculty, a.submitted_at is not None))
             room_faculty[a.team.room_id][a.faculty_id] = a.faculty
+    from .rubric import eligible_team_ids
+
+    ids = eligible_team_ids(round_) if round_ else None
     out = defaultdict(list)
     for room in rooms:
         teams = []
         for t in room.teams.prefetch_related("members__registration__person").order_by("name"):
+            if ids is not None and t.pk not in ids:
+                continue  # did not advance to this round
             marks = sorted(status.get(t.pk, []), key=lambda x: str(x[0]))
             teams.append({
                 "team": t, "members": [m.registration.person.display_name for m in t.members.all()],

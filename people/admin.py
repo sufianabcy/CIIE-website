@@ -15,7 +15,7 @@ ROLE_GROUPS = {"Coordinator", "Admin"}  # supervisors and volunteers work on the
 
 # What each type of person has. Department is stored in `branch`.
 STUDENT_FIELDS = ["kind", "email", "full_name", "phone", "institution", "branch", "year_of_study", "kl_email", "student_id"]
-FACULTY_FIELDS = ["kind", "email", "full_name", "phone", "branch", "employee_id", "kl_email"]
+FACULTY_FIELDS = ["kind", "email", "full_name", "designation", "phone", "branch", "employee_id", "kl_email"]
 
 
 def _group(name):

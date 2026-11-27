@@ -146,6 +146,18 @@ def read_item(item):
     return read_sheet(item.content, item.sheet_name, item.header_row)
 
 
+def with_constants(headers, rows, mapping, constants):
+    """Fields not in the sheet, with one value for every row (e.g. Department = MDIE), added as extra columns."""
+    headers, rows, mapping = list(headers), [list(r) for r in rows], dict(mapping)
+    for key, value in (constants or {}).items():
+        if value and mapping.get(key) is None:
+            mapping[key] = len(headers)
+            headers.append(f"(every row) {key}")
+            for r in rows:
+                r.append(value)
+    return headers, rows, mapping
+
+
 def normalized(headers, rows):
     """An in-memory workbook with just the header and data rows, for the import functions."""
     from openpyxl import Workbook
@@ -320,6 +332,7 @@ def _dry_run(event, kind, mapping, rows, headers, skip):
 
 def run_import(upload, mapping, only_rows, user):
     headers, rows, _ = read_item(upload)
+    headers, rows, mapping = with_constants(headers, rows, mapping, upload.constants)
     return _run(upload.event, upload.kind, normalized(headers, rows), mapping, only_rows, user)
 
 

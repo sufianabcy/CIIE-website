@@ -1,7 +1,6 @@
-"""Excel files for hackathons: teams, allocations, marks per round, logins, and blank templates."""
+"""Excel files for hackathons: teams, allocations, final marks, logins, and blank templates."""
 
 import re
-from collections import defaultdict
 from decimal import Decimal
 from io import BytesIO
 
@@ -9,6 +8,7 @@ from django.conf import settings
 from django.urls import reverse
 from django.utils import timezone
 from openpyxl import Workbook
+from openpyxl.styles import Font
 
 from events.exports import PERSON_HEADERS, _about, _local, _person_columns, _sheet
 
@@ -115,60 +115,108 @@ def allocations_workbook(event, wb):
            staff, text_columns=["Employee or KL ID"])
 
 
+def _title(round_):
+    return re.sub(r"[\[\]:*?/\\]", "", f"R{round_.position} {round_.name}")[:31]
+
+
+def _banner(ws, text):
+    """A line above the headers (for "marking in progress")."""
+    ws.insert_rows(1)
+    ws.cell(row=1, column=1, value=text).font = Font(bold=True, color="B45309")
+    ws.freeze_panes = "A3"
+
+
 def marks_workbook(event, wb):
-    """Per round: one row per team per faculty member, then a per-team summary. Then an overall summary."""
-    overall = defaultdict(dict)  # team -> {round: average}
-    rounds = list(Round.objects.filter(event=event).prefetch_related("criteria"))
-    teams = {t.pk: t for t in Team.objects.filter(event=event).select_related("room").prefetch_related("members__registration__person")}
-    for round_ in rounds:
-        criteria = list(round_.criteria.all())
-        crit_headers = [f"{c.label} (/{c.max_marks.normalize():f})" for c in criteria]
-        out_of = sum((c.max_marks for c in criteria), Decimal("0"))
-        rows, submitted = [], defaultdict(list)
-        for a in (
-            Assignment.objects.filter(round=round_)
-            .select_related("faculty__person", "team__room")
-            .prefetch_related("scores", "changes__changed_by")
-            .order_by("team__room__name", "team__name", "faculty__person__full_name")
-        ):
-            marks = {s.criterion_id: s.marks for s in a.scores.all()}
-            total = sum(marks.values(), Decimal("0"))
-            status = "Submitted" if a.submitted_at else ("Draft saved" if marks else "Not started")
-            last = next(iter(a.changes.all()), None)  # newest first
-            rows.append(
-                [a.team.name, *_where(a.team), a.faculty.person.display_name, a.faculty.person.employee_id]
-                + [_num(marks.get(c.pk)) for c in criteria]
-                + [_num(total) if marks else None, _num(out_of), a.remarks, status, _local(a.submitted_at)]
-                + ([last.reason, last.changed_by.display_name, _local(last.changed_at)] if last else [None, None, None])
-            )
-            if a.submitted_at:
-                submitted[a.team_id].append((marks, total))
-        title = re.sub(r"[\[\]:*?/\\]", "", f"R{round_.position} {round_.name}")[:22]
-        _sheet(
-            wb, f"{title} marks",
-            ["Team", "Block", "Floor", "Room", "Faculty", "Employee ID"] + crit_headers
-            + ["Total", "Out of", "Remarks", "Status", "Submitted at", "Last changed: reason", "Changed by", "Changed at"],
-            rows, text_columns=["Employee ID"],
-        )
-        summary = []
-        for team_id, items in submitted.items():
-            team = teams[team_id]
-            averages = []
-            for c in criteria:
-                given = [m[c.pk] for m, _ in items if c.pk in m]
-                averages.append(round(float(sum(given) / len(given)), 2) if given else None)
-            average = round(float(sum(t for _, t in items) / len(items)), 2)
-            overall[team_id][round_.pk] = average
-            summary.append([team.name, team.room.name if team.room else "", _members(team), len(items)] + averages + [average, _num(out_of)])
-        summary.sort(key=lambda r: -r[-2])
-        for rank, row in enumerate(summary, start=1):
-            row.insert(0, rank)
-        _sheet(
-            wb, f"{title} summary",
-            ["Rank", "Team", "Room", "Members", "Faculty who submitted"] + [f"Average {h}" for h in crit_headers] + ["Average total", "Out of"],
-            summary,
-        )
+    """Final (one row per team, ranked), then one sheet per round (one row per team per evaluator), then the rubric."""
+    from collections import Counter
+
+    from . import rubric
     from .models import MarkChange
+
+    rounds = list(Round.objects.filter(event=event).prefetch_related("criteria"))
+    teams = list(Team.objects.filter(event=event).select_related("room").prefetch_related("members__registration__person"))
+    settings_row = rubric.settings_for(event)
+    assignments = list(
+        Assignment.objects.filter(round__event=event).select_related("round", "faculty__person", "team__room")
+        .prefetch_related("scores").order_by("round__position", "team__room__name", "team__name", "faculty__person__full_name")
+    )
+    submitted = [a for a in assignments if a.submitted_at]
+    final_round = rounds[-1] if rounds else None
+
+    # --- Final -----------------------------------------------------------------------------------
+    rows = []
+    for team in teams:
+        people = sorted((m.registration.person for m in team.members.all()), key=lambda p: p.display_name)
+        mine = [a for a in submitted if a.team_id == team.pk]
+        percents, weighted, gap = [], Decimal(0), None
+        for r in rounds:
+            score = rubric.team_score(r, team)
+            pct = rubric.percent(r, score["total"]) if score else None
+            percents.append(pct)
+            if pct is not None:
+                weighted += pct * rubric.weight(r)
+                if score["self_scores"] and settings_row.self_score_max:
+                    self_pct = sum(score["self_scores"], Decimal(0)) / len(score["self_scores"]) * 100 / settings_row.self_score_max
+                    gap = (pct - self_pct).quantize(Decimal("0.01"))
+        complete = bool(rounds) and all(p is not None for p in percents)
+        recs = Counter(a.recommendation for a in mine if final_round and a.round_id == final_round.pk and a.recommendation)
+        rows.append({
+            "cells": [team.name, ", ".join(p.display_name for p in people), ", ".join(p.student_id or "" for p in people),
+                      team.room.name if team.room else ""] + [_num(p) for p in percents]
+                     + [_num(weighted.quantize(Decimal("0.01"))) if complete else None],
+            "tail": [rubric.furthest_round(team, rounds), _num(gap),
+                     recs.most_common(1)[0][0] if recs else "", sum(len(a.red_flags or []) for a in mine)],
+            "key": (sum(p is not None for p in percents), weighted),
+        })
+    rows.sort(key=lambda r: (-r["key"][0], -r["key"][1]))
+    final_rows = [r["cells"] + [rank] + r["tail"] for rank, r in enumerate(rows, start=1)]
+    ws = _sheet(
+        wb, "Final",
+        ["Team", "Members", "Members' KL IDs", "Room"] + [f"{r.name} (out of 100)" for r in rounds]
+        + ["Weighted total (out of 100)", "Rank", "Furthest round reached", "Self-score gap (faculty % minus self %)",
+           "Recommendation", "Red flags"],
+        final_rows, text_columns=["Members' KL IDs"],
+    )
+    if len(submitted) < len(assignments):
+        _banner(ws, f"Marking in progress: {len(submitted)} of {len(assignments)} marksheets submitted")
+
+    # --- One sheet per round ----------------------------------------------------------------------
+    for r in rounds:
+        criteria = list(r.criteria.all())
+        prompts = rubric.prompts(r)
+        headers = ["Team", "Room", "Evaluator", "Employee ID"]
+        for c in criteria:
+            headers += [f"{c.label} (/{c.max_marks.normalize():f})", f"{c.label} band"]
+        headers += ["Total", "Out of", "Band"] + prompts + ["Red flags", "Self-score", "Recommendation", "Recommends advancing anyway",
+                                                            "Remarks", "Status", "Submitted at"]
+        lines = []
+        for a in (a for a in assignments if a.round_id == r.pk):
+            marks = {s.criterion_id: s.marks for s in a.scores.all()}
+            total = sum(marks.values(), Decimal(0)) if marks else None
+            cells = [a.team.name, a.team.room.name if a.team.room else "", a.faculty.person.display_name, a.faculty.person.employee_id]
+            for c in criteria:
+                cells += [_num(marks.get(c.pk)), rubric.band_for(event, marks.get(c.pk), c.max_marks)]
+            cells += [_num(total), _num(r.out_of), rubric.band_for(event, total, r.out_of)]
+            cells += [(a.comments or {}).get(p, "") for p in prompts]
+            cells += [", ".join(a.red_flags or []), _num(a.self_score), a.recommendation, "Yes" if a.advance_anyway else "",
+                      a.remarks, "Submitted" if a.submitted_at else ("Draft saved" if marks else "Not started"), _local(a.submitted_at)]
+            lines.append(cells)
+        ws = _sheet(wb, _title(r), headers, lines, text_columns=["Employee ID"])
+        done = sum(1 for a in assignments if a.round_id == r.pk and a.submitted_at)
+        total_here = sum(1 for a in assignments if a.round_id == r.pk)
+        if done < total_here:
+            _banner(ws, f"Marking in progress: {done} of {total_here} marksheets submitted")
+
+    # --- Rubric ------------------------------------------------------------------------------------
+    lines = []
+    for r in rounds:
+        lines.append([r.name, "", "", _num(r.total_marks), "", "", _num(rubric.weight(r))])
+        for c in r.criteria.all():
+            lines.append(["", c.label, c.tag, _num(c.max_marks), c.strong_text, c.weak_text, None])
+    lines.append([])
+    lines.append(["Bands", "From % of the maximum"])
+    lines += [[b["name"], b["min"]] for b in rubric.bands(event)]
+    _sheet(wb, "Rubric", ["Round", "Criterion", "Tag", "Max marks", "Strong", "Weak", "Round weight"], lines)
 
     changes = MarkChange.objects.filter(assignment__round__event=event).select_related(
         "assignment__round", "assignment__team", "assignment__faculty__person", "changed_by"
@@ -183,22 +231,6 @@ def marks_workbook(event, wb):
             for c in changes
         ],
     )
-    if rounds:
-        rows = []
-        for team_id, per_round in overall.items():
-            team = teams[team_id]
-            values = [per_round.get(r.pk) for r in rounds]
-            rows.append([team.name, team.room.name if team.room else "", _members(team)] + values + [round(sum(v for v in values if v is not None), 2)])
-        rows.sort(key=lambda r: -r[-1])
-        for rank, row in enumerate(rows, start=1):
-            row.insert(0, rank)
-        _sheet(
-            wb, "Overall",
-            ["Rank", "Team", "Room", "Members"] + [f"{r.name} average" for r in rounds] + ["Sum of round averages"],
-            rows,
-        )
-    else:
-        _sheet(wb, "Overall", ["No rounds yet"], [])
 
 
 def credentials_file(event, issued, user) -> tuple[str, bytes]:

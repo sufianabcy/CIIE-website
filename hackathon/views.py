@@ -20,7 +20,7 @@ from .day_views import RandomForm
 from .access import allowed, is_admin, overseen_event, overseen_events, permissions_for, require
 from .exports import TEMPLATES, credentials_file, template_file
 from .forms import AllocateForm, CredentialsForm, MarksForm, MoveTeamForm, UploadForm
-from .models import Assignment, EventFaculty, Room, Round, Supervisor, Team, TeamMember
+from .models import Assignment, EventFaculty, Room, Round, RoundOutcome, Supervisor, Team, TeamMember
 
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
@@ -235,11 +235,21 @@ def import_step(request, slug, pk):
             mapping[t.key] = int(raw) if raw.isdigit() and int(raw) < len(headers) else None
         item.mapping = mapping
         item.save(update_fields=["mapping"])
-    errors, warnings = imports.sheet_checks(headers, rows, mapping, targets_, item.kind)
+    if request.method == "POST" and any(k.startswith("const_key_") for k in request.POST):
+        known = {t.key for t in targets_}
+        constants = {}
+        for i in range(3):
+            key, value = request.POST.get(f"const_key_{i}", ""), request.POST.get(f"const_val_{i}", "").strip()
+            if key in known and value and mapping.get(key) is None:
+                constants[key] = value
+        item.constants = constants
+        item.save(update_fields=["constants"])
+    c_headers, c_rows, c_mapping = imports.with_constants(headers, rows, mapping, item.constants)
+    errors, warnings = imports.sheet_checks(c_headers, c_rows, c_mapping, targets_, item.kind)
     errors = twice + errors
     problems, step, new_people = None, 2, 0
     if action in ("check", "import") and not errors:
-        found, new_people = imports.row_checks(event, item.kind, headers, rows, mapping, targets_, want_new=True)
+        found, new_people = imports.row_checks(event, item.kind, c_headers, c_rows, c_mapping, targets_, want_new=True)
         problems = {numbers[line - 2]: imports.real_rows(msgs, numbers) for line, msgs in found.items() if 0 <= line - 2 < len(numbers)}
         step = 3
         if action == "import":
@@ -262,11 +272,13 @@ def import_step(request, slug, pk):
                            "skipped": skipped, "warnings": imports.real_rows(report.warnings, numbers)}
             item.imported_at = timezone.now()
             item.save(update_fields=["result", "imported_at"])
-            imports.remember(event, item.kind, headers, mapping)
+            imports.remember(event, item.kind, headers, {k: v for k, v in mapping.items() if v is not None and v < len(headers)})
             return redirect("hackathon_import", slug, item.pk)
     return render(request, "hackathon/import_steps.html", {
         "event": event, "item": item, "title": title, "step": step, "targets": targets_,
         "columns": imports.columns_view(headers, rows, mapping), "sheets": imports.sheets(item.content),
+        "unmapped": [t for t in targets_ if mapping.get(t.key) is None],
+        "constant_rows": (list(item.constants.items()) + [("", "")] * 3)[:3],
         "errors": errors, "warnings": warnings, "problems": sorted((problems or {}).items()),
         "valid_count": len(rows) - len(problems or {}), "row_count": len(rows), "can_fields": can_fields, "new_people": new_people,
         "can_define_fields": allowed(request.user, event, "can_manage_fields"),
@@ -448,11 +460,14 @@ def staff_home(request):
 @never_cache
 @login_required
 def judge_event(request, slug):
+    from . import rubric
+
     role = get_object_or_404(EventFaculty, event__slug=slug, person=request.user, is_active=True)
     rounds = []
     for round_ in Round.objects.filter(event=role.event).prefetch_related("criteria"):
+        ids = rubric.eligible_team_ids(round_)
         mine = list(
-            role.assignments.filter(round=round_)
+            (role.assignments.filter(round=round_) if ids is None else role.assignments.filter(round=round_, team_id__in=ids))
             .select_related("team__room", "team__mentor")
             .prefetch_related("team__members__registration__person", "scores")
             .order_by("team__name")
@@ -471,16 +486,27 @@ def mark(request, pk):
         Assignment.objects.select_related("round__event", "team__room", "team__mentor", "faculty"),
         pk=pk, faculty__person=request.user, faculty__is_active=True,
     )
+    from . import rubric
+
     round_ = assignment.round
+    ids = rubric.eligible_team_ids(round_)
+    if ids is not None and assignment.team_id not in ids:
+        raise Http404("This team did not advance to this round.")
     criteria = round_.criteria.all()
     scores = {s.criterion_id: s.marks for s in assignment.scores.all()}
-    form = MarksForm(request.POST or None, criteria=criteria, scores=scores, assignment=assignment)
+    settings_row = rubric.settings_for(round_.event)
+    final = not Round.objects.filter(event=round_.event, position__gt=round_.position).exists()
+    extras = {
+        "prompts": rubric.prompts(round_), "red_flags": settings_row.red_flags, "self_score_max": settings_row.self_score_max,
+        "recommendations": settings_row.recommendations if final else [], "allow_override": round_.allow_override,
+    }
+    form = MarksForm(request.POST or None, criteria=criteria, scores=scores, assignment=assignment, extras=extras)
     is_open = round_.is_open()
     if request.method == "POST" and form.is_valid():
         submitting = "submit" in request.POST
         if not submitting or form.require_all():
             try:
-                services.save_marks(assignment, form.marks(), form.cleaned_data["remarks"], submitting)
+                services.save_marks(assignment, form.marks(), form.cleaned_data["remarks"], submitting, form.extra_values())
             except services.MarkingClosed as exc:
                 messages.error(request, str(exc))
                 return redirect("hackathon_mark", assignment.pk)
@@ -497,6 +523,8 @@ def mark(request, pk):
             "members": members, "form": form, "is_open": is_open, "out_of": round_.out_of,
             "total": sum(scores.values()) if scores else None,
             "editable": is_open and not assignment.is_submitted,
+            "bands": rubric.bands(round_.event),
+            "saved_bands": {c.pk: rubric.band_for(round_.event, scores.get(c.pk), c.max_marks) for c in criteria},
         },
     )
 
@@ -553,7 +581,9 @@ def my_hackathon(request, slug):
         allocations = list(Assignment.objects.filter(round=round_, team=team).values_list("submitted_at", flat=True)) if team else []
         # Before release: only whether the marks are in, never numbers.
         status = ("submitted" if all(allocations) else "pending") if allocations else None
-        rounds.append({"round": round_, "jury": jury, "marks": marks, "released": released, "status": status})
+        decided = RoundOutcome.objects.filter(round=round_, team=team).first() if team else None
+        rounds.append({"round": round_, "jury": jury, "marks": marks, "released": released, "status": status,
+                       "outcome": decided, "next": Round.objects.filter(event=event, position__gt=round_.position).order_by("position").first()})
     from .fields import custom_values, display, ensure_fields
 
     values = custom_values(event, request.user)
@@ -784,4 +814,49 @@ def invites(request, slug):
         "rounds_set": event.is_hackathon and event.rounds.exclude(opens_at=None).exists(),
         "minutes": math.ceil(max(progress["never"], 1) / rate), "rate": rate,
         "rows": [(r, status.get(r.pk)) for r in regs],
+    })
+
+
+# --- Advancing teams between rounds -------------------------------------------------------------
+
+
+@never_cache
+@login_required
+def advance_teams(request, slug, pk):
+    """Admins: every team's score for a round, the advancement rule, and which teams go on. Ticks are pre-filled."""
+    from . import rubric
+    from .models import RoundOutcome
+
+    event = overseen_event(request, slug)
+    if not is_admin(request.user):
+        raise PermissionDenied
+    round_ = get_object_or_404(Round, pk=pk, event=event)
+    teams = list(rubric.eligible_teams(round_).filter(assignments__round=round_).distinct().order_by("name"))
+    if request.method == "POST":
+        if not request.POST.get("confirm"):
+            messages.error(request, "Tick the box to confirm the teams that go on.")
+            return redirect("hackathon_advance", slug, pk)
+        chosen = {int(x) for x in request.POST.getlist("advance") if x.isdigit()}
+        with transaction.atomic():
+            for team in teams:
+                RoundOutcome.objects.update_or_create(round=round_, team=team, defaults={
+                    "advanced": team.pk in chosen, "decided_by": request.user, "decided_at": timezone.now()})
+        messages.success(request, f"{len(chosen & {t.pk for t in teams})} of {len(teams)} teams go on from {round_.name}.")
+        return redirect("hackathon_advance", slug, pk)
+    rows = []
+    for team in teams:
+        score = rubric.team_score(round_, team)
+        meets, why = rubric.meets_rule(round_, score)
+        decided = rubric.outcome(round_, team)
+        key_band = ""
+        if score and round_.key_criterion_id:
+            key_band = rubric.band_for(event, score["criteria"].get(round_.key_criterion_id), round_.key_criterion.max_marks)
+        rows.append({"team": team, "score": score, "meets": meets, "why": why, "key_band": key_band,
+                     "override": bool(score and score["override"]), "decided": decided,
+                     "checked": decided.advanced if decided else meets})
+    rows.sort(key=lambda r: -(r["score"]["total"] if r["score"] else -1))
+    submitted = Assignment.objects.filter(round=round_, submitted_at__isnull=False).count()
+    return render(request, "hackathon/advance.html", {
+        "event": event, "round": round_, "rows": rows, "next_round": Round.objects.filter(event=event, position__gt=round_.position).first(),
+        "submitted": submitted, "total": Assignment.objects.filter(round=round_).count(),
     })

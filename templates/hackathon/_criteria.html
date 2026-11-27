@@ -1,12 +1,41 @@
 <h2 class="heading-6 mt-4">Rubric for this round</h2>
+{% if locked %}
+  <div class="alert alert-warning">Faculty have given marks in this round, so the rubric is locked.
+  {% if is_admin %}<span class="d-block mt-2">Unlock it only to fix a mistake: <label class="caption-2"><input type="checkbox" name="confirm" value="1"> I understand</label> <button class="btn btn-quiet btn-sm" type="submit" name="action" value="unlock">Unlock the rubric</button></span>{% endif %}</div>
+{% elif not can_rubric %}
+  <p class="caption-2 text-secondary">Only people with the "Manage fields and imports" switch change the rubric.</p>
+{% endif %}
 {{ formset.management_form }}
 {% for e in formset.non_form_errors %}<div class="alert alert-danger">{{ e }}</div>{% endfor %}
-<div class="table-responsive mb-3"><table class="table table-sm align-middle">
-  <thead><tr><th style="width:5rem">Order</th><th>Criterion</th><th>Guidance</th><th style="width:7rem">Out of</th><th>Delete</th></tr></thead>
+<div class="table-responsive mb-2"><table class="table table-sm align-top" data-criteria>
+  <thead><tr><th style="width:4.5rem">Order</th><th>Criterion and tag</th><th style="width:6.5rem">Out of</th><th>Strong looks like</th><th>Weak looks like</th><th>Delete</th></tr></thead>
   <tbody>{% for f in formset %}<tr>
-    <td>{% for h in f.hidden_fields %}{{ h }}{% endfor %}{{ f.position }}</td><td>{{ f.label }}{% for e in f.label.errors %}<div class="field-error">{{ e }}</div>{% endfor %}</td>
-    <td>{{ f.description }}</td><td>{{ f.max_marks }}{% for e in f.max_marks.errors %}<div class="field-error">{{ e }}</div>{% endfor %}</td>
+    <td>{% for h in f.hidden_fields %}{{ h }}{% endfor %}{{ f.position }}</td>
+    <td>{{ f.label }}{% for e in f.label.errors %}<div class="field-error">{{ e }}</div>{% endfor %}<div class="mt-1">{{ f.tag }}</div><div class="mt-1">{{ f.description }}</div></td>
+    <td>{{ f.max_marks }}{% for e in f.max_marks.errors %}<div class="field-error">{{ e }}</div>{% endfor %}</td>
+    <td>{{ f.strong_text }}</td><td>{{ f.weak_text }}</td>
     <td>{% if f.instance.pk %}{{ f.DELETE }}{% endif %}</td>
   </tr>{% endfor %}</tbody>
 </table></div>
-<p class="caption-2 text-secondary">Leave a row empty to skip it. Save to get two more empty rows.</p>
+<p class="mb-1"><strong>Total of max marks: <span data-criteria-total>0</span></strong> <span class="caption-2 text-secondary">(the round is out of <span data-round-total>{{ round_total }}</span>)</span> <span class="text-danger caption-2" data-criteria-warning hidden>These should add up to the round total.</span></p>
+<p class="caption-2 text-secondary">Leave a row empty to skip it. Save to get two more empty rows. Per-hackathon settings (bands, red flags, weights, recommendations) are on <a href="{% url 'hackathon_rubric_settings' event.slug %}">Rubric settings</a>.</p>
+<script>
+  (function () {
+    var table = document.querySelector("[data-criteria]");
+    if (!table) return;
+    var roundTotal = document.getElementById("id_total_marks");
+    function sum() {
+      var total = 0;
+      table.querySelectorAll('input[name$="-max_marks"]').forEach(function (input) {
+        var del = table.querySelector('input[name="' + input.name.replace("max_marks", "DELETE") + '"]');
+        if (!del || !del.checked) total += parseFloat(input.value) || 0;
+      });
+      var target = roundTotal ? parseFloat(roundTotal.value) || 0 : parseFloat(document.querySelector("[data-round-total]").textContent) || 0;
+      document.querySelector("[data-criteria-total]").textContent = total;
+      document.querySelector("[data-round-total]").textContent = target;
+      document.querySelector("[data-criteria-warning]").hidden = Math.abs(total - target) < 0.001 || total === 0;
+    }
+    document.addEventListener("input", sum);
+    sum();
+  })();
+</script>
