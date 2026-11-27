@@ -126,7 +126,7 @@
         {% if can.can_edit_rounds %}{% if r.state != 'open' %}<form method="post" action="{% url 'hackathon_round_action' event.slug r.pk 'open' %}">{% csrf_token %}<button class="btn btn-quiet btn-sm" type="submit">Open now</button></form>
         {% else %}<form method="post" action="{% url 'hackathon_round_action' event.slug r.pk 'close' %}">{% csrf_token %}<button class="btn btn-quiet btn-sm" type="submit">Close now</button></form>{% endif %}{% endif %}
         {% if can.can_publish %}<form method="post" action="{% url 'hackathon_round_action' event.slug r.pk r.results_published_at|yesno:'unpublish,publish' %}">{% csrf_token %}<button class="btn btn-quiet btn-sm" type="submit">{{ r.results_published_at|yesno:"Hide results,Publish results" }}</button></form>{% endif %}
-        {% if is_admin and not forloop.last %}<a class="btn btn-quiet btn-sm" href="{% url 'hackathon_advance' event.slug r.pk %}">Advance teams</a>{% endif %}
+        {% if is_admin and eliminating and not forloop.last %}<a class="btn btn-quiet btn-sm" href="{% url 'hackathon_advance' event.slug r.pk %}">Advance teams</a>{% endif %}
       </div></td>
     </tr>{% endfor %}</tbody></table></div>
   {% else %}

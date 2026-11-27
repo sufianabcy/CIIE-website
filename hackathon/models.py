@@ -677,6 +677,11 @@ class RubricSettings(models.Model):
     self_score_max = models.PositiveSmallIntegerField("student self-score out of", default=50, null=True, blank=True,
                                                       help_text="Empty: faculty don't record a self-score.")
     guidance = models.TextField(blank=True, help_text="Shown at the top of every faculty marksheet.")
+    eliminate_teams = models.BooleanField(
+        "teams are eliminated between rounds", default=False,
+        help_text="Off: every team goes through every round. On: after each round an admin confirms which teams go on, "
+                  "using the round's advance rule; the others stop.",
+    )
     recommendations = models.JSONField(default=list, blank=True)
 
     def __str__(self):

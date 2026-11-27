@@ -1321,6 +1321,10 @@ def volunteer_remove(request, slug, pk):
 class RubricSettingsForm(forms.Form):
     guidance = forms.CharField(label="Guidance for faculty (shown at the top of every marksheet)", required=False,
                                widget=forms.Textarea(attrs={"rows": 3}))
+    eliminate_teams = forms.BooleanField(
+        label="Teams are eliminated between rounds", required=False,
+        help_text="Off: every team goes through every round. On: after each round an admin confirms which teams go on, "
+                  "using the round's advance rule.")
     bands_text = forms.CharField(label="Scoring bands (one per line: name and the lowest %, highest first)", widget=forms.Textarea(attrs={"rows": 4}))
     red_flags_text = forms.CharField(label="Red flags faculty can tick (one per line)", required=False, widget=forms.Textarea(attrs={"rows": 4}))
     self_score_max = forms.IntegerField(label="Student self-score out of", min_value=1, max_value=1000, required=False,
@@ -1378,7 +1382,7 @@ def rubric_settings(request, slug):
     initial = {
         "bands_text": "\n".join(f"{b['name']} {b['min']:g}" for b in rubric.bands(event)),
         "red_flags_text": "\n".join(settings_row.red_flags), "self_score_max": settings_row.self_score_max,
-        "guidance": settings_row.guidance,
+        "guidance": settings_row.guidance, "eliminate_teams": settings_row.eliminate_teams,
         "recommendations_text": "\n".join(settings_row.recommendations),
         **{f"w_{r.pk}": rubric.weight(r) for r in rounds},
     }
@@ -1396,6 +1400,7 @@ def rubric_settings(request, slug):
                 b["max"] = before["max"]
         settings_row.bands = d["bands_text"]
         settings_row.guidance = d["guidance"].strip()
+        settings_row.eliminate_teams = d["eliminate_teams"]
         settings_row.red_flags = [x.strip() for x in d["red_flags_text"].splitlines() if x.strip()]
         settings_row.self_score_max = d["self_score_max"]
         settings_row.recommendations = [x.strip() for x in d["recommendations_text"].splitlines() if x.strip()]

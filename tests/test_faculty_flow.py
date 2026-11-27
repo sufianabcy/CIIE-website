@@ -171,6 +171,11 @@ def test_faculty_mark_from_start_to_finish(client, event, admin_user, django_cap
     client.force_login(admin_user)
     marks_page = client.get(reverse("hackathon_marks", args=[event.slug])).content.decode()
     assert "Dr. Asha Judge" in marks_page and "Rockets" in marks_page
+    from hackathon import rubric
+    from hackathon.models import RubricSettings
+
+    assert not rubric.eliminating(event)  # by default every team goes through; this hackathon eliminates
+    RubricSettings.objects.update_or_create(event=event, defaults={"eliminate_teams": True})
     advance_url = reverse("hackathon_advance", args=[event.slug, round1.pk])
     advance_page = client.get(advance_url).content.decode()
     assert "Rockets" in advance_page and "Team 2" in advance_page

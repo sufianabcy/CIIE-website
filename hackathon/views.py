@@ -15,7 +15,7 @@ from django.views.decorators.http import require_POST
 
 from registrations.models import Registration
 
-from . import imports, services
+from . import imports, rubric, services
 from .day_views import RandomForm
 from .access import allowed, is_admin, overseen_event, overseen_events, permissions_for, require
 from .exports import TEMPLATES, credentials_file, template_file
@@ -68,6 +68,7 @@ def dashboard(request, slug):
             "event": event,
             "is_admin": is_admin(request.user),
             "can": permissions_for(request.user, event),
+            "eliminating": rubric.eliminating(event),
             "rounds": round_rows,
             "rooms": rooms,
             "teams": teams,
@@ -605,7 +606,7 @@ def my_hackathon(request, slug):
         allocations = list(Assignment.objects.filter(round=round_, team=team).values_list("submitted_at", flat=True)) if team else []
         # Before release: only whether the marks are in, never numbers.
         status = ("submitted" if all(allocations) else "pending") if allocations else None
-        decided = RoundOutcome.objects.filter(round=round_, team=team).first() if team else None
+        decided = RoundOutcome.objects.filter(round=round_, team=team).first() if team and rubric.eliminating(event) else None
         rounds.append({"round": round_, "jury": jury, "marks": marks, "released": released, "status": status,
                        "outcome": decided, "next": Round.objects.filter(event=event, position__gt=round_.position).order_by("position").first()})
     from .fields import custom_values, display, ensure_fields
@@ -897,6 +898,11 @@ def advance_teams(request, slug, pk):
         raise PermissionDenied
     round_ = get_object_or_404(Round, pk=pk, event=event)
     teams = list(rubric.eligible_teams(round_).filter(assignments__round=round_).distinct().order_by("name"))
+    eliminating = rubric.eliminating(event)
+    if request.method == "POST" and not eliminating:
+        messages.error(request, "Teams aren't eliminated at this hackathon: every team goes through every round. "
+                                "Turn elimination on in Rubric settings first.")
+        return redirect("hackathon_advance", slug, pk)
     if request.method == "POST":
         if not request.POST.get("confirm"):
             messages.error(request, "Tick the box to confirm the teams that go on.")
@@ -923,5 +929,5 @@ def advance_teams(request, slug, pk):
     submitted = Assignment.objects.filter(round=round_, submitted_at__isnull=False).count()
     return render(request, "hackathon/advance.html", {
         "event": event, "round": round_, "rows": rows, "next_round": Round.objects.filter(event=event, position__gt=round_.position).first(),
-        "submitted": submitted, "total": Assignment.objects.filter(round=round_).count(),
+        "submitted": submitted, "total": Assignment.objects.filter(round=round_).count(), "eliminating": eliminating,
     })

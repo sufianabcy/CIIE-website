@@ -7,7 +7,7 @@ from django.urls import reverse
 from events.exports import build_export
 from hackathon import rubric, services
 from hackathon.forms import MarksForm
-from hackathon.models import Assignment, Round, RoundOutcome, Score
+from hackathon.models import Assignment, Round, RoundOutcome, RubricSettings, Score
 from tests.test_hackathon import admin_user, hack, setup, sheet  # noqa: F401
 
 
@@ -20,6 +20,11 @@ def round_post(round_, criteria, **extra):
                      f"c-{i}-strong_text": "Clear evidence", f"c-{i}-weak_text": "No evidence"})
     data.update(extra)
     return data
+
+
+def eliminate(event):
+    """Turn on "teams are eliminated between rounds" (off by default: every team goes through every round)."""
+    RubricSettings.objects.update_or_create(event=event, defaults={"eliminate_teams": True})
 
 
 def submit(assignment, marks, **extras):
@@ -159,6 +164,7 @@ def test_team_score_averages_two_judges(setup):
 
 def test_advancement_rule_with_key_criterion_band_and_override(client, setup, admin_user):
     event = setup["event"]
+    eliminate(event)
     a = setup["faculty"][0]
     round1, round2 = setup["rounds"]
     idea, demo = round1.criteria.all()
@@ -192,6 +198,7 @@ def test_advance_page_is_admins_only(client, setup):
 
 def test_only_advanced_teams_reach_the_next_round(client, setup, admin_user, make_person):
     event = setup["event"]
+    eliminate(event)
     a = setup["faculty"][0]
     round1, round2 = setup["rounds"]
     alpha, beta = setup["teams"]["Alpha"], setup["teams"]["Beta"]
@@ -225,6 +232,7 @@ def test_only_advanced_teams_reach_the_next_round(client, setup, admin_user, mak
 
 def test_final_sheet_weighted_total_rank_and_round_sheets(setup, admin_user):
     event = setup["event"]
+    eliminate(event)
     a = setup["faculty"][0]
     round1, round2 = setup["rounds"]
     round2.total_marks = 5
@@ -277,3 +285,35 @@ def test_volunteers_cannot_download_marks(client, setup, make_person):
     services.add_volunteer(setup["event"], volunteer)
     client.force_login(volunteer)
     assert client.get(reverse("event_export", args=[setup["event"].slug, "marks"])).status_code == 403
+
+
+def test_without_elimination_every_team_goes_through_every_round(client, setup, admin_user):
+    event = setup["event"]
+    a = setup["faculty"][0]
+    round1, round2 = setup["rounds"]
+    alpha, beta = setup["teams"]["Alpha"], setup["teams"]["Beta"]
+    services.allocate_room(round1, a, setup["rooms"][0])
+    RoundOutcome.objects.create(round=round1, team=beta, advanced=False, decided_by=admin_user)  # an old decision
+    assert not rubric.eliminating(event) and rubric.eligible_team_ids(round2) is None
+    Round.objects.filter(pk=round2.pk).update(opens_at=round1.opens_at, closes_at=round1.closes_at)
+    round2.refresh_from_db()
+    made, _ = services.allocate_room(round2, a, setup["rooms"][0])
+    assert made == 2  # Beta too
+    client.force_login(admin_user)
+    url = reverse("hackathon_advance", args=[event.slug, round1.pk])
+    page = client.get(url).content.decode()
+    assert 'data-testid="no-elimination"' in page and "Confirm the teams that go on" not in page
+    assert "Advance teams</a>" not in client.get(reverse("hackathon_dashboard", args=[event.slug])).content.decode()
+    client.post(url, {"confirm": "1", "advance": [alpha.pk]})
+    assert not RoundOutcome.objects.filter(round=round1, team=alpha).exists()
+    student = beta.members.first().registration.person
+    client.force_login(student)
+    assert "Not advanced" not in client.get(reverse("my_hackathon", args=[event.slug])).content.decode()
+    # Turned on in Rubric settings, the decisions count again.
+    client.force_login(admin_user)
+    rounds = list(Round.objects.filter(event=event))
+    data = {"eliminate_teams": "on", "bands_text": "Strong 85\nAdequate 60\nWeak 30\nMissing 0", "self_score_max": "50",
+            "red_flags_text": "", "recommendations_text": "", "guidance": ""}
+    data.update({f"w_{r.pk}": "0.5" for r in rounds})
+    client.post(reverse("hackathon_rubric_settings", args=[event.slug]), data)
+    assert rubric.eliminating(event) and beta.pk not in rubric.eligible_team_ids(round2)

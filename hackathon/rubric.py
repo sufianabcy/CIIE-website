@@ -120,9 +120,15 @@ def previous_round(round_):
     return Round.objects.filter(event=round_.event, position__lt=round_.position).order_by("-position").first()
 
 
+def eliminating(event) -> bool:
+    """Whether teams are eliminated between rounds at this hackathon (off: every team goes through every round)."""
+    return settings_for(event).eliminate_teams
+
+
 def eligible_team_ids(round_):
-    """Teams that may take part in this round: those advanced from the previous round once an admin has decided; all before."""
-    if round_ is None:
+    """Teams that may take part in this round: all of them, unless teams are eliminated between rounds; then those
+    advanced from the previous round once an admin has decided (all before)."""
+    if round_ is None or not eliminating(round_.event):
         return None
     before = previous_round(round_)
     if before is None or not before.outcomes.exists():
@@ -137,6 +143,10 @@ def eligible_teams(round_):
 
 
 def furthest_round(team, rounds) -> str:
+    if rounds and not eliminating(rounds[0].event):
+        # Nobody is eliminated: the last round the team was allocated in (or the first round).
+        judged = [r for r in rounds if Assignment.objects.filter(round=r, team=team).exists()]
+        return (judged or rounds)[-1].name if judged else rounds[0].name
     reached = rounds[0].name if rounds else ""
     for r in rounds[1:]:
         ids = eligible_team_ids(r)
@@ -175,7 +185,7 @@ def copy_rubric(source_event, target_event):
         dst.save(update_fields=["key_criterion"])
         made += 1
     src_settings, dst_settings = settings_for(source_event), settings_for(target_event)
-    for field in ("bands", "red_flags", "self_score_max", "recommendations", "guidance"):
+    for field in ("bands", "red_flags", "self_score_max", "recommendations", "guidance", "eliminate_teams"):
         setattr(dst_settings, field, getattr(src_settings, field))
     dst_settings.save()
     return made

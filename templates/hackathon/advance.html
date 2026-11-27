@@ -12,6 +12,7 @@
       {{ submitted }} of {{ total }} marksheets submitted. Teams that meet the rule are ticked; you decide.</p>
   </div>
 </header>
+{% if not eliminating %}<div class="alert alert-info" data-testid="no-elimination">Teams aren't eliminated at this hackathon: every team goes through every round. The scores below are for your information. To eliminate teams, turn on "Teams are eliminated between rounds" in <a href="{% url 'hackathon_rubric_settings' event.slug %}">Rubric settings</a>.</div>{% endif %}
 <form method="post" class="panel">{% csrf_token %}
   <div class="table-responsive"><table class="table table-sm align-middle mb-3">
     <thead><tr><th>Goes on{% if next_round %} to {{ next_round.name }}{% endif %}</th><th>Team</th><th class="text-end">Average total</th><th>Judges</th>{% if round.key_criterion %}<th>{{ round.key_criterion.label }}</th>{% endif %}<th>Rule</th><th>Recommended anyway</th><th>Decided</th></tr></thead>
@@ -26,8 +27,10 @@
       <td class="caption-2">{% if r.decided %}{{ r.decided.advanced|yesno:"Went on,Stopped" }}{% else %}not yet{% endif %}</td>
     </tr>{% empty %}<tr><td colspan="8" class="text-secondary">No teams were judged in this round.</td></tr>{% endfor %}</tbody>
   </table></div>
+  {% if eliminating %}
   <label class="d-flex gap-2 align-items-center mb-3"><input type="checkbox" name="confirm" value="1" class="form-check-input"> I've checked the list</label>
   <button class="btn btn-primary" type="submit">Confirm the teams that go on</button>
+  {% endif %}
   <p class="caption-2 text-secondary mt-2 mb-0">Only teams that go on appear in the next round's allocation, marksheets and attendance. Students see "Advanced to {{ next_round.name|default:'the next round' }}" or "Not advanced".</p>
 </form>
 {% endblock %}
