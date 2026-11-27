@@ -1,7 +1,7 @@
-"""Password sign-in for staff (faculty and supervisors): temporary passwords, lockout.
+"""Password sign-in: temporary passwords from the organisers, and lockout after wrong tries.
 
-Students keep signing in with an emailed code. Staff who were imported may have
-no usable email, so they get a short login ID as well.
+Everyone signs in with a password. People who were imported may have no usable email,
+so a temporary password comes with a short login ID as well.
 """
 
 import secrets
@@ -57,11 +57,11 @@ def check_password_signin(person: Person | None, password: str) -> Person:
     if person is None or not person.is_active or not person.has_usable_password():
         raise SignInRefused(wrong)
     if person.failed_password_signins >= MAX_FAILED_SIGNINS:
-        raise SignInRefused("Too many wrong passwords. Ask the organisers to unlock your account or send a new temporary password.")
+        raise SignInRefused("Too many wrong passwords. Use \"Forgot password\" to set a new one by email code, or ask the organisers.")
     if not person.check_password(password or ""):
         Person.objects.filter(pk=person.pk).update(failed_password_signins=person.failed_password_signins + 1)
         raise SignInRefused(wrong)
     if person.must_change_password and person.temp_password_expires_at and timezone.now() > person.temp_password_expires_at:
-        raise SignInRefused("This temporary password has expired. Ask the organisers for a new one.")
+        raise SignInRefused("This temporary password has expired. Use \"Forgot password\" to set your own by email code, or ask the organisers for a new one.")
     Person.objects.filter(pk=person.pk).update(failed_password_signins=0)
     return person

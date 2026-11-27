@@ -209,7 +209,7 @@
 {% if can.can_make_logins %}
 <section class="panel step-panel">
   <h2 class="panel-title"><span class="step-num">5</span>Logins for {% if is_admin %}faculty, supervisors and volunteers{% else %}faculty{% endif %}</h2>
-  <p class="caption-2 text-secondary">Each person gets a login ID and a temporary password for <code>{{ request.scheme }}://{{ request.get_host }}{% url 'staff_signin' %}</code>. They must choose their own password the first time they sign in. Passwords are shown only once, in the Excel file you download now. Send each person their own row.{% if not is_admin %} Faculty who also have a bigger role (admin, coordinator or supervisor) are skipped: an admin handles theirs.{% endif %}</p>
+  <p class="caption-2 text-secondary">Each person gets a login ID and a temporary password for <code>{{ request.scheme }}://{{ request.get_host }}{% url 'signin' %}</code>. They must choose their own password the first time they sign in. Passwords are shown only once, in the Excel file you download now. Send each person their own row. To email each person their own login instead, use Email login details on the Faculty or Students page.{% if not is_admin %} Faculty who also have a bigger role (admin, coordinator or supervisor) are skipped: an admin handles theirs.{% endif %}</p>
   <form method="post" action="{% url 'hackathon_logins' event.slug %}" data-no-busy>{% csrf_token %}
     <div class="choice-row mb-3">{% for radio in credentials_form.which %}<label class="choice" for="{{ radio.id_for_label }}">{{ radio.tag }}<span>{{ radio.choice_label }}</span></label>{% endfor %}</div>
     <div class="d-flex flex-wrap align-items-end gap-2">

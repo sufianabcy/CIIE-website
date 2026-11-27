@@ -11,6 +11,6 @@
   {% if not event.is_hackathon %}<tr><td style="color:#57606a">When</td><td>{{ event.starts_at|date:"l j F Y, g:i A" }}</td></tr>
   {% if event.venue %}<tr><td style="color:#57606a">Where</td><td>{{ event.venue }}</td></tr>{% endif %}{% endif %}
 </table>
-<p>To see your details, <a href="{{ signin_url }}">sign in</a> with your KL email (<strong>{{ person.email }}</strong>). We'll email you a code; there's no password.</p>
+<p>To see your details, <a href="{{ signin_url }}">sign in</a> with your KL email (<strong>{{ person.email }}</strong>) and your password. Never set one? Choose <a href="{{ register_url }}">New registration</a> with this email: we'll email you a code and you'll choose a password.</p>
 <p>{{ club_name }} student team<br><span style="color:#57606a">Questions: {{ contact_email }}</span></p>
 </body></html>

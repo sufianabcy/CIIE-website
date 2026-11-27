@@ -157,7 +157,9 @@ SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = "DENY"
 
 # --- Sign-in (django-allauth) ----------------------------------------------
-# Only staff (faculty, supervisors) ever set a password; students sign in by emailed code.
+# Everyone signs in with their email (or login ID) and a password. An emailed code is used only to
+# register (it proves the email is theirs) and to set a forgotten password; existing people never get
+# a code just to sign in.
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator", "OPTIONS": {"min_length": 10}},
@@ -169,13 +171,17 @@ LOGIN_URL = "signin"
 LOGIN_REDIRECT_URL = "my_registrations"
 ACCOUNT_LOGOUT_REDIRECT_URL = "event_list"
 ACCOUNT_LOGIN_METHODS = {"email"}
-ACCOUNT_SIGNUP_FIELDS = ["email*"]  # no passwords anywhere
+ACCOUNT_SIGNUP_FIELDS = ["email*"]  # the password is chosen after the code, on the portal's own page
 ACCOUNT_USER_MODEL_USERNAME_FIELD = None
 ACCOUNT_UNIQUE_EMAIL = True
 ACCOUNT_EMAIL_VERIFICATION = "mandatory"
 ACCOUNT_EMAIL_VERIFICATION_BY_CODE_ENABLED = True
-ACCOUNT_LOGIN_BY_CODE_ENABLED = True
+ACCOUNT_LOGIN_BY_CODE_ENABLED = False  # existing accounts sign in with a password
 ACCOUNT_LOGIN_BY_CODE_TIMEOUT = 15 * 60  # codes can be slow to arrive in a rush
+ACCOUNT_PASSWORD_RESET_BY_CODE_ENABLED = True  # "Forgot password": a code by email, then a new password
+ACCOUNT_PASSWORD_RESET_BY_CODE_TIMEOUT = 15 * 60
+ACCOUNT_PASSWORD_RESET_BY_CODE_MAX_ATTEMPTS = 5
+ACCOUNT_LOGIN_ON_PASSWORD_RESET = True
 ACCOUNT_LOGIN_ON_EMAIL_CONFIRMATION = True
 ACCOUNT_SESSION_REMEMBER = True
 ACCOUNT_PREVENT_ENUMERATION = False

@@ -1,0 +1,83 @@
+{% extends "account/base_entrance.html" %}
+{% load i18n %}
+{% load allauth account %}
+{% comment %}Our own copy of allauth's code screen for a new registration: same form and actions, friendlier words.{% endcomment %}
+{% block head_title %}Enter your code{% endblock head_title %}
+{% block content %}
+  {% url 'account_email_verification_sent' as action_url %}
+  <div class="code-head">
+    <span class="code-icon" aria-hidden="true">{% include "ui/icon.html" with name="mail" %}</span>
+    <h1 class="heading-4">Check your email</h1>
+    <p>We sent a code to</p>
+    <p class="code-to">{{ email }}</p>
+    <p>Type it below. Next you'll choose a password.</p>
+  </div>
+  <ol class="auth-steps justify-content-center" aria-label="Steps">
+    <li class="is-now"><span class="n">1</span>Email and code</li>
+    <li><span class="n">2</span>Password</li>
+    <li><span class="n">3</span>Student or faculty</li>
+  </ol>
+  {% element form form=verify_form method="post" action=action_url tags="entrance,email,verification" %}
+    {% slot body %}
+      {% csrf_token %}
+      {% element fields form=verify_form unlabeled=True %}
+      {% endelement %}
+      {{ redirect_field }}
+    {% endslot %}
+    {% slot actions %}
+      {% element button_group %}
+        {% element button type="submit" tags="confirm,email,verification" %}
+          Confirm
+        {% endelement %}
+        {% if can_resend %}
+          {% element button form="resend" tags="outline,resend" %}
+            Send a new code
+          {% endelement %}
+        {% endif %}
+        {% if cancel_url %}
+          {% element button href=cancel_url tags="outline,cancel" %}
+            Use another email
+          {% endelement %}
+        {% else %}
+          {% element button type="submit" form="logout-from-stage" tags="outline,cancel" %}
+            Use another email
+          {% endelement %}
+        {% endif %}
+      {% endelement %}
+    {% endslot %}
+  {% endelement %}
+  <p class="code-help">No email after a few minutes? Check Spam or Junk, then send a new code.</p>
+  <form id="resend" method="post" action="{{ action_url }}">
+    <input type="hidden" name="action" value="resend">
+    {{ redirect_field }}
+    {% csrf_token %}
+  </form>
+  {% if not cancel_url %}
+    <form id="logout-from-stage" method="post" action="{% url 'account_logout' %}">
+      <input type="hidden" name="next" value="{% url 'signin' %}?mode=register">
+      {% csrf_token %}
+    </form>
+  {% endif %}
+  {% if can_change %}
+    {% element details open=change_form.errors %}
+      {% slot summary %}
+        Change email
+      {% endslot %}
+      {% slot body %}
+        {% element form form=change_form method="post" action=action_url %}
+          {% slot body %}
+            {% csrf_token %}
+            {% element fields form=change_form unlabeled=True %}
+            {% endelement %}
+            {{ redirect_field }}
+          {% endslot %}
+          {% slot actions %}
+            {% element button name="action" value="change" type="submit" %}
+              Change
+            {% endelement %}
+          {% endslot %}
+        {% endelement %}
+      {% endslot %}
+    {% endelement %}
+  {% endif %}
+{% endblock content %}

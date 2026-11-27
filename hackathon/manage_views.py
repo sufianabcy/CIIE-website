@@ -12,12 +12,14 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
 from django.forms import inlineformset_factory
+from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_POST
 from django.utils.text import slugify
 
+from people.logins import TEMP_PASSWORD_DAYS, login_states, send_login_details
 from people.models import Person
 from registrations.models import Registration
 from registrations.services import RegistrationError, cancel, register
@@ -75,7 +77,8 @@ def _style(form):
 
 def _list(request, event, section, title, headers, rows, add_url=None, intro="", add_label="Add", import_kind=None, filters=None,
           extra_url=None, extra_label=""):
-    rows = [{"cells": r[0], "edit": r[1] if len(r) > 1 else None, "delete": r[2] if len(r) > 2 else None} for r in rows]
+    rows = [{"cells": r[0], "edit": r[1] if len(r) > 1 else None, "delete": r[2] if len(r) > 2 else None,
+             "send": r[3] if len(r) > 3 else None} for r in rows]
     import_url = None
     if import_kind and allowed(request.user, event, "can_import"):
         import_url = reverse("hackathon_import_start", args=[event.slug]) + f"?kind={import_kind}"
@@ -109,23 +112,30 @@ def students(request, slug):
     can_edit = allowed(request.user, event, "can_edit_teams")
     details = {d.person_id: d.values for d in event.person_details.all()}
     rows = []
-    regs = _student_regs(event)
+    regs = list(_student_regs(event))
     no_team = request.GET.get("no_team") == "1"
     if no_team:
-        regs = regs.filter(team_membership__isnull=True)
+        regs = [r for r in regs if not hasattr(r, "team_membership")]
+    can_send = can_send_logins(request.user, event, "students")
+    states = login_states([r.person for r in regs]) if can_send else {}
     for r in regs:
         p = r.person
         team = r.team_membership.team if hasattr(r, "team_membership") else None
         vals = details.get(p.pk, {})
         rows.append((
             [p.display_name, p.email or "", p.student_id, team.name if team else "—", team.room.name if team and team.room else "—"]
-            + [detail_fields.display(d, vals.get(d.key)) for d in defs],
+            + [detail_fields.display(d, vals.get(d.key)) for d in defs] + ([_state_cell(states[p.pk])] if can_send else []),
             _url(event, "student_edit", r.pk) if can_edit else None,
+            None,
+            _send_button(request, event, "students", p, states.get(p.pk)) if can_send else None,
         ))
-    return _list(request, event, "students", "Students", ["Name", "Email", "KL ID", "Team", "Room"] + [d.label for d in defs], rows,
+    return _list(request, event, "students", "Students",
+                 ["Name", "Email", "KL ID", "Team", "Room"] + [d.label for d in defs] + (["Login details"] if can_send else []), rows,
                  add_url=_url(event, "student_add") if can_edit else None, add_label="Add a student", import_kind="students",
                  filters=[("All students", "?", not no_team), ("No team yet", "?no_team=1", no_team)],
-                 intro="Each student's team is shown here; change it on the student's page.")
+                 intro="Each student's team is shown here; change it on the student's page.",
+                 extra_url=reverse("hackathon_login_details", args=[event.slug, "students"]) if can_send else None,
+                 extra_label="Email login details")
 
 
 class TeamChoiceForm(forms.Form):
@@ -412,15 +422,115 @@ def faculty(request, slug):
     can_edit = allowed(request.user, event, "can_add_faculty")
     details = {d.person_id: d.values for d in event.person_details.all()}
     rows = []
-    for f in EventFaculty.objects.filter(event=event).select_related("person").annotate(n=Count("assignments")):
+    roles = list(EventFaculty.objects.filter(event=event).select_related("person").annotate(n=Count("assignments")))
+    can_send = can_send_logins(request.user, event, "faculty")
+    states = login_states([f.person for f in roles]) if can_send else {}
+    sendable = {p.pk for p in login_people(request.user, event, "faculty")[0]} if can_send else set()
+    for f in roles:
         p, vals = f.person, details.get(f.person_id, {})
         rows.append((
             [p.display_name + ("" if f.is_active else " (off)"), p.email or "", p.employee_id, p.branch, f.n]
-            + [detail_fields.display(d, vals.get(d.key)) for d in defs],
+            + [detail_fields.display(d, vals.get(d.key)) for d in defs] + ([_state_cell(states[p.pk])] if can_send else []),
             _url(event, "faculty_edit", f.pk) if can_edit else None,
+            None,
+            _send_button(request, event, "faculty", p, states.get(p.pk)) if p.pk in sendable else None,
         ))
-    return _list(request, event, "faculty", "Faculty", ["Name", "Email", "Employee ID", "Department", "Teams to judge"] + [d.label for d in defs],
-                 rows, add_url=_url(event, "faculty_add") if can_edit else None, add_label="Add a faculty member", import_kind="faculty")
+    return _list(request, event, "faculty", "Faculty",
+                 ["Name", "Email", "Employee ID", "Department", "Teams to judge"] + [d.label for d in defs] + (["Login details"] if can_send else []),
+                 rows, add_url=_url(event, "faculty_add") if can_edit else None, add_label="Add a faculty member", import_kind="faculty",
+                 extra_url=reverse("hackathon_login_details", args=[event.slug, "faculty"]) if can_send else None,
+                 extra_label="Email login details")
+
+
+# --- Login details by email (temporary passwords) -------------------------------------------------
+
+
+def can_send_logins(user, event, who) -> bool:
+    """Faculty: admins, or supervisors given "Make faculty passwords". Students: admins only."""
+    if who == "faculty":
+        return allowed(user, event, "can_make_logins")
+    return who == "students" and is_admin(user)
+
+
+def login_people(user, event, who):
+    """(people this user may send login details to, [(person, why not)])."""
+    if who == "faculty":
+        people = [f.person for f in EventFaculty.objects.filter(event=event, is_active=True).select_related("person")
+                  .order_by("person__full_name")]
+    else:
+        people = [r.person for r in _student_regs(event)]
+    allowed_, skipped = [], []
+    for p in people:
+        if p.pk == user.pk:
+            skipped.append((p, "that's you; change your own password from your profile"))
+        elif not is_admin(user) and services._privileged(p):
+            skipped.append((p, "has a bigger role, so only an admin can reset their login"))
+        else:
+            allowed_.append(p)
+    return allowed_, skipped
+
+
+def _state_cell(state):
+    times = f" ({state.times_sent} times)" if state.times_sent > 1 else ""
+    return state.label + times
+
+
+def _send_button(request, event, who, person, state):
+    if state is None or not person.email:
+        return None
+    confirm = ""
+    if state.done:
+        confirm = (f"{person.display_name} already has login details ({state.label.lower()}). "
+                   "Email a new temporary password? The one they have now stops working.")
+    return {"url": reverse("hackathon_login_details", args=[event.slug, who]), "person": person.pk,
+            "label": "Email again" if state.done or state.times_sent else "Email login", "confirm": confirm}
+
+
+@never_cache
+@login_required
+def login_details(request, slug, who):
+    """Email login details: to everyone not sent yet, to everyone, or (from the list) to one person."""
+    event = overseen_event(request, slug)
+    if who not in ("faculty", "students"):
+        raise Http404
+    if not can_send_logins(request.user, event, who):
+        raise PermissionDenied
+    people, skipped = login_people(request.user, event, who)
+    states = login_states(people)
+    noun = "faculty member(s)" if who == "faculty" else "student(s)"
+    if request.method == "POST":
+        if request.POST.get("person"):
+            targets = [p for p in people if str(p.pk) == request.POST["person"]]
+            if not targets:
+                raise Http404
+        elif request.POST.get("scope") == "remaining":
+            targets = [p for p in people if p.email and not states[p.pk].done]
+        elif request.POST.get("scope") == "all":
+            targets = [p for p in people if p.email]
+        else:
+            raise Http404
+        role = "faculty" if who == "faculty" else "student"
+        sent = sum(send_login_details(p, event=event, role=role) for p in targets)
+        if sent:
+            messages.success(request, f"Login details emailed to {sent} {noun}. Each has a new temporary password, "
+                                      "valid for a week; they choose their own at first sign-in.")
+        if len(targets) - sent:
+            messages.info(request, f"{len(targets) - sent} not sent again: their login details went out a moment ago.")
+        if not targets:
+            messages.info(request, "Nobody to send to.")
+        return redirect("hackathon_manage_" + who, slug)
+    emailable = [p for p in people if p.email]
+    remaining = [p for p in emailable if not states[p.pk].done]
+    rows = [(p, states[p.pk]) for p in people]
+    return render(request, "hackathon/login_details.html", _ctx(
+        request, event, who, who=who, noun=noun, rows=rows, skipped=skipped, emailable=emailable, remaining=remaining,
+        already=[(p, states[p.pk]) for p in emailable if states[p.pk].done],
+        own_password=sum(1 for p in emailable if states[p.pk].code == "own_password"),
+        emailed_before=sum(1 for p in emailable if states[p.pk].code in ("sent", "queued")),
+        temp_only=sum(1 for p in remaining if states[p.pk].code == "temp_only"),
+        failed=sum(1 for p in remaining if states[p.pk].code == "failed"),
+        no_email=[p for p in people if not p.email], days=TEMP_PASSWORD_DAYS,
+    ))
 
 
 class FacultyActiveForm(forms.Form):

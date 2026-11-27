@@ -194,8 +194,8 @@ def test_temporary_password_must_be_changed_before_anything_else(client, hack):
     faculty.person.refresh_from_db()
     response = client.post(reverse("staff_signin"), {"login": faculty.person.login_id.lower(), "password": temp})
     assert response["Location"] == reverse("password_change")
-    assert client.get(reverse("staff_home"))["Location"] == reverse("password_change")
-    assert client.get(reverse("my_registrations"))["Location"] == reverse("password_change")
+    assert client.get(reverse("staff_home"))["Location"] == reverse("password_change") + "?next=%2Ffaculty%2F"
+    assert client.get(reverse("my_registrations"))["Location"].startswith(reverse("password_change"))
     weak = client.post(reverse("password_change"), {"new_password1": "12345678", "new_password2": "12345678"})
     assert weak.status_code == 200
     client.post(reverse("password_change"), {"new_password1": GOOD_PASSWORD, "new_password2": GOOD_PASSWORD})
@@ -227,7 +227,7 @@ def test_expired_temporary_password_and_lockout(client, hack):
     assert "_auth_user_id" not in client.session
 
 
-def test_students_cannot_sign_in_with_a_password(client, make_person):
+def test_no_password_yet_means_no_password_sign_in(client, make_person):
     student = make_person()
     response = client.post(reverse("staff_signin"), {"login": student.email, "password": "anything"})
     assert b"don&#x27;t match" in response.content
@@ -732,9 +732,9 @@ def test_rejected_request_stays_a_student_and_gets_an_email(client, admin_user, 
     applicant.refresh_from_db()
     assert req.status == FacultyRequest.Status.REJECTED and not applicant.is_faculty and applicant.employee_id == ""
     assert "Not faculty" in OutboxEmail.objects.filter(to_email="maybe@example.com").latest("pk").text_body
-    # Students can't set a password; they can ask again.
+    # They can still set a password like any student, and ask again.
     client.force_login(applicant)
-    assert client.get(reverse("password_change"))["Location"] == reverse("my_registrations")
+    assert client.get(reverse("password_change")).status_code == 200
     assert b"not approved" in client.get(reverse("faculty_register")).content
 
 

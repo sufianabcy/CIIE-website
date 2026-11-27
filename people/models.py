@@ -51,7 +51,7 @@ class PersonManager(BaseUserManager):
         extra.setdefault("is_superuser", True)
         extra.setdefault("source", Person.Source.IMPORT)
         person = self.create_user(email, password, **extra)
-        # Sign-in is by emailed code; this row lets the first code verify the address.
+        # This row lets a "Forgot password" code verify the address and set the first password.
         EmailAddress.objects.get_or_create(user=person, email=person.email, defaults={"primary": True})
         return person
 
@@ -195,6 +195,11 @@ class Person(AbstractBaseUser, PermissionsMixin):
     @property
     def is_faculty(self) -> bool:
         return self.in_group("Faculty")
+
+    @property
+    def faculty_pending(self) -> bool:
+        """Registered as faculty and waiting for an admin (still a student account until approved)."""
+        return bool(self.pk) and self.faculty_requests.filter(status="pending").exists()
 
     @property
     def is_supervisor(self) -> bool:

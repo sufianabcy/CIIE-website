@@ -227,3 +227,75 @@ def test_faculty_profile_asks_only_name_department_and_phone(client, make_person
     client.force_login(student)
     page = client.get(reverse("profile")).content.decode()
     assert 'name="institution"' in page and 'name="year_of_study"' in page and "KL student status" in page
+
+
+# --- Team names left blank or written once per team ---------------------------------------------
+
+
+def merged_xlsx():
+    """Team names typed once per team in a merged cell, the way many sheets are made."""
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["Team", "Name", "KL ID"])
+    for row in (["Alpha", "A1", "2300000001"], ["", "A2", "2300000002"], ["", "A3", "2300000003"],
+                ["Beta", "B1", "2300000004"], ["", "B2", "2300000005"]):
+        ws.append(row)
+    ws.merge_cells("A2:A4")
+    ws.merge_cells("A5:A6")
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    buffer.name = "merged.xlsx"
+    return buffer
+
+
+def test_team_names_in_merged_cells_go_to_every_member(client, hack, admin_user):
+    client.force_login(admin_user)
+    url = upload(client, hack, "students", merged_xlsx())
+    page = client.get(url).content.decode()
+    assert "no team name" not in page  # merged cells are read for every row they cover
+    choose(client, url, {0: "team", 1: "name", 2: "student_id"}, action="import")
+    assert sorted(Team.objects.filter(event=hack).values_list("name", flat=True)) == ["Alpha", "Beta"]
+    assert Team.objects.get(event=hack, name="Alpha").members.count() == 3
+    assert Team.objects.get(event=hack, name="Beta").members.count() == 2
+
+
+SHEET = [["Team", "Name", "KL ID"], ["Rocket", "R1", "2300000011"], ["", "R2", "2300000012"], ["Comet", "C1", "2300000013"], ["", "C2", "2300000014"]]
+
+
+@pytest.mark.parametrize("choice, teams", [
+    ("none", {"Rocket": ["R1"], "Comet": ["C1"]}),
+    ("above", {"Rocket": ["R1", "R2"], "Comet": ["C1", "C2"]}),
+    ("solo", {"Rocket": ["R1"], "Comet": ["C1"], "R2": ["R2"], "C2": ["C2"]}),
+])
+def test_rows_without_a_team_name_are_shown_and_handled_as_chosen(client, hack, admin_user, choice, teams):
+    client.force_login(admin_user)
+    url = upload(client, hack, "students", xlsx(SHEET))
+    columns = {0: "team", 1: "name", 2: "student_id"}
+    checked = choose(client, url, columns).content.decode()
+    assert "2 rows have no team name" in checked and "Row 3 (R2)" in checked and "Row 5 (C2)" in checked
+    assert 'value="none" checked' in checked  # never a made-up team unless asked
+    client.post(url, {"action": "import", "blank_teams": choice, **{f"col_{i}": v for i, v in columns.items()}})
+    got = {t.name: sorted(m.registration.person.full_name for m in t.members.all()) for t in Team.objects.filter(event=hack)}
+    assert got == teams
+    assert Registration.objects.filter(event=hack).count() == 4  # everyone is registered either way
+    if choice == "none":
+        item = ImportUpload.objects.get(event=hack)
+        assert any("no team name" in w for w in item.result["warnings"])
+        page = client.get(reverse("hackathon_manage_students", args=[hack.slug]) + "?no_team=1").content.decode()
+        assert "R2" in page and "C2" in page
+
+
+def test_reimport_with_team_names_clears_the_teams_of_one_made_before(client, hack, admin_user):
+    from hackathon import services
+
+    services.import_students(hack, xlsx([["Name", "KL ID", "Team"], ["Solo Sam", "2300000021", ""], ["Lead", "2300000022", "Nova"]]))
+    assert Team.objects.filter(event=hack, name="Solo Sam").exists()  # the old behaviour, kept for direct calls
+    report = services.import_students(hack, xlsx([["Name", "KL ID", "Team"], ["Solo Sam", "2300000021", "Nova"]]))
+    assert not Team.objects.filter(event=hack, name="Solo Sam").exists()
+    assert Team.objects.get(event=hack, name="Nova").members.count() == 2
+    assert any("removed the empty team" in w for w in report.warnings)
+    # A named team that empties out is kept: only a team of one named after its student is removed.
+    services.import_students(hack, xlsx([["Name", "KL ID", "Team"], ["Lead", "2300000022", "Other"], ["Solo Sam", "2300000021", "Other"]]))
+    nova = Team.objects.get(event=hack, name="Nova")
+    assert not nova.members.exists()

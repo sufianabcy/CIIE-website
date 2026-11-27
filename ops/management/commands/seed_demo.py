@@ -78,7 +78,10 @@ class Command(BaseCommand):
         )
         practice.coordinators.add(boss, coordinator)
         self.seed_hackathon(ten_am, now, [boss, coordinator])
-        self.stdout.write(self.style.SUCCESS(f"Demo ready. Sign in as {boss.email} at /signin/ (the code appears in this terminal)."))
+        self.stdout.write(self.style.SUCCESS(
+            f"Demo ready. At /signin/ choose New registration with {boss.email} to set a password "
+            "(the code appears in this terminal), then sign in with it."
+        ))
 
     def seed_hackathon(self, ten_am, now, coordinators):
         """A hackathon with 2 rooms, 4 teams, 2 rounds with rubrics, 3 faculty, a supervisor and allocations."""

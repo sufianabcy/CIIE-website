@@ -236,7 +236,7 @@ def marks_workbook(event, wb):
 def credentials_file(event, issued, user) -> tuple[str, bytes]:
     """issued: [(person, roles, password)]. The only place temporary passwords are ever shown."""
     wb = Workbook()
-    url = settings.SITE_URL + reverse("staff_signin")
+    url = settings.SITE_URL + reverse("signin")
     _sheet(
         wb, "Logins",
         ["Name", "Role", "Email", "Login ID", "Temporary password", "Expires", "Sign in at", "Note"],

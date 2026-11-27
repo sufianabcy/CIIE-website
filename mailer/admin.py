@@ -33,14 +33,15 @@ class OutboxEmailAdmin(admin.ModelAdmin):
         )
         self.message_user(request, f"{n} email(s) queued again.")
 
-    @admin.action(description="Send a copy again (not for codes)")
+    @admin.action(description="Send a copy again (not for codes or login details)")
     def send_again(self, request, queryset):
         n = 0
-        for email in queryset.exclude(kind=OutboxEmail.Kind.CODE):
+        for email in queryset.exclude(kind__in=[OutboxEmail.Kind.CODE, OutboxEmail.Kind.LOGIN]):
             enqueue_email(
                 to=email.to_email, subject=email.subject, text=email.text_body, html=email.html_body,
                 kind=email.kind, person=email.person,
             )
             n += 1
         level = messages.SUCCESS if n else messages.WARNING
-        self.message_user(request, f"{n} email(s) queued again. Codes are never resent; ask the person to request a new one.", level)
+        self.message_user(request, f"{n} email(s) queued again. Codes and login details are never resent as copies; "
+                          "send new login details from the hackathon's Faculty or Students page.", level)

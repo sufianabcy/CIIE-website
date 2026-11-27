@@ -125,9 +125,9 @@ class PersonAdmin(admin.ModelAdmin):
         ]
         if obj:
             fieldsets += [
-                ("Staff sign-in", {"classes": ["collapse"],
+                ("Password sign-in", {"classes": ["collapse"],
                                    "fields": ["login_id", "must_change_password", "temp_password_expires_at", "failed_password_signins"],
-                                   "description": "Temporary passwords are made on each hackathon's page and shown once, in an Excel file."}),
+                                   "description": "Temporary passwords are emailed from a hackathon's Faculty or Students page, or made once in its passwords Excel."}),
                 ("Dates", {"classes": ["collapse"], "fields": ["date_joined", "last_login", "profile_completed_at", "source"]}),
             ]
         if request.user.is_superuser:
@@ -182,7 +182,7 @@ class PersonAdmin(admin.ModelAdmin):
         if obj.kl_email and is_kl_email(obj.kl_email) and not obj.kl_verified_at:
             obj.kl_verified_at = timezone.now()  # an admin entering it counts as verified
         if not obj.pk:
-            obj.set_unusable_password()  # students sign in by emailed code; staff get temporary passwords
+            obj.set_unusable_password()  # they set one with "New registration", or get emailed login details
         super().save_model(request, obj, form, change)
 
     def save_related(self, request, form, formsets, change):

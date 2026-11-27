@@ -1,0 +1,15 @@
+Hi {{ person.full_name|default:"there" }},
+
+Here are your login details for the {{ club_name }} portal{% if event %}, for {{ event.title }}{% endif %}.
+
+Sign in at: {{ signin_url }}
+Email: {{ login }}{% if login_id %}  (or login ID: {{ login_id }}){% endif %}
+Temporary password: {{ password }}
+
+When you sign in you'll choose your own password straight away. The temporary one works until {{ expires_at|date:"j M Y, g:i A" }}.
+{% if role == "faculty" %}Once signed in, the Judging page lists the teams allocated to you: {{ home_url }}{% elif event and event.is_hackathon %}Once signed in you can see your team, room, round timings and, once released, your marks: {{ home_url }}{% endif %}
+
+Forgot your password later, or this one expired? Use "Forgot password" on the sign-in page ({{ reset_url }}) and we'll email you a code to set a new one.
+
+{{ club_name }}
+Questions: {{ contact_email }}

@@ -42,6 +42,10 @@ class AccountAdapter(DefaultAccountAdapter):
         # First sign-in goes through the profile step (certificate name etc.).
         if request.user.is_authenticated and not request.user.profile_complete:
             return reverse("profile")
+        if request.user.is_authenticated:
+            from .views import _staff_landing
+
+            return reverse(_staff_landing(request.user))
         return super().get_login_redirect_url(request)
 
     def get_signup_redirect_url(self, request):

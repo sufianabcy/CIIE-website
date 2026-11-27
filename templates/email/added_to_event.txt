@@ -10,7 +10,7 @@ Room: {{ room.name }}{% for r in rounds %}
 When: {{ event.starts_at|date:"l j F Y, g:i A" }}{% if event.venue %}
 Where: {{ event.venue }}{% endif %}{% endif %}
 
-To see your details, sign in at {{ signin_url }} with your KL email ({{ person.email }}). We'll email you a code; there's no password.
+To see your details, sign in at {{ signin_url }} with your KL email ({{ person.email }}) and your password. Never set one? Choose New registration with this email ({{ register_url }}): we'll email you a code and you'll choose a password.
 
 {{ club_name }} student team
 Questions: {{ contact_email }}

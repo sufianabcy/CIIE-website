@@ -241,7 +241,7 @@
         <ol class="how-steps" role="tablist" aria-label="Steps">
           <li><button class="how-step is-active" type="button" role="tab" aria-selected="true" data-step>
             <span class="step-num">1</span><span class="st">Sign in with your email</span>
-            <span class="sd">Type your KL email and we send you a code. There is no password to remember.</span><span class="bar"></span>
+            <span class="sd">New here? Register with your KL email: we send a code, you choose a password. After that you sign in with both.</span><span class="bar"></span>
           </button></li>
           <li><button class="how-step" type="button" role="tab" aria-selected="false" data-step>
             <span class="step-num">2</span><span class="st">Register for an event</span>
@@ -336,11 +336,11 @@
           </details>
           <details>
             <summary>How do I sign in?<span class="pm">{% include "ui/icon.html" with name="plus" %}</span></summary>
-            <div class="answer">Type your email and we send you a sign in code. There is no password. KL students should use their KL email, so they are verified as KL in the same step.</div>
+            <div class="answer">With your email and password. The first time, choose New registration: we email you a code, then you choose a password and fill in your details. KL students should use their KL email, so they are verified as KL in the same step. Forgot your password? Use "Forgot password" on the sign-in page.</div>
           </details>
           <details>
             <summary>My code hasn't arrived. What now?<span class="pm">{% include "ui/icon.html" with name="plus" %}</span></summary>
-            <div class="answer">Codes can take a few minutes. Check your Spam or Junk folder, then ask for a new code. If it still doesn't come, write to <a href="mailto:{{ CLUB_CONTACT_EMAIL }}">{{ CLUB_CONTACT_EMAIL }}</a>.</div>
+            <div class="answer">Codes (for a new registration or a forgotten password) can take a few minutes. Check your Spam or Junk folder, then ask for a new code. If it still doesn't come, write to <a href="mailto:{{ CLUB_CONTACT_EMAIL }}">{{ CLUB_CONTACT_EMAIL }}</a>.</div>
           </details>
           <details>
             <summary>Can I cancel my registration?<span class="pm">{% include "ui/icon.html" with name="plus" %}</span></summary>

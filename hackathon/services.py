@@ -445,11 +445,29 @@ def set_team_room(team, room) -> list[str]:
     return warnings
 
 
-@transaction.atomic
-def import_students(event, upload, by=None, columns=None, only_rows=None) -> ImportReport:
-    """Students, their teams, rooms and mentors. A row without a team name becomes a team of one.
+# What to do with a student row whose team name is empty (chosen on the import's check step).
+BLANK_TEAM_SOLO = "solo"  # a team of one, named after the student
+BLANK_TEAM_NONE = "none"  # no team yet; sort them out on the Teams page
+BLANK_TEAM_ABOVE = "above"  # the team named in the nearest row above (filled in before the import runs)
 
-    columns and only_rows come from the import's matching screen (see import_staff).
+
+def _drop_empty_solo_team(team, person) -> bool:
+    """Delete a team of one that was made for this person (named after them) once it is empty and unused."""
+    if team.name.lower() != person.display_name.lower() or team.members.exists():
+        return False
+    if team.assignments.exists() or team.attendance.exists() or team.outcomes.exists():
+        return False
+    team.delete()
+    return True
+
+
+@transaction.atomic
+def import_students(event, upload, by=None, columns=None, only_rows=None, blank_team=BLANK_TEAM_SOLO) -> ImportReport:
+    """Students, their teams, rooms and mentors.
+
+    A row without a team name keeps the student's current team. A student with no team yet gets a team of one
+    (blank_team "solo") or stays without a team ("none"). columns and only_rows come from the import's
+    matching screen (see import_staff).
     """
     report = ImportReport()
     headers, rows = read_rows(upload)
@@ -495,13 +513,19 @@ def import_students(event, upload, by=None, columns=None, only_rows=None) -> Imp
                 team = Team.objects.filter(event=event, name__iexact=team_name).first() or Team.objects.create(event=event, name=team_name)
             elif membership:
                 team = membership.team
-            else:
+            elif blank_team == BLANK_TEAM_SOLO:
                 solo = person.display_name
                 team = Team.objects.filter(event=event, name__iexact=solo).first() or Team.objects.create(event=event, name=solo)
+            else:
+                report.warnings.append(f"Row {line}: {person.display_name} has no team name, so they're not in a team yet.")
+                continue
             if membership and membership.team_id != team.pk:
-                report.warnings.append(f"Row {line}: {person.display_name} moved from {membership.team.name} to {team.name}.")
+                old_team = membership.team
+                report.warnings.append(f"Row {line}: {person.display_name} moved from {old_team.name} to {team.name}.")
                 membership.team = team
                 membership.save(update_fields=["team"])
+                if _drop_empty_solo_team(old_team, person):
+                    report.warnings.append(f"Row {line}: removed the empty team \"{old_team.name}\" that was made for {person.display_name} alone.")
             elif not membership:
                 membership = TeamMember.objects.create(team=team, registration=registration, extra=extra)
             if extra and membership.extra != {**membership.extra, **extra}:
@@ -805,8 +829,8 @@ def _decision_email(req):
         text = (
             f"Hello {req.full_name},\n\nAn admin approved your faculty registration on the {settings.CLUB_NAME} portal."
             + (f" You're on the faculty list for {req.event.title}." if req.event_id else "")
-            + "\n\nSign in with your email as usual; the Judging page lists the teams allocated to you. "
-            "To sign in with a password instead, set one from your profile.\n"
+            + "\n\nSign in with your email and password as usual; the Judging page lists the teams allocated to you. "
+            "Forgot your password? Use \"Forgot password\" on the sign-in page.\n"
         )
     else:
         subject = "Your faculty registration"

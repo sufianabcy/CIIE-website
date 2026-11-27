@@ -4,6 +4,24 @@ from .models import Person
 
 
 class SignInForm(forms.Form):
+    """Existing accounts: email (or the login ID from the organisers) and password. No code."""
+
+    login = forms.CharField(
+        label="Email or login ID", max_length=254,
+        widget=forms.TextInput(
+            attrs={"class": "form-control form-control-lg", "autocomplete": "username", "autofocus": True, "placeholder": "you@example.com"}
+        ),
+    )
+    password = forms.CharField(
+        label="Password", max_length=128, strip=False,
+        widget=forms.PasswordInput(attrs={"class": "form-control form-control-lg", "autocomplete": "current-password"}),
+    )
+    next = forms.CharField(required=False, widget=forms.HiddenInput)
+
+
+class RegisterForm(forms.Form):
+    """New accounts: just the email first. A code goes to it; the password and details come after."""
+
     email = forms.EmailField(
         label="Your email",
         widget=forms.EmailInput(
@@ -33,7 +51,7 @@ class ProfileForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if self.instance.kind == Person.Kind.FACULTY:
+        if self.instance.kind == Person.Kind.FACULTY or self.instance.faculty_pending:
             # Faculty: name, department and phone only. College and year are student details (kept, not asked).
             for name in ("institution", "year_of_study"):
                 del self.fields[name]
@@ -69,15 +87,3 @@ class ProfileForm(forms.ModelForm):
         if not 10 <= len(digits) <= 15:
             raise forms.ValidationError("Enter a phone number with 10 to 15 digits.")
         return phone
-
-
-class StaffSignInForm(forms.Form):
-    login = forms.CharField(
-        label="Email or login ID", max_length=254,
-        widget=forms.TextInput(attrs={"class": "form-control form-control-lg", "autocomplete": "username", "autofocus": True}),
-    )
-    password = forms.CharField(
-        label="Password", max_length=128, strip=False,
-        widget=forms.PasswordInput(attrs={"class": "form-control form-control-lg", "autocomplete": "current-password"}),
-    )
-    next = forms.CharField(required=False, widget=forms.HiddenInput)

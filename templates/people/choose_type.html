@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Student or faculty?{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block content %}
+<div class="page-narrow">
+  <header class="page-head mb-4">
+    <span class="eyebrow">New registration</span>
+    <h1 class="heading-3">Are you a student or faculty?</h1>
+    <ol class="auth-steps mt-3" aria-label="Steps">
+      <li class="is-done"><span class="n">1</span>Email and code</li>
+      <li class="is-done"><span class="n">2</span>Password</li>
+      <li class="is-now"><span class="n">3</span>Student or faculty</li>
+    </ol>
+    <p>We only ask for the details that fit you.</p>
+  </header>
+  <div class="type-grid">
+    <a class="type-card" href="{% url 'profile' %}?as=student{% if next %}&amp;next={{ next|urlencode }}{% endif %}">
+      {% include "ui/icon.html" with name="student" %}
+      <strong>I'm a student</strong>
+      <span>Name for certificates, phone, college, branch and year.</span>
+    </a>
+    <a class="type-card" href="{% url 'profile' %}?as=faculty{% if next %}&amp;next={{ next|urlencode }}{% endif %}">
+      {% include "ui/icon.html" with name="briefcase" %}
+      <strong>I'm faculty</strong>
+      <span>Name, employee ID, department, designation and phone. An admin approves faculty accounts.</span>
+    </a>
+  </div>
+</div>
+{% endblock %}

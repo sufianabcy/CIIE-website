@@ -524,6 +524,11 @@ class ImportUpload(models.Model):
     sheet_name = models.CharField(max_length=100, blank=True, help_text="Empty: the first sheet.")
     constants = models.JSONField(default=dict, blank=True, help_text="Fields not in the sheet, with one value for every row.")
     header_row = models.PositiveIntegerField(default=0, help_text="1-based row holding the column names. 0: the first non-empty row.")
+    blank_teams = models.CharField(
+        "rows with no team name", max_length=10, default="none",
+        choices=[("none", "No team yet"), ("above", "Team in the row above"), ("solo", "Team of one, named after the student")],
+        help_text="Student imports: what a row with an empty team name means.",
+    )
     result = models.JSONField(default=dict, blank=True, help_text="Summary and skipped rows, once imported.")
     imported_at = models.DateTimeField(null=True, blank=True)
 

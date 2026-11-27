@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Email login details · {{ event.title }}{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'hackathon_manage_'|add:who event.slug %}">{% include "ui/icon.html" with name="arrow-left" %}{% if who == "faculty" %}Faculty{% else %}Students{% endif %}</a>
+<header class="tool-head">
+  <div>
+    <span class="eyebrow">{{ event.title }} · {% if who == "faculty" %}Faculty{% else %}Students{% endif %}</span>
+    <h1 class="heading-3">Email login details</h1>
+    <p>Each person gets an email with their login (their email) and a new temporary password, valid for {{ days }} days. They choose their own password the first time they sign in, and can reset it themselves later with "Forgot password", so this normally goes to each person once.</p>
+  </div>
+</header>
+{% include "hackathon/_manage_nav.html" %}
+
+<div class="stat-grid mb-4">
+  <div class="stat-card"><div class="stat-value">{{ emailable|length }}</div><div class="stat-label">with an email</div></div>
+  <div class="stat-card"><div class="stat-value">{{ already|length }}</div><div class="stat-label">already have login details</div></div>
+  <div class="stat-card"><div class="stat-value">{{ remaining|length }}</div><div class="stat-label">not sent yet</div></div>
+  <div class="stat-card{% if no_email %} stat-red{% endif %}"><div class="stat-value">{{ no_email|length }}</div><div class="stat-label">no email</div></div>
+</div>
+
+<form method="post" class="panel mb-4">{% csrf_token %}
+  {% if already %}
+    <h2 class="panel-title">{% include "ui/icon.html" with name="warning" %}{{ already|length }} of {{ emailable|length }} already have their login details</h2>
+    <p class="mb-2">{% if own_password %}{{ own_password }} {{ own_password|pluralize:"has,have" }} set their own password. {% endif %}{% if emailed_before %}{{ emailed_before }} {{ emailed_before|pluralize:"was,were" }} emailed before. {% endif %}{% if remaining %}Send only to the {{ remaining|length }} remaining, or to everyone again?{% else %}Everyone has them. Send to everyone again only if they've lost them.{% endif %}</p>
+    <p class="caption-2 text-secondary">Sending to everyone gives the {{ already|length }} who already have them a new temporary password: the one they were sent, or the one they chose, stops working.</p>
+  {% else %}
+    <h2 class="panel-title">Nobody has been sent login details yet</h2>
+  {% endif %}
+  {% if temp_only %}<p class="caption-2 text-secondary">{{ temp_only }} of those not sent yet have a temporary password from the passwords Excel; the email replaces it.</p>{% endif %}
+  {% if failed %}<p class="caption-2 text-danger">{{ failed }} email{{ failed|pluralize }} failed to send before; they're counted as not sent.</p>{% endif %}
+  <div class="d-flex flex-wrap gap-2 mt-3">
+    {% if remaining %}<button class="btn btn-primary" type="submit" name="scope" value="remaining">{% include "ui/icon.html" with name="mail" %}Send to the {{ remaining|length }} {% if already %}remaining{% else %}{% if who == "faculty" %}faculty{% else %}students{% endif %}{% endif %}</button>{% endif %}
+    {% if already %}<button class="btn btn-quiet" type="submit" name="scope" value="all" onclick="return confirm('Email new temporary passwords to all {{ emailable|length }}? The {{ already|length }} who already have login details get new ones, and their current passwords stop working.');">Send to all {{ emailable|length }}</button>{% endif %}
+    <a class="btn btn-quiet" href="{% url 'hackathon_manage_'|add:who event.slug %}">Cancel</a>
+  </div>
+  {% if not remaining and not already %}<p class="mb-0 mt-2">There's nobody with an email to send to.</p>{% endif %}
+</form>
+
+{% if skipped %}
+<section class="panel mb-4">
+  <h2 class="panel-title">Not included</h2>
+  <ul class="mb-0">{% for p, why in skipped %}<li>{{ p.display_name }}: {{ why }}.</li>{% endfor %}</ul>
+</section>
+{% endif %}
+
+<section class="panel">
+  <h2 class="panel-title">Everyone</h2>
+  <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+    <thead><tr><th>Name</th><th>Email</th><th>Login details</th></tr></thead>
+    <tbody>{% for p, st in rows %}<tr>
+      <td>{{ p.display_name }}</td><td>{{ p.email|default:"—" }}</td>
+      <td><span class="tag {{ st.tag }}">{{ st.label }}</span>{% if st.times_sent > 1 %} <span class="caption-2 text-secondary">({{ st.times_sent }} times)</span>{% endif %}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{% endblock %}

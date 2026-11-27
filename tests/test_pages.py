@@ -59,9 +59,9 @@ def test_kl_only_event_needs_kl_verification(client, make_event, make_person):
     assert not Registration.objects.filter(event=event).exists()
 
 
-def test_signin_new_email_creates_account_and_sends_code(client, db, django_capture_on_commit_callbacks):
+def test_new_registration_creates_account_and_sends_code(client, db, django_capture_on_commit_callbacks):
     with django_capture_on_commit_callbacks(execute=True):
-        response = client.post(reverse("signin"), {"email": "New.Person@Example.com"})
+        response = client.post(reverse("signin"), {"mode": "register", "email": "New.Person@Example.com"})
     assert response.status_code == 302
     assert Person.objects.filter(email="new.person@example.com").exists()
     code_mail = OutboxEmail.objects.get(kind="code")
@@ -72,25 +72,23 @@ def test_signin_new_email_creates_account_and_sends_code(client, db, django_capt
 
 def test_code_email_names_the_club(client, db, django_capture_on_commit_callbacks):
     with django_capture_on_commit_callbacks(execute=True):
-        client.post(reverse("signin"), {"email": "someone@example.com"})
+        client.post(reverse("signin"), {"mode": "register", "email": "someone@example.com"})
     body = mail.outbox[-1].body
     assert "Hello from KL-CIIE!" in body
     assert "from !" not in body and "using !" not in body
 
 
-def test_signin_with_code_marks_kl_students(client, make_person, django_capture_on_commit_callbacks, settings):
-    settings.ACCOUNT_LOGIN_BY_CODE_ENABLED = True
-    person = make_person(email="2300031234@kluniversity.in")
-    from allauth.account.models import EmailAddress
+def _code(body):
+    return next(line.strip() for line in body.splitlines() if line.strip() and len(line.strip()) <= 9
+                and line.strip().replace("-", "").isalnum() and line.strip().upper() == line.strip())
 
-    EmailAddress.objects.create(user=person, email=person.email, primary=True, verified=False)
+
+def test_registering_with_a_kl_email_marks_kl_students(client, db, django_capture_on_commit_callbacks):
     with django_capture_on_commit_callbacks(execute=True):
-        response = client.post(reverse("signin"), {"email": person.email})
+        response = client.post(reverse("signin"), {"mode": "register", "email": "2300031234@kluniversity.in"})
     assert response.status_code == 302
-    body = mail.outbox[-1].body
-    code = next(line.strip() for line in body.splitlines() if line.strip() and len(line.strip()) <= 9 and line.strip().replace("-", "").isalnum() and line.strip().upper() == line.strip())
-    client.post(reverse("account_confirm_login_code"), {"code": code})
-    person.refresh_from_db()
+    client.post(reverse("account_email_verification_sent"), {"code": _code(mail.outbox[-1].body)})
+    person = Person.objects.get(email="2300031234@kluniversity.in")
     assert person.is_kl_verified
     assert person.student_id == "2300031234"
 

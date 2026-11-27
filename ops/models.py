@@ -21,7 +21,8 @@ class SiteSettings(models.Model):
         help_text="Holds confirmations and other mail in the queue. Sign-in codes still go out.",
     )
     signin_email_code_enabled = models.BooleanField(
-        "sign-in by emailed code", default=True
+        "new registrations by emailed code", default=True,
+        help_text="Turn off to pause new registrations. People with a password can still sign in.",
     )
     signin_google_enabled = models.BooleanField(
         "sign-in with Google",

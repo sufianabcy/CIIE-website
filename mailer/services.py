@@ -22,12 +22,16 @@ log = logging.getLogger(__name__)
 
 PRIORITY_BY_KIND = {
     OutboxEmail.Kind.CODE: 1,
+    OutboxEmail.Kind.LOGIN: 2,
     OutboxEmail.Kind.CONFIRMATION: 2,
     OutboxEmail.Kind.DOOR_LIST: 2,
 }
 MAX_ATTEMPTS = 6
 STUCK_AFTER = timedelta(minutes=15)
 CODE_BODY_REMOVED = "(The code in this email was removed after sending.)"
+LOGIN_BODY_REMOVED = "(The temporary password in this email was removed after sending.)"
+# Emails holding a secret: the body is not kept once sent, and they are never sent again as a copy.
+SECRET_KINDS = {OutboxEmail.Kind.CODE: CODE_BODY_REMOVED, OutboxEmail.Kind.LOGIN: LOGIN_BODY_REMOVED}
 
 
 def enqueue_email(
@@ -142,8 +146,8 @@ def _deliver(email: OutboxEmail) -> bool:
     email.sent_at = timezone.now()
     email.last_error = ""
     fields = ["attempts", "status", "sent_at", "last_error"]
-    if email.kind == OutboxEmail.Kind.CODE:
-        email.text_body = CODE_BODY_REMOVED
+    if email.kind in SECRET_KINDS:
+        email.text_body = SECRET_KINDS[email.kind]
         email.html_body = ""
         fields += ["text_body", "html_body"]
     email.save(update_fields=fields)

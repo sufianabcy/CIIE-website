@@ -244,12 +244,19 @@ def import_step(request, slug, pk):
                 constants[key] = value
         item.constants = constants
         item.save(update_fields=["constants"])
+    blank_choices = {key for key, _, _ in imports.BLANK_TEAM_CHOICES}
+    if request.method == "POST" and request.POST.get("blank_teams") in blank_choices and item.kind == "students":
+        item.blank_teams = request.POST["blank_teams"]
+        item.save(update_fields=["blank_teams"])
     c_headers, c_rows, c_mapping = imports.with_constants(headers, rows, mapping, item.constants)
+    blank_rows = imports.blank_team_rows(c_headers, c_rows, c_mapping, numbers) if item.kind == "students" else []
+    c_rows = imports.fill_blank_teams(c_rows, c_mapping, item.blank_teams)
     errors, warnings = imports.sheet_checks(c_headers, c_rows, c_mapping, targets_, item.kind)
     errors = twice + errors
     problems, step, new_people = None, 2, 0
     if action in ("check", "import") and not errors:
-        found, new_people = imports.row_checks(event, item.kind, c_headers, c_rows, c_mapping, targets_, want_new=True)
+        found, new_people = imports.row_checks(event, item.kind, c_headers, c_rows, c_mapping, targets_, want_new=True,
+                                               blank_teams=item.blank_teams)
         problems = {numbers[line - 2]: imports.real_rows(msgs, numbers) for line, msgs in found.items() if 0 <= line - 2 < len(numbers)}
         step = 3
         if action == "import":
@@ -282,6 +289,7 @@ def import_step(request, slug, pk):
         "errors": errors, "warnings": warnings, "problems": sorted((problems or {}).items()),
         "valid_count": len(rows) - len(problems or {}), "row_count": len(rows), "can_fields": can_fields, "new_people": new_people,
         "can_define_fields": allowed(request.user, event, "can_manage_fields"),
+        "blank_rows": blank_rows, "blank_choices": imports.BLANK_TEAM_CHOICES,
     })
 
 

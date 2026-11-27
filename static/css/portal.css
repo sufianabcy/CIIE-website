@@ -1087,6 +1087,27 @@ main#main.main-flush { padding-top: 0; }
 .allauth .code-head ~ form > .mt-3 > div { display: grid; gap: var(--s-100); }
 .allauth .code-head ~ form > .mt-3 .btn { width: 100%; margin: 0; }
 .code-help { font-size: 13px; line-height: 20px; color: var(--muted); text-align: center; margin: var(--s-200) 0 0; }
+/* Sign in or New registration: two tabs on the one sign-in card. */
+.auth-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: var(--r-full); background: var(--surface-2); border: 1px solid var(--line); margin-bottom: var(--s-300); }
+.auth-tabs a { text-align: center; padding: 10px 12px; border-radius: var(--r-full); font-weight: 600; font-size: 15px; line-height: 20px; color: var(--text-2); text-decoration: none; transition: background-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
+.auth-tabs a:hover { color: var(--text); }
+.auth-tabs a[aria-current="page"] { background: var(--surface); color: var(--text); border: 1px solid var(--line-strong); }
+.auth-tabs a:focus-visible { box-shadow: 0 0 0 4px var(--focus); outline: none; }
+.auth-steps { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 0; margin: 0 0 var(--s-300); list-style: none; font-size: 13px; line-height: 18px; color: var(--muted); }
+.auth-steps li { display: inline-flex; align-items: center; gap: 6px; }
+.auth-steps .n { width: 20px; height: 20px; border-radius: var(--r-full); display: inline-grid; place-items: center; background: var(--surface-2); border: 1px solid var(--line); font-size: 12px; font-weight: 600; color: var(--text-2); }
+.auth-steps .is-now { color: var(--text); font-weight: 600; }
+.auth-steps .is-now .n { background: var(--invert-bg); border-color: var(--invert-bg); color: var(--invert-text); }
+.auth-steps .is-done .n { background: var(--red); border-color: var(--red); color: var(--on-accent); }
+/* "Are you a student or faculty?" */
+.type-grid { display: grid; gap: var(--s-200); }
+@media (min-width: 576px) { .type-grid { grid-template-columns: 1fr 1fr; } }
+.type-card { display: flex; flex-direction: column; gap: 6px; padding: var(--s-300); border: 1px solid var(--line-strong); border-radius: var(--r-3xl); background: var(--surface); color: var(--text); text-decoration: none; transition: border-color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease); }
+.type-card:hover { border-color: var(--blue); background: var(--surface-2); color: var(--text); }
+.type-card:focus-visible { box-shadow: 0 0 0 4px var(--focus); outline: none; }
+.type-card .icon { width: 28px; height: 28px; color: var(--blue); margin-bottom: 4px; }
+.type-card strong { font-size: 18px; line-height: 24px; }
+.type-card span { color: var(--text-2); font-size: 14px; line-height: 20px; }
 
 /* Faculty marking keeps its own plain top bar */
 .navbar { --bs-navbar-padding-y: 12px; background: var(--nav-surface) !important; -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); border-color: var(--line) !important; }

@@ -171,7 +171,7 @@
             {% else %}
               <li><a href="{% url 'signin' %}">Sign in</a></li>
             {% endif %}
-            <li><a href="{% url 'staff_signin' %}">Faculty sign in</a></li>
+            {% if not user.is_authenticated %}<li><a href="{% url 'signin' %}?mode=register">New registration</a></li>{% endif %}
           </ul>
         </div>
         <div class="col-md-4 col-lg-2">

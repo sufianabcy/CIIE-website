@@ -12,6 +12,7 @@ class OutboxEmail(models.Model):
 
     class Kind(models.TextChoices):
         CODE = "code", "Sign-in or verification code"
+        LOGIN = "login", "Login details (temporary password)"
         CONFIRMATION = "confirmation", "Registration confirmation"
         DOOR_LIST = "door_list", "Door list"
         REMINDER = "reminder", "Reminder"

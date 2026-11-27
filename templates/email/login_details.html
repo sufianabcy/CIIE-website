@@ -1,0 +1,14 @@
+<!doctype html>
+<html><body style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; color:#1f2328; line-height:1.5">
+<p>Hi {{ person.full_name|default:"there" }},</p>
+<p>Here are your login details for the {{ club_name }} portal{% if event %}, for <strong>{{ event.title }}</strong>{% endif %}.</p>
+<table style="border-collapse:collapse; margin:12px 0">
+  <tr><td style="padding:4px 16px 4px 0; color:#57606a">Email</td><td style="padding:4px 0"><strong>{{ login }}</strong>{% if login_id %} <span style="color:#57606a">(or login ID {{ login_id }})</span>{% endif %}</td></tr>
+  <tr><td style="padding:4px 16px 4px 0; color:#57606a">Temporary password</td><td style="padding:4px 0; font-family: ui-monospace, Menlo, Consolas, monospace; font-size:16px"><strong>{{ password }}</strong></td></tr>
+</table>
+<p><a href="{{ signin_url }}" style="display:inline-block; background:#0b5ed7; color:#fff; padding:10px 18px; border-radius:6px; text-decoration:none">Sign in</a></p>
+<p>When you sign in you'll choose your own password straight away. The temporary one works until {{ expires_at|date:"j M Y, g:i A" }}.</p>
+{% if role == "faculty" %}<p>Once signed in, the <a href="{{ home_url }}">Judging page</a> lists the teams allocated to you.</p>{% elif event and event.is_hackathon %}<p>Once signed in you can see <a href="{{ home_url }}">your team, room, round timings</a> and, once released, your marks.</p>{% endif %}
+<p style="color:#57606a">Forgot your password later, or this one expired? Use <a href="{{ reset_url }}">Forgot password</a> on the sign-in page and we'll email you a code to set a new one.</p>
+<p>{{ club_name }}<br><span style="color:#57606a">Questions: {{ contact_email }}</span></p>
+</body></html>

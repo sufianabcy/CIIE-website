@@ -117,11 +117,12 @@ def read_sheet(content, sheet_name="", header_row=0):
     from openpyxl import load_workbook
 
     try:
-        wb = load_workbook(BytesIO(bytes(content)), read_only=True, data_only=True)
+        # Not read-only: a read-only workbook can't see merged cells (see _unmerged_rows).
+        wb = load_workbook(BytesIO(bytes(content)), data_only=True)
     except Exception as exc:  # noqa: BLE001
         raise services.ImportFileError("That file could not be read as Excel (.xlsx).") from exc
     ws = wb[sheet_name] if sheet_name in wb.sheetnames else wb.worksheets[0]
-    raw = [(n, [services._cell(v) for v in row]) for n, row in enumerate(ws.iter_rows(values_only=True), start=1)]
+    raw = [(n, [services._cell(v) for v in row]) for n, row in enumerate(_unmerged_rows(ws), start=1)]
     if header_row:
         raw = [(n, r) for n, r in raw if n >= header_row]
         if raw and not any(raw[0][1]):
@@ -135,6 +136,61 @@ def read_sheet(content, sheet_name="", header_row=0):
     width = max([len(headers)] + [len(r) for _, r in raw[1:]])
     headers = headers + [""] * (width - len(headers))
     return headers, [r + [""] * (width - len(r)) for _, r in raw[1:]], [n for n, _ in raw[1:]]
+
+
+def _unmerged_rows(ws):
+    """The sheet's rows, with a cell merged down several rows (a team name typed once for all its members)
+    copied into every row it covers. Without this only the first of those rows has the value."""
+    rows = [list(row) for row in ws.iter_rows(values_only=True)]
+    for merged in ws.merged_cells.ranges:
+        if merged.min_row == merged.max_row:
+            continue  # merged across one row only (a title): keep it in its first cell, don't repeat it
+        value = ws.cell(merged.min_row, merged.min_col).value
+        for r in range(merged.min_row, merged.max_row + 1):
+            for c in range(merged.min_col, merged.max_col + 1):
+                if r - 1 < len(rows) and c - 1 < len(rows[r - 1]):
+                    rows[r - 1][c - 1] = value
+    return rows
+
+
+BLANK_TEAM_CHOICES = [
+    (services.BLANK_TEAM_NONE, "Leave them without a team", "They show under \"No team yet\" on the Students page, to sort out there."),
+    (services.BLANK_TEAM_ABOVE, "Put them in the team named in the row above",
+     "For sheets that write each team's name once, on its first member's row."),
+    (services.BLANK_TEAM_SOLO, "Make each one a team of one, named after the student", "Only if they really are working alone."),
+]
+
+
+def blank_team_rows(headers, rows, mapping, line_numbers):
+    """[(Excel row number, student)] for student rows whose team cell is empty, when a team column is used."""
+    i = mapping.get("team")
+    if i is None:
+        return []
+    who = [mapping.get(k) for k in ("name", "student_id", "email")]
+    out = []
+    for n, row in zip(line_numbers, rows):
+        if i < len(row) and row[i]:
+            continue
+        label = next((row[j] for j in who if j is not None and j < len(row) and row[j]), "")
+        out.append((n, label))
+    return out
+
+
+def fill_blank_teams(rows, mapping, choice):
+    """With "above", an empty team cell takes the team name from the nearest row above that has one."""
+    i = mapping.get("team")
+    if choice != services.BLANK_TEAM_ABOVE or i is None:
+        return rows
+    out, last = [], ""
+    for row in rows:
+        row = list(row)
+        if i < len(row):
+            if row[i]:
+                last = row[i]
+            elif last:
+                row[i] = last
+        out.append(row)
+    return out
 
 
 def read(content, sheet_name="", header_row=0):
@@ -247,7 +303,7 @@ def sheet_checks(headers, rows, mapping, targets_, kind):
     return errors, warnings
 
 
-def row_checks(event, kind, headers, rows, mapping, targets_, want_new=False):
+def row_checks(event, kind, headers, rows, mapping, targets_, want_new=False, blank_teams=services.BLANK_TEAM_NONE):
     """{sheet row: [problems]} before anything is saved: types, required values, choices, duplicates, clashes."""
     problems = defaultdict(list)
     by_key = {t.key: t for t in targets_}
@@ -279,7 +335,7 @@ def row_checks(event, kind, headers, rows, mapping, targets_, want_new=False):
             if clash:
                 problems[line].append(f"Row {line}: {clash}.")
     # What the import itself would refuse (unknown round, a mentor judging their team, ...), tried and rolled back.
-    report = _dry_run(event, kind, mapping, rows, headers, skip=set(problems))
+    report = _dry_run(event, kind, mapping, rows, headers, skip=set(problems), blank_teams=blank_teams)
     for message in report.problems:
         m = re.match(r"Row (\d+)", message)
         if m:
@@ -297,11 +353,11 @@ def _columns(mapping):
     return {i: key for key, i in mapping.items() if i is not None}
 
 
-def _run(event, kind, content_or_rows, mapping, only_rows, user):
+def _run(event, kind, content_or_rows, mapping, only_rows, user, blank_teams=services.BLANK_TEAM_NONE):
     upload = content_or_rows
     columns = _columns(mapping)
     if kind == "students":
-        return services.import_students(event, upload, by=user, columns=columns, only_rows=only_rows)
+        return services.import_students(event, upload, by=user, columns=columns, only_rows=only_rows, blank_team=blank_teams)
     if kind == "faculty":
         return services.import_staff(event, upload, "faculty", columns=columns, only_rows=only_rows)
     if kind == "supervisors":
@@ -315,7 +371,7 @@ def _run(event, kind, content_or_rows, mapping, only_rows, user):
     return services.import_allocations(event, upload, columns=columns, only_rows=only_rows)
 
 
-def _dry_run(event, kind, mapping, rows, headers, skip):
+def _dry_run(event, kind, mapping, rows, headers, skip, blank_teams=services.BLANK_TEAM_NONE):
     """Run the import inside a transaction that is always rolled back, to collect its row problems."""
     buffer = normalized(headers, rows)
     only = {line for line in range(2, len(rows) + 2) if line not in skip}
@@ -323,7 +379,7 @@ def _dry_run(event, kind, mapping, rows, headers, skip):
     try:
         with transaction.atomic():
             buffer.seek(0)
-            result = _run(event, kind, buffer, mapping, only, None)
+            result = _run(event, kind, buffer, mapping, only, None, blank_teams)
             raise _Rollback
     except _Rollback:
         pass
@@ -333,7 +389,8 @@ def _dry_run(event, kind, mapping, rows, headers, skip):
 def run_import(upload, mapping, only_rows, user):
     headers, rows, _ = read_item(upload)
     headers, rows, mapping = with_constants(headers, rows, mapping, upload.constants)
-    return _run(upload.event, upload.kind, normalized(headers, rows), mapping, only_rows, user)
+    rows = fill_blank_teams(rows, mapping, upload.blank_teams)
+    return _run(upload.event, upload.kind, normalized(headers, rows), mapping, only_rows, user, upload.blank_teams)
 
 
 def remember(event, kind, headers, mapping):

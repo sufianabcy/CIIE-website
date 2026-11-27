@@ -19,6 +19,7 @@ def participant_context(registration) -> dict:
         "event": event, "person": registration.person, "registration": registration,
         "club_name": settings.CLUB_NAME, "contact_email": settings.CLUB_CONTACT_EMAIL,
         "signin_url": settings.SITE_URL + reverse("signin"),
+        "register_url": settings.SITE_URL + reverse("signin") + "?mode=register",
         "home_url": settings.SITE_URL + registration.get_home_url(),
         "team": None, "members": [], "room": None, "rounds": [],
     }

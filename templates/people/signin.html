@@ -1,31 +1,63 @@
 {% extends "base.html" %}
 {% load socialaccount %}
-{% block title %}Sign in{% endblock %}
+{% block title %}{% if mode == "register" %}New registration{% else %}Sign in{% endif %}{% endblock %}
 {% block robots %}<meta name="robots" content="noindex">{% endblock %}
 {% block content %}
 <div class="auth-wrap">
   <div class="auth-art" aria-hidden="true">
     <span class="a-cube"></span><span class="a-ring"></span><span class="a-orb"></span>
-    <h2>One email box. No password to forget.</h2>
-    <p>Sign in once, fill in your profile once, and every registration after that is a single tap.</p>
+    {% if mode == "register" %}
+    <h2>New here? Three quick steps.</h2>
+    <p>Confirm your email with a code, choose a password, then tell us whether you're a student or faculty. After that you sign in with your email and password.</p>
+    {% else %}
+    <h2>Students, faculty and supervisors sign in here.</h2>
+    <p>Use your email and password. If the organisers emailed you login details, use the temporary password from that email; you'll choose your own straight away.</p>
+    {% endif %}
   </div>
   <div class="auth-card">
-    <span class="eyebrow mb-2">Welcome</span>
-    <h1 class="heading-3 mb-2">Sign in</h1>
-    <p class="text-secondary mb-4">New here? Just type your email. We'll send you a code, and there is no password to remember.</p>
-    {% if routes.email_code %}
-    <form method="post" action="{% url 'signin' %}" novalidate data-validate>
-      {% csrf_token %}
-      <input type="hidden" name="next" value="{{ next }}">
-      <div class="mb-3">
-        <label class="form-label" for="id_email">{{ form.email.label }}</label>
-        {{ form.email }}
-        {% for e in form.email.errors %}<div class="field-error">{{ e }}</div>{% endfor %}
-        <div class="field-error" data-error-for="id_email" hidden></div>
-        <div class="form-text">KL students: use your KL email to be verified as KL in one step.</div>
-      </div>
-      <button class="btn btn-primary btn-lg w-100" type="submit">{% include "ui/icon.html" with name="mail" %}Email me a code</button>
-    </form>
+    <nav class="auth-tabs" aria-label="Sign in or register">
+      <a href="{% url 'signin' %}{% if next %}?next={{ next|urlencode }}{% endif %}"{% if mode != "register" %} aria-current="page"{% endif %}>Sign in</a>
+      <a href="{% url 'signin' %}?mode=register{% if next %}&amp;next={{ next|urlencode }}{% endif %}"{% if mode == "register" %} aria-current="page"{% endif %}>New registration</a>
+    </nav>
+
+    {% if mode == "register" %}
+      <h1 class="heading-3 mb-2">New registration</h1>
+      <ol class="auth-steps" aria-label="Steps">
+        <li class="is-now"><span class="n">1</span>Email and code</li>
+        <li><span class="n">2</span>Password</li>
+        <li><span class="n">3</span>Student or faculty</li>
+      </ol>
+      {% if routes.email_code %}
+      <form method="post" action="{% url 'signin' %}" novalidate data-validate>
+        {% csrf_token %}
+        <input type="hidden" name="mode" value="register">
+        <input type="hidden" name="next" value="{{ next }}">
+        <div class="mb-3">
+          <label class="form-label" for="{{ register_form.email.id_for_label }}">{{ register_form.email.label }}</label>
+          {{ register_form.email }}
+          {% for e in register_form.email.errors %}<div class="field-error">{{ e }}</div>{% endfor %}
+          <div class="field-error" data-error-for="{{ register_form.email.id_for_label }}" hidden></div>
+          <div class="form-text">KL students and faculty: use your KL email to be verified as KL in the same step.</div>
+        </div>
+        <button class="btn btn-primary btn-lg w-100" type="submit">{% include "ui/icon.html" with name="mail" %}Email me a code</button>
+      </form>
+      <p class="small text-secondary mt-3 mb-0">Already registered? <a href="{% url 'signin' %}{% if next %}?next={{ next|urlencode }}{% endif %}">Sign in with your password</a>. If the organisers added you but you've never set a password, register here with that email: you'll get a code to set one.</p>
+      {% else %}
+      <div class="alert alert-warning mb-0">New registrations are paused for a few minutes. Please try again shortly.</div>
+      {% endif %}
+    {% else %}
+      <h1 class="heading-3 mb-2">Sign in</h1>
+      <p class="text-secondary mb-4">With your email (or the login ID the organisers sent you) and your password.</p>
+      <form method="post" action="{% url 'signin' %}" novalidate>
+        {% csrf_token %}
+        <input type="hidden" name="mode" value="signin">
+        <input type="hidden" name="next" value="{{ next }}">
+        <div class="mb-3"><label class="form-label" for="{{ signin_form.login.id_for_label }}">{{ signin_form.login.label }}</label>{{ signin_form.login }}{% for e in signin_form.login.errors %}<div class="field-error">{{ e }}</div>{% endfor %}</div>
+        <div class="mb-2"><label class="form-label" for="{{ signin_form.password.id_for_label }}">{{ signin_form.password.label }}</label>{{ signin_form.password }}{% for e in signin_form.password.errors %}<div class="field-error">{{ e }}</div>{% endfor %}</div>
+        <p class="small mb-4"><a href="{% url 'account_reset_password' %}{% if next %}?next={{ next|urlencode }}{% endif %}">Forgot password, or never set one?</a></p>
+        <button class="btn btn-primary btn-lg w-100" type="submit">{% include "ui/icon.html" with name="sign-in" %}Sign in</button>
+      </form>
+      <p class="small text-secondary mt-3 mb-0">New here? <a href="{% url 'signin' %}?mode=register{% if next %}&amp;next={{ next|urlencode }}{% endif %}">New registration</a></p>
     {% endif %}
 
     {% if routes.google or routes.microsoft %}
@@ -45,14 +77,10 @@
     {% if routes.in_app_browser %}
       <div class="alert alert-secondary small mt-3 mb-0">
         You seem to be inside an app's built-in browser, where Google sign in does not work.
-        Use the email code above, or open this page in Chrome or Safari (menu, then "Open in browser").
+        Use your email above, or open this page in Chrome or Safari (menu, then "Open in browser").
       </div>
     {% endif %}
-    {% if not routes.email_code and not routes.google and not routes.microsoft %}
-      <div class="alert alert-warning mb-0">Sign in is paused for a few minutes. Please try again shortly.</div>
-    {% endif %}
-    <p class="small text-secondary mt-4 mb-2">Faculty or hackathon supervisor? <a href="{% url 'staff_signin' %}">Sign in with your password</a> · New faculty? <a href="{% url 'faculty_register' %}">Register as faculty</a></p>
-    <p class="small text-secondary mb-0">Codes come from {{ CLUB_NAME }}. If one doesn't arrive in a few minutes, check Spam or Junk, then ask for a new one.</p>
+    {% if mode == "register" %}<p class="small text-secondary mt-4 mb-0">Codes come from {{ CLUB_NAME }}. If one doesn't arrive in a few minutes, check Spam or Junk, then ask for a new one.</p>{% endif %}
   </div>
 </div>
 {% endblock %}
