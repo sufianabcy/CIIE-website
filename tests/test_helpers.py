@@ -192,7 +192,7 @@ def test_a_volunteer_never_judges_the_teams_they_take_attendance_for(client, hac
     team.save()
     client.force_login(judge.person)
     mark = client.post(reverse("hackathon_attendance_mark", args=[event.slug]), {"round": round1.pk, "team": team.pk, "present": "1"})
-    assert mark.status_code == 403
+    assert mark.status_code == 404  # student attendance is taken with attendance links now
 
 
 def test_email_login_details_works_on_this_tab(client, hack, admin_user, django_capture_on_commit_callbacks):
@@ -234,12 +234,9 @@ def test_volunteers_see_and_mark_only_their_rooms_and_never_marks(client, hack, 
     assert "Team L503" not in floors
     mark = reverse("hackathon_attendance_mark", args=[event.slug])
     member = hack["teams"][0].members.get().registration
-    client.post(mark, {"round": round1.pk, "team": hack["teams"][0].pk, "present": "1", "members": [member.pk]})
-    att = Attendance.objects.get(team=hack["teams"][0])
-    assert att.present and att.marked_by == vol.person and att.members_present == [member.pk] and att.marked_at
+    assert client.post(mark, {"round": round1.pk, "team": hack["teams"][0].pk, "present": "1", "members": [member.pk]}).status_code == 404
     client.post(mark, {"round": round1.pk, "faculty": hack["judges"][0].pk, "present": "0"})
     assert not Attendance.objects.get(faculty=hack["judges"][0]).present
-    assert client.post(mark, {"round": round1.pk, "team": hack["teams"][1].pk, "present": "1"}).status_code == 403
     assert client.post(mark, {"round": round1.pk, "faculty": hack["judges"][1].pk, "present": "1"}).status_code == 403
     vol.can_view_progress = False
     vol.save()

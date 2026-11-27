@@ -201,23 +201,20 @@ def test_volunteer_switches_and_other_hackathons(client, judged, make_event):
     reg = team.members.first().registration
     client.force_login(v.person)
     mark = reverse("hackathon_attendance_mark", args=[event.slug])
-    client.post(mark, {"round": judged["round"].pk, "team": team.pk, "present": "1", "members": [reg.pk]})
-    att = Attendance.objects.get(team=team, undone_at__isnull=True)
-    assert att.present and att.marked_by == v.person and att.members_present == [reg.pk]
-    client.post(mark, {"round": judged["round"].pk, "team": team.pk, "present": "0"})
-    assert Attendance.objects.filter(team=team).count() == 2 and not Attendance.objects.get(team=team, undone_at__isnull=True).present
-    live = Attendance.objects.get(team=team, undone_at__isnull=True)
-    client.post(reverse("hackathon_attendance_undo", args=[event.slug, live.pk]), {"reason": ""})
-    assert Attendance.objects.filter(team=team, undone_at__isnull=True).exists()  # a reason is required
-    client.post(reverse("hackathon_attendance_undo", args=[event.slug, live.pk]), {"reason": "Wrong team"})
-    assert not Attendance.objects.filter(team=team, undone_at__isnull=True).exists()
+    # Student attendance is taken with attendance links now; the old team marking is refused.
+    assert client.post(mark, {"round": judged["round"].pk, "team": team.pk, "present": "1", "members": [reg.pk]}).status_code == 404
+    assert not Attendance.objects.filter(team=team).exists()
     faculty = judged["faculty"][0]
     client.post(mark, {"round": judged["round"].pk, "faculty": faculty.pk, "present": "1"})
-    assert Attendance.objects.get(faculty=faculty).present
+    live = Attendance.objects.get(faculty=faculty, undone_at__isnull=True)
+    assert live.present and live.marked_by == v.person
+    client.post(reverse("hackathon_attendance_undo", args=[event.slug, live.pk]), {"reason": ""})
+    assert Attendance.objects.filter(faculty=faculty, undone_at__isnull=True).exists()  # a reason is required
+    client.post(reverse("hackathon_attendance_undo", args=[event.slug, live.pk]), {"reason": "Wrong person"})
+    assert not Attendance.objects.filter(faculty=faculty, undone_at__isnull=True).exists()
 
     v.can_team_attendance = v.can_faculty_attendance = False
     v.save()
-    assert client.post(mark, {"round": judged["round"].pk, "team": team.pk, "present": "1"}).status_code == 403
     assert client.post(mark, {"round": judged["round"].pk, "faculty": faculty.pk, "present": "1"}).status_code == 403
     v.can_view_progress = False
     v.save()
@@ -243,8 +240,11 @@ def test_supervisor_attendance_and_floor_switches(client, judged):
     sup.can_view_floors = False
     sup.save()
     assert client.get(reverse("hackathon_floors", args=[event.slug])).status_code == 403
-    response = client.post(reverse("hackathon_attendance_mark", args=[event.slug]), {"round": judged["round"].pk, "team": team.pk, "present": "1"})
+    faculty = judged["faculty"][0]
+    response = client.post(reverse("hackathon_attendance_mark", args=[event.slug]), {"round": judged["round"].pk, "faculty": faculty.pk, "present": "1"})
     assert response.status_code == 403
+    assert client.post(reverse("hackathon_attendance_mark", args=[event.slug]), {"round": judged["round"].pk, "team": team.pk,
+                                                                               "present": "1"}).status_code == 404
 
 
 def test_only_admins_manage_volunteers_and_they_get_logins(client, judged, admin_user):

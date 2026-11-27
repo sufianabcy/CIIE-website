@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Attendance · {{ session.room.name }}{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block content %}
+<div class="page-mid">
+<header class="tool-head">
+  <div><span class="eyebrow">{{ event.title }} · {{ session.room.name }}</span><h1 class="heading-3">{{ session.name }}</h1>
+    <p>{% if is_open %}<span class="tag tag-green">Open</span> until {{ session.expires_at|date:"g:i A" }}. Tick everyone who is here, then Save. You can save again until then.
+       {% elif is_final %}<span class="tag">Final</span> This link expired at {{ session.expires_at|date:"j M, g:i A" }}. Only an admin can change this attendance; send a request below if something is wrong.
+       {% else %}<span class="tag tag-blue">Opens {{ session.opens_at|date:"j M, g:i A" }}</span>{% endif %}</p></div>
+</header>
+{% if groups %}
+<form method="post" class="form-card mb-4" data-testid="take-form">{% csrf_token %}<input type="hidden" name="action" value="take">
+  <fieldset {% if not is_open %}disabled{% endif %}>
+  {% if is_open %}<label class="mark-check mb-2"><input type="checkbox" class="form-check-input" data-tick-all><span><strong>Everyone is here</strong></span></label>{% endif %}
+  {% for team, rows in groups %}
+    <h2 class="heading-6 mt-3 mb-1">{% if team.number %}{{ team.number }}. {% endif %}{{ team.name }}</h2>
+    {% for reg, mark in rows %}
+    <label class="mark-check border-top">
+      <input type="checkbox" class="form-check-input" name="present" value="{{ reg.pk }}"{% if mark.present %} checked{% endif %}>
+      <span>{{ reg.person.display_name }} <span class="caption-2 text-secondary">{{ reg.person.student_id }}</span>
+        {% if mark and not is_open %}<span class="tag {% if mark.present %}tag-green{% else %}tag-red{% endif %} ms-1">{{ mark.present|yesno:"Present,Absent" }}</span>{% endif %}</span>
+    </label>
+    {% endfor %}
+  {% endfor %}
+  {% if is_open %}<div class="mark-actions"><div class="d-flex flex-wrap gap-2 mt-3 mark-buttons"><button class="btn btn-primary" type="submit">{% include "ui/icon.html" with name="check-circle" %}Save attendance</button></div></div>{% endif %}
+  </fieldset>
+  {% if is_open and not marked %}<p class="caption-2 text-secondary mt-2 mb-0">Not saved yet.</p>{% endif %}
+</form>
+<script>document.addEventListener("change", function (e) { if (e.target.matches("[data-tick-all]")) document.querySelectorAll("input[name=present]").forEach(function (b) { b.checked = e.target.checked; }); });</script>
+{% else %}
+<div class="empty-state mb-4"><h2 class="heading-5">No students in {{ session.room.name }}</h2><p>Ask an admin to put teams in this classroom.</p></div>
+{% endif %}
+{% if students %}
+<section class="panel" data-testid="request-form">
+  <h2 class="panel-title">Ask an admin to fix something</h2>
+  <form method="post" class="row g-2 align-items-end">{% csrf_token %}<input type="hidden" name="action" value="request">
+    <div class="col-md-4"><label class="form-label" for="req-student">Student</label><select id="req-student" name="registration" class="form-select">{% for reg in students %}<option value="{{ reg.pk }}">{{ reg.person.display_name }} ({{ reg.person.student_id }})</option>{% endfor %}</select></div>
+    <div class="col-md-4"><label class="form-label" for="req-kind">What happened</label><select id="req-kind" name="kind" class="form-select">{% for value, label in kinds %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></div>
+    <div class="col-md-4"><label class="form-label" for="req-want">They should be</label><select id="req-want" name="want_present" class="form-select"><option value="1">Present</option><option value="0">Absent</option></select></div>
+    <div class="col-12"><label class="form-label" for="req-note">Note</label><input id="req-note" name="note" class="form-control" maxlength="500" placeholder="For example: arrived at 10:20, after the link expired"></div>
+    <div class="col-12"><button class="btn btn-quiet" type="submit">Send request</button></div>
+  </form>
+  {% if my_requests %}<h3 class="heading-6 mt-3">Your requests</h3><ul class="mb-0">{% for r in my_requests %}<li>{{ r.registration.person.display_name }}: {{ r.get_kind_display }} · <strong>{{ r.get_status_display }}</strong>{% if r.decision_note %} ({{ r.decision_note }}){% endif %}</li>{% endfor %}</ul>{% endif %}
+</section>
+{% endif %}
+</div>
+{% endblock %}

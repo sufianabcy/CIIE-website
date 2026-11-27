@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}{{ session.name }} · {{ event.title }}{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'hackathon_manage_attendance' event.slug %}">{% include "ui/icon.html" with name="arrow-left" %}Attendance</a>
+<header class="tool-head">
+  <div><span class="eyebrow">{{ event.title }} · {{ session.room.name }}</span><h1 class="heading-3">{{ session.name }}</h1>
+    <p>{{ session.opens_at|date:"j M, g:i A" }} to {{ session.expires_at|date:"j M, g:i A" }} ·
+      {% if session.state == "open" %}<span class="tag tag-green">Open</span>{% elif session.state == "upcoming" %}<span class="tag tag-blue">Upcoming</span>{% else %}<span class="tag">Final</span>{% endif %}</p></div>
+  {% if not session.is_final %}<form method="post" onsubmit="return confirm('End this link now? The attendance becomes final.');">{% csrf_token %}<button class="btn btn-quiet" name="action" value="end" type="submit">End the link now</button></form>{% endif %}
+</header>
+{% include "hackathon/_manage_nav.html" %}
+<div class="panel mb-4"><label class="form-label" for="session-link">Link for this classroom's attendance-takers</label>
+  <input id="session-link" class="form-control" value="{{ link }}" readonly onclick="this.select()"></div>
+<section class="panel mb-4">
+  <h2 class="panel-title">Students</h2>
+  <p class="caption-2 text-secondary">You can mark anyone at any time. After the link has expired, marking someone present records them as a latecomer.</p>
+  {% for team, rows in groups %}
+  <h3 class="heading-6 mt-3">{% if team.number %}{{ team.number }}. {% endif %}{{ team.name }}</h3>
+  {% for reg, mark in rows %}
+  <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 border-top py-2">
+    <div>{{ reg.person.display_name }} <span class="caption-2 text-secondary">{{ reg.person.student_id }}</span>
+      <div class="caption-2 text-secondary">{% if mark %}{{ mark.get_source_display }} by {{ mark.marked_by.display_name }}, {{ mark.marked_at|date:"j M, g:i A" }}{% else %}Not marked{% endif %}</div></div>
+    <div class="d-flex align-items-center gap-2">
+      {% if mark %}<span class="tag {% if mark.present %}tag-green{% else %}tag-red{% endif %}">{{ mark.present|yesno:"Present,Absent" }}</span>{% else %}<span class="tag">Not marked</span>{% endif %}
+      <form method="post" class="d-flex gap-1">{% csrf_token %}<input type="hidden" name="registration" value="{{ reg.pk }}">
+        <button class="btn btn-quiet btn-sm" name="action" value="present" type="submit">{% if session.is_final %}Present (late){% else %}Present{% endif %}</button>
+        <button class="btn btn-quiet btn-sm" name="action" value="absent" type="submit">Absent</button></form>
+    </div>
+  </div>
+  {% endfor %}
+  {% empty %}<p class="text-secondary mb-0">No teams in {{ session.room.name }}.</p>{% endfor %}
+</section>
+{% if requests %}
+<section class="panel">
+  <h2 class="panel-title">Requests for this session</h2>
+  {% for r in requests %}<div class="border-top py-2"><strong>{{ r.registration.person.display_name }}</strong> · {{ r.get_kind_display }} · asks for {{ r.want_present|yesno:"Present,Absent" }}{% if r.note %} · "{{ r.note }}"{% endif %} · <span class="tag">{{ r.get_status_display }}</span>
+    {% if r.status == "pending" %}<form method="post" action="{% url 'hackathon_attendance_request' event.slug r.pk %}" class="d-inline-flex gap-1 ms-2">{% csrf_token %}<input type="hidden" name="next" value="{{ request.path }}"><button class="btn btn-primary btn-sm" name="decision" value="approve" type="submit">Approve</button><button class="btn btn-quiet btn-sm" name="decision" value="reject" type="submit">Reject</button></form>{% endif %}
+  </div>{% endfor %}
+</section>
+{% endif %}
+{% endblock %}

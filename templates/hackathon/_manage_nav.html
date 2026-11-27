@@ -1,7 +1,7 @@
 <nav class="d-flex flex-wrap gap-2 mb-4" aria-label="Hackathon sections">
   <a class="btn btn-sm {% if not section %}btn-primary{% else %}btn-quiet{% endif %}" href="{% url 'hackathon_dashboard' event.slug %}">Overview</a>
   {% for key, label in sections %}
-    {% if key != 'helpers' or is_admin %}<a class="btn btn-sm {% if section == key %}btn-primary{% else %}btn-quiet{% endif %}" href="{% url 'hackathon_manage_'|add:key event.slug %}">{{ label }}</a>{% endif %}
+    {% if key != 'helpers' and key != 'attendance' or is_admin %}<a class="btn btn-sm {% if section == key %}btn-primary{% else %}btn-quiet{% endif %}" href="{% url 'hackathon_manage_'|add:key event.slug %}">{{ label }}</a>{% endif %}
   {% endfor %}
   {% if can.can_view_floors %}<a class="btn btn-sm btn-quiet" href="{% url 'hackathon_floors' event.slug %}">By floor</a>{% endif %}
   {% if can.can_view_marks %}<a class="btn btn-sm btn-quiet" href="{% url 'hackathon_marks' event.slug %}">Marks</a>{% endif %}

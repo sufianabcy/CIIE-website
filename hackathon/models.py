@@ -700,3 +700,94 @@ class RoundOutcome(models.Model):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["round", "team"], name="one_outcome_per_team_round")]
+
+
+def _session_token() -> str:
+    import secrets
+
+    return secrets.token_urlsafe(16)
+
+
+@pghistory.track()
+class AttendanceSession(models.Model):
+    """One attendance check in one classroom: a link that works from opens_at until expires_at, then is final."""
+
+    event = models.ForeignKey("events.Event", on_delete=models.CASCADE, related_name="attendance_sessions")
+    room = models.ForeignKey(Room, on_delete=models.PROTECT, related_name="attendance_sessions")
+    name = models.CharField(max_length=100, help_text="For example Morning check.")
+    token = models.CharField(max_length=40, unique=True, default=_session_token, editable=False)
+    opens_at = models.DateTimeField()
+    expires_at = models.DateTimeField()
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["event", "-opens_at", "room__name"]
+        constraints = [models.CheckConstraint(condition=Q(expires_at__gt=F("opens_at")), name="attendance_session_expires_after_opens")]
+
+    def __str__(self):
+        return f"{self.name} · {self.room.name}"
+
+    def is_open(self, now=None) -> bool:
+        now = now or timezone.now()
+        return self.opens_at <= now < self.expires_at
+
+    def is_final(self, now=None) -> bool:
+        return (now or timezone.now()) >= self.expires_at
+
+    @property
+    def state(self) -> str:
+        now = timezone.now()
+        return "open" if self.is_open(now) else ("ended" if self.is_final(now) else "upcoming")
+
+
+class SessionMark(models.Model):
+    """One student's attendance in one session. One per student per session, so nobody is counted twice."""
+
+    class Source(models.TextChoices):
+        LINK = "link", "Marked with the link"
+        LATE = "late", "Added by an admin (late)"
+        CORRECTION = "correction", "Corrected by an admin"
+
+    session = models.ForeignKey(AttendanceSession, on_delete=models.CASCADE, related_name="marks")
+    registration = models.ForeignKey("registrations.Registration", on_delete=models.PROTECT, related_name="session_marks")
+    team = models.ForeignKey(Team, null=True, blank=True, on_delete=models.SET_NULL, related_name="session_marks",
+                             help_text="The team they were in when marked.")
+    present = models.BooleanField()
+    source = models.CharField(max_length=20, choices=Source.choices, default=Source.LINK)
+    marked_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    marked_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["session", "registration__person__full_name"]
+        constraints = [models.UniqueConstraint(fields=["session", "registration"], name="one_mark_per_student_per_session")]
+
+
+@pghistory.track()
+class AttendanceRequest(models.Model):
+    """An attendance-taker asks an admin to fix a session's attendance."""
+
+    class Kind(models.TextChoices):
+        LATE = "late", "Missed: the student arrived late"
+        WRONG = "wrong", "Marked wrongly"
+        DETAILS = "details", "Wrong details submitted"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Waiting for an admin"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+
+    session = models.ForeignKey(AttendanceSession, on_delete=models.CASCADE, related_name="requests")
+    registration = models.ForeignKey("registrations.Registration", on_delete=models.PROTECT, related_name="attendance_requests")
+    kind = models.CharField("what happened", max_length=20, choices=Kind.choices)
+    want_present = models.BooleanField("should be marked present", default=True)
+    note = models.CharField(max_length=500, blank=True)
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    requested_at = models.DateTimeField(default=timezone.now)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    decided_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+")
+    decided_at = models.DateTimeField(null=True, blank=True)
+    decision_note = models.CharField(max_length=500, blank=True)
+
+    class Meta:
+        ordering = ["status", "-requested_at"]

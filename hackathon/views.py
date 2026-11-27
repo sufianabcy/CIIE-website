@@ -474,10 +474,13 @@ def staff_home(request):
     # Someone who is both faculty and a student still reaches the hackathons they take part in.
     taking_part = (Registration.objects.filter(person=request.user, status=Registration.Status.CONFIRMED, event__kind="hackathon")
                    .select_related("event").order_by("-event__starts_at"))
+    from .attendance import sessions_for_taker
+
+    open_sessions = [s for v in volunteering for s in sessions_for_taker(request.user, v.event)]
     return render(
         request, "hackathon/staff_home.html",
         {"roles": roles, "overseen": overseen_events(request.user).order_by("-starts_at"), "volunteering": volunteering,
-         "taking_part": taking_part},
+         "taking_part": taking_part, "open_sessions": open_sessions},
     )
 
 

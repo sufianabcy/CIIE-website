@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Attendance-taker accounts · {{ event.title }}{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'hackathon_manage_attendance' event.slug %}">{% include "ui/icon.html" with name="arrow-left" %}Attendance</a>
+<header class="tool-head">
+  <div><span class="eyebrow">{{ event.title }}</span><h1 class="heading-3">Attendance-taker accounts</h1>
+    <p>Make accounts for the people who take attendance. The portal makes a login ID and a password for each; they sign in with them and choose their own password straight away. They see and mark only the classrooms you give them.</p></div>
+</header>
+{% include "hackathon/_manage_nav.html" %}
+{% if made %}
+<section class="panel mb-4" data-testid="new-logins">
+  <h2 class="panel-title">{% include "ui/icon.html" with name="warning" %}Copy or print these now: the passwords are shown only once</h2>
+  <div class="table-responsive"><table class="table table-sm mb-2">
+    <thead><tr><th>Name</th><th>Login ID</th><th>Password</th></tr></thead>
+    <tbody>{% for person, password in made %}<tr><td>{{ person.display_name }}</td><td><code>{{ person.login_id }}</code></td><td><code>{{ password }}</code></td></tr>{% endfor %}</tbody>
+  </table></div>
+  <p class="caption-2 mb-2">Sign in at {{ signin_url }} with the login ID and password.</p>
+  <button class="btn btn-quiet btn-sm" type="button" onclick="window.print()">{% include "ui/icon.html" with name="printer" %}Print</button>
+</section>
+{% endif %}
+<section class="panel mb-4">
+  <h2 class="panel-title">{% include "ui/icon.html" with name="plus" %}New accounts</h2>
+  <form method="post" novalidate>{% csrf_token %}<input type="hidden" name="action" value="make">
+    <div class="mb-3"><label class="form-label" for="{{ form.names.id_for_label }}">{{ form.names.label }}</label>{{ form.names }}<div class="form-text">{{ form.names.help_text }}</div>{% for e in form.names.errors %}<div class="field-error">{{ e }}</div>{% endfor %}</div>
+    <fieldset class="mb-3"><legend class="form-label">{{ form.rooms.label }}</legend>
+      <div class="d-flex flex-wrap gap-3">{% for cb in form.rooms %}<label class="mark-check">{{ cb.tag }}<span>{{ cb.choice_label }}</span></label>{% empty %}<span class="text-secondary">No classrooms yet.</span>{% endfor %}</div>
+      <div class="form-text">{{ form.rooms.help_text }} You can change them later on the Supervisors &amp; volunteers page.</div></fieldset>
+    <div class="mb-3"><label class="form-label" for="{{ form.days.id_for_label }}">{{ form.days.label }}</label>{{ form.days }}</div>
+    <button class="btn btn-primary" type="submit">Make the accounts</button>
+  </form>
+</section>
+<section class="panel">
+  <h2 class="panel-title">Attendance-takers here</h2>
+  {% if takers %}
+  <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+    <thead><tr><th>Name</th><th>Login ID or email</th><th>Classrooms</th><th></th></tr></thead>
+    <tbody>{% for t in takers %}<tr>
+      <td>{{ t.person.display_name }}{% if not t.is_active %} (off){% endif %}</td><td>{{ t.person.login_id|default:t.person.email|default:"—" }}</td>
+      <td>{% for r in t.rooms.all %}{{ r.name }}{% if not forloop.last %}, {% endif %}{% empty %}<span class="text-secondary">none</span>{% endfor %}</td>
+      <td class="text-end"><form method="post" onsubmit="return confirm('Make a new password for {{ t.person.display_name|escapejs }}? Their old one stops working.');">{% csrf_token %}<input type="hidden" name="action" value="reset"><input type="hidden" name="volunteer" value="{{ t.pk }}"><button class="btn btn-quiet btn-sm" type="submit">New password</button></form></td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="text-secondary mb-0">None yet.</p>{% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Attendance · {{ event.title }}{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'hackathon_dashboard' event.slug %}">{% include "ui/icon.html" with name="arrow-left" %}{{ event.title }}</a>
+<header class="tool-head">
+  <div><span class="eyebrow">{{ event.title }}</span><h1 class="heading-3">Attendance</h1>
+    <p>Make a link for a classroom. Its attendance-takers sign in, open it and tick who is there. When the time is up the link stops working and that attendance is final; only admins change it after that.</p></div>
+  <div class="d-flex flex-wrap gap-2">
+    <a class="btn btn-quiet" href="{% url 'hackathon_attendance_takers' event.slug %}">{% include "ui/icon.html" with name="users" %}Attendance-taker accounts</a>
+    <a class="btn btn-primary" href="{% url 'hackathon_attendance_report' event.slug %}">{% include "ui/icon.html" with name="download" %}Attendance report (Excel)</a>
+  </div>
+</header>
+{% include "hackathon/_manage_nav.html" %}
+
+{% if pending %}
+<section class="panel mb-4" data-testid="pending-requests">
+  <h2 class="panel-title">{% include "ui/icon.html" with name="warning" %}Requests waiting ({{ pending|length }})</h2>
+  {% for r in pending %}
+  <div class="border-top py-2">
+    <div><strong>{{ r.registration.person.display_name }}</strong> ({{ r.registration.person.student_id|default:"no KL ID" }}) · {{ r.session.name }}, {{ r.session.room.name }}</div>
+    <div class="caption-2">{{ r.get_kind_display }} · asks for <strong>{{ r.want_present|yesno:"Present,Absent" }}</strong>{% if r.note %} · "{{ r.note }}"{% endif %} · by {{ r.requested_by.display_name }}, {{ r.requested_at|date:"j M, g:i A" }}</div>
+    <form method="post" action="{% url 'hackathon_attendance_request' event.slug r.pk %}" class="d-flex flex-wrap gap-2 mt-1">{% csrf_token %}
+      <input name="note" class="form-control form-control-sm" style="max-width:18rem" placeholder="Note (optional)" aria-label="Note">
+      <button class="btn btn-primary btn-sm" name="decision" value="approve" type="submit">Approve</button>
+      <button class="btn btn-quiet btn-sm" name="decision" value="reject" type="submit">Reject</button>
+    </form>
+    {% if r.kind == "details" %}<p class="caption-2 text-secondary mb-0">Approving a details request changes no attendance: fix the student's details on the Students page.</p>{% endif %}
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+<section class="panel mb-4">
+  <h2 class="panel-title">{% include "ui/icon.html" with name="plus" %}Make attendance links</h2>
+  {% if rooms %}
+  <form method="post" novalidate>{% csrf_token %}
+    {% for e in form.non_field_errors %}<div class="alert alert-danger">{{ e }}</div>{% endfor %}
+    <div class="row g-3">
+      <div class="col-md-4"><label class="form-label" for="{{ form.name.id_for_label }}">{{ form.name.label }}</label>{{ form.name }}<div class="form-text">{{ form.name.help_text }}</div>{% for e in form.name.errors %}<div class="field-error">{{ e }}</div>{% endfor %}</div>
+      <div class="col-md-4"><label class="form-label" for="{{ form.opens_at.id_for_label }}">{{ form.opens_at.label }}</label>{{ form.opens_at }}<div class="form-text">{{ form.opens_at.help_text }}</div></div>
+      <div class="col-md-4"><label class="form-label" for="{{ form.minutes.id_for_label }}">{{ form.minutes.label }}</label>{{ form.minutes }}{% for e in form.minutes.errors %}<div class="field-error">{{ e }}</div>{% endfor %}</div>
+    </div>
+    <fieldset class="mt-3"><legend class="form-label">Classrooms <span class="caption-2 text-secondary">(one link each)</span></legend>
+      <label class="mark-check"><input type="checkbox" class="form-check-input" data-bulk-all-rooms><span><strong>All classrooms</strong></span></label>
+      <div class="d-flex flex-wrap gap-3">{% for cb in form.rooms %}<label class="mark-check">{{ cb.tag }}<span>{{ cb.choice_label }}</span></label>{% endfor %}</div>
+      {% for e in form.rooms.errors %}<div class="field-error">{{ e }}</div>{% endfor %}
+    </fieldset>
+    <button class="btn btn-primary mt-3" type="submit">Make the links</button>
+  </form>
+  <script>document.addEventListener("change", function (e) { if (e.target.matches("[data-bulk-all-rooms]")) document.querySelectorAll("input[name=rooms]").forEach(function (b) { b.checked = e.target.checked; }); });</script>
+  {% else %}<p class="text-secondary mb-0">Add classrooms on the Rooms page first.</p>{% endif %}
+</section>
+
+<section class="panel">
+  <h2 class="panel-title">Sessions</h2>
+  {% if rows %}
+  <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+    <thead><tr><th>Session</th><th>Classroom</th><th>Opens</th><th>Expires</th><th>State</th><th class="text-end">Present / students</th><th>Link</th><th></th></tr></thead>
+    <tbody>{% for r in rows %}<tr>
+      <td>{{ r.session.name }}</td><td>{{ r.session.room.name }}</td>
+      <td class="caption-2">{{ r.session.opens_at|date:"j M, g:i A" }}</td><td class="caption-2">{{ r.session.expires_at|date:"j M, g:i A" }}</td>
+      <td>{% if r.session.state == "open" %}<span class="tag tag-green">Open</span>{% elif r.session.state == "upcoming" %}<span class="tag tag-blue">Upcoming</span>{% else %}<span class="tag">Final</span>{% endif %}</td>
+      <td class="text-end num">{{ r.present }} / {{ r.students }}{% if not r.marked %} <span class="caption-2 text-secondary">not taken</span>{% endif %}</td>
+      <td><input class="form-control form-control-sm" style="min-width:14rem" value="{{ r.link }}" readonly onclick="this.select()" aria-label="Link for {{ r.session.room.name }}"></td>
+      <td class="text-end"><a class="btn btn-quiet btn-sm" href="{% url 'hackathon_attendance_session' event.slug r.session.pk %}">Open</a></td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="text-secondary mb-0">No sessions yet.</p>{% endif %}
+</section>
+{% endblock %}

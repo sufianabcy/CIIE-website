@@ -11,7 +11,7 @@ from django.db import transaction
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.http import HttpResponse
+from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.cache import never_cache
@@ -23,6 +23,7 @@ from events.models import Event
 
 from . import rooms as room_tools
 from .access import allowed, day_allowed, is_admin, oversees, overseen_event, require, volunteer_row
+from .attendance import sessions_for_taker
 from .models import Assignment, Attendance, EventFaculty, Room, Round, Team
 
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -183,7 +184,8 @@ def _floor_context(request, event):
         "event": event, "round": round_, "rounds": Round.objects.filter(event=event), "floors": data, "unroomed": unroomed,
         "block": block, "floor": floor,
         "blocks": sorted({r.block for r in all_rooms if r.block}), "floor_choices": sorted({r.floor for r in all_rooms if r.floor}),
-        "can_team_att": day_allowed(request.user, event, "team_attendance"),
+        "can_team_att": False,  # student attendance is taken with attendance sessions (hackathon.attendance)
+        "open_sessions": sessions_for_taker(request.user, event),
         "can_faculty_att": day_allowed(request.user, event, "faculty_attendance"),
         "can_progress": day_allowed(request.user, event, "progress"),
         "is_overseer": oversees(request.user, event),
@@ -234,22 +236,14 @@ def attendance_mark(request, slug):
     round_ = get_object_or_404(Round, pk=request.POST.get("round"), event=event)
     present = request.POST.get("present") == "1"
     if request.POST.get("team"):
-        if not day_allowed(request.user, event, "team_attendance"):
-            raise PermissionDenied
-        team = get_object_or_404(Team, pk=request.POST["team"], event=event)
-        if not _may_mark(request.user, event, round_, team=team):
-            raise PermissionDenied  # not one of their rooms, or a team they judge
-        members = [int(m) for m in request.POST.getlist("members") if m.isdigit()]
-        room_tools.mark_attendance(round_, request.user, present, team=team, members=members)
-        messages.success(request, f"{team.name}: {'present' if present else 'absent'}.")
-    else:
-        if not day_allowed(request.user, event, "faculty_attendance"):
-            raise PermissionDenied
-        faculty = get_object_or_404(EventFaculty, pk=request.POST.get("faculty"), event=event)
-        if not _may_mark(request.user, event, round_, faculty=faculty):
-            raise PermissionDenied  # not judging in one of their rooms
-        room_tools.mark_attendance(round_, request.user, present, faculty=faculty)
-        messages.success(request, f"{faculty}: {'present' if present else 'absent'}.")
+        raise Http404("Student attendance is taken with attendance links now.")
+    if not day_allowed(request.user, event, "faculty_attendance"):
+        raise PermissionDenied
+    faculty = get_object_or_404(EventFaculty, pk=request.POST.get("faculty"), event=event)
+    if not _may_mark(request.user, event, round_, faculty=faculty):
+        raise PermissionDenied  # not judging in one of their rooms
+    room_tools.mark_attendance(round_, request.user, present, faculty=faculty)
+    messages.success(request, f"{faculty}: {'present' if present else 'absent'}.")
     return redirect(request.POST.get("next") or f"{reverse('hackathon_floors', args=[slug])}?round={round_.pk}")
 
 

@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import day_views, manage_views, views
+from . import attendance, day_views, manage_views, views
 
 urlpatterns = [
     path("manage/<slug:slug>/hackathon/", views.dashboard, name="hackathon_dashboard"),
@@ -71,6 +71,12 @@ urlpatterns = [
     path("manage/<slug:slug>/hackathon/volunteers/<int:pk>/delete/", manage_views.volunteer_remove, name="hackathon_manage_volunteer_remove"),
     path("manage/<slug:slug>/invites/", views.invites, name="hackathon_invites"),
     path("manage/<slug:slug>/hackathon/rubric/", manage_views.rubric_settings, name="hackathon_rubric_settings"),
+    path("manage/<slug:slug>/hackathon/attendance/", attendance.sessions_page, name="hackathon_manage_attendance"),
+    path("manage/<slug:slug>/hackathon/attendance/sessions/<int:pk>/", attendance.session_detail, name="hackathon_attendance_session"),
+    path("manage/<slug:slug>/hackathon/attendance/requests/<int:pk>/", attendance.request_decide, name="hackathon_attendance_request"),
+    path("manage/<slug:slug>/hackathon/attendance/report/", attendance.export, name="hackathon_attendance_report"),
+    path("manage/<slug:slug>/hackathon/attendance/takers/", attendance.takers_page, name="hackathon_attendance_takers"),
+    path("attendance/<str:token>/", attendance.take_page, name="attendance_take"),
     path("manage/<slug:slug>/hackathon/rubric/download/", manage_views.rubric_download, name="hackathon_rubric_download"),
     path("manage/<slug:slug>/hackathon/rubric/import/", manage_views.rubric_import, name="hackathon_rubric_import"),
     path("me/hackathon/<slug:slug>/", views.my_hackathon, name="my_hackathon"),

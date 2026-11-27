@@ -50,7 +50,8 @@ def friendly_clash(view):
 
 SECTIONS = [
     ("students", "Students"), ("teams", "Teams"), ("rooms", "Rooms"), ("faculty", "Faculty"),
-    ("helpers", "Supervisors & volunteers"), ("rounds", "Rounds and rubric"), ("allocations", "Allocations"), ("fields", "Fields"),
+    ("helpers", "Supervisors & volunteers"), ("rounds", "Rounds and rubric"), ("allocations", "Allocations"), ("attendance", "Attendance"),
+    ("fields", "Fields"),
 ]
 
 

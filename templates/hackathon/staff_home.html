@@ -10,6 +10,17 @@
       <p>Where you judge, supervise or volunteer.</p>
     </div>
   </header>
+  {% if open_sessions %}
+  <h2 class="heading-6 mb-3" id="attendance-now">Take attendance now</h2>
+  <ul class="reg-list mb-5" data-testid="open-sessions">
+    {% for s in open_sessions %}
+    <li><a class="reg-row mark-row" href="{% url 'attendance_take' s.token %}">
+      <span><span class="r-title">{{ s.room.name }} · {{ s.name }}</span><br><span class="caption-2 text-secondary">{{ s.event.title }} · open until {{ s.expires_at|date:"g:i A" }}</span></span>
+      {% include "ui/icon.html" with name="arrow-right" %}
+    </a></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
   {% if roles %}
   <h2 class="heading-6 mb-3">Judging</h2>
   <ul class="reg-list mb-5">

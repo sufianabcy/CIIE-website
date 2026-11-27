@@ -66,6 +66,8 @@ def replace_plan(event, kind, keys) -> ReplacePlan:
             team = reg.team_membership.team if hasattr(reg, "team_membership") else None
             if team is not None and _team_is_used(team):
                 plan.keep.append((reg, f"their team {team.name} has allocations, marks or attendance"))
+            elif reg.session_marks.exists() or reg.attendance_requests.exists():
+                plan.keep.append((reg, "they have attendance"))
             elif reg.checkins.filter(undone_at__isnull=True).exists():
                 plan.keep.append((reg, "they were checked in"))
             else:
