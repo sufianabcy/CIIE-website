@@ -379,7 +379,7 @@ def test_marks_only_while_the_round_is_open_then_submit_locks(client, setup):
 
     mine = a.assignments.get(round=round1, team__name="Alpha")
     url = reverse("hackathon_mark", args=[mine.pk])
-    assert b"less than or equal to 10" in client.post(url, {f"c_{idea.pk}": "11", "save": "1"}).content
+    assert b"The most for this is 10." in client.post(url, {f"c_{idea.pk}": "11", "save": "1"}).content
     client.post(url, {f"c_{idea.pk}": "8", "save": "1"})
     assert mine.scores.get().marks == Decimal("8")
     assert b"Give marks before submitting" in client.post(url, {f"c_{idea.pk}": "8", "submit": "1"}).content

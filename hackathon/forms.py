@@ -84,7 +84,7 @@ class MarksForm(forms.Form):
         if x.get("red_flags"):
             self.fields["red_flags"] = forms.MultipleChoiceField(
                 label="Red flags", required=False, choices=[(f, f) for f in x["red_flags"]],
-                initial=assignment.red_flags or [], widget=forms.CheckboxSelectMultiple,
+                initial=assignment.red_flags or [], widget=forms.CheckboxSelectMultiple(attrs={"class": "form-check-input"}),
             )
         if x.get("self_score_max"):
             self.fields["self_score"] = forms.DecimalField(

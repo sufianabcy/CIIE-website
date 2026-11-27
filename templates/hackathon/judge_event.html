@@ -23,7 +23,7 @@
     <ul class="reg-list">
       {% for a in mine %}
       <li><a class="reg-row mark-row" href="{% url 'hackathon_mark' a.pk %}">
-        <span><span class="r-title">{{ a.team.name }}</span>{% if a.team.project_title %} · {{ a.team.project_title }}{% endif %}<br>
+        <span><span class="r-title">{% if a.team.number %}{{ a.team.number }}. {% endif %}{{ a.team.name }}</span>{% if a.team.project_title %} · {{ a.team.project_title }}{% endif %}<br>
           <span class="caption-2 text-secondary">{% for m in a.team.members.all %}{{ m.registration.person.display_name }}{% if not forloop.last %}, {% endif %}{% endfor %}{% if a.team.room %} · {{ a.team.room.name }}{% endif %}</span></span>
         <span class="d-flex align-items-center gap-2">
           {% if a.submitted_at %}<span class="tag tag-green">Submitted · {{ a.total.normalize }}</span>{% elif a.scores.all %}<span class="tag tag-amber">Draft</span>{% else %}<span class="tag">To mark</span>{% endif %}

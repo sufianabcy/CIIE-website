@@ -11,16 +11,16 @@
       return bands.length ? bands[bands.length - 1].name : "";
     }
     function update() {
-      var total = 0, max = 0;
+      var total = 0, max = 0, any = false;
       document.querySelectorAll(".mark-field").forEach(function (row) {
         var input = row.querySelector("input"), m = parseFloat(row.dataset.max);
         var v = input && input.value !== "" ? parseFloat(input.value) : NaN;
         row.querySelector("[data-band]").textContent = band(v, m);
-        if (!isNaN(v)) total += v;
+        if (!isNaN(v)) { total += v; any = true; }
         max += m;
       });
       var tb = document.querySelector("[data-total-band]");
-      if (tb) tb.textContent = band(total, max);
+      if (tb) tb.textContent = any ? band(total, max) : "";
     }
     document.addEventListener("input", update);
     update();
@@ -90,20 +90,22 @@
         <p class="text-secondary">The rubric for this round isn't ready yet.</p>
       {% endfor %}
       {% for f in form.comment_rows %}<div class="mt-3"><label class="form-label" for="{{ f.id_for_label }}">{{ f.label }}</label>{{ f }}</div>{% endfor %}
-      {% if form.red_flags %}<fieldset class="mt-3"><legend class="form-label">Red flags</legend>{% for cb in form.red_flags %}<label class="d-block caption-2">{{ cb.tag }} {{ cb.choice_label }}</label>{% endfor %}</fieldset>{% endif %}
+      {% if form.red_flags %}<fieldset class="mt-3"><legend class="form-label">Red flags</legend>{% for cb in form.red_flags %}<label class="mark-check">{{ cb.tag }}<span>{{ cb.choice_label }}</span></label>{% endfor %}</fieldset>{% endif %}
       {% if form.self_score %}<div class="mt-3"><label class="form-label" for="{{ form.self_score.id_for_label }}">{{ form.self_score.label }}</label>{{ form.self_score }}{% for e in form.self_score.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}</div>{% endif %}
       {% if form.recommendation %}<div class="mt-3"><label class="form-label" for="{{ form.recommendation.id_for_label }}">{{ form.recommendation.label }}</label>{{ form.recommendation }}</div>{% endif %}
-      {% if form.advance_anyway %}<label class="d-flex gap-2 align-items-center mt-3">{{ form.advance_anyway }} {{ form.advance_anyway.label }}</label>{% endif %}
+      {% if form.advance_anyway %}<label class="mark-check mt-3">{{ form.advance_anyway }}<span>{{ form.advance_anyway.label }}</span></label>{% endif %}
       <div class="mt-4 mb-3"><label class="form-label" for="{{ form.remarks.id_for_label }}">Remarks (optional)</label>{{ form.remarks }}</div>
+      <div class="mark-actions">
       {% if form.rows %}
         <div class="mark-total"><span>Total</span><strong><span data-marks-total>{% if total is not None %}{{ total.normalize }}{% else %}0{% endif %}</span> / {{ out_of.normalize }}</strong> <span class="tag" data-total-band></span></div>
       {% endif %}
       {% if form.rows and editable %}
-      <div class="d-flex flex-wrap gap-2 mt-3">
+      <div class="d-flex flex-wrap gap-2 mt-3 mark-buttons">
         <button class="btn btn-quiet" type="submit" name="save">Save draft</button>
         <button class="btn btn-primary" type="submit" name="submit" onclick="return confirm('Submit these marks? You won\'t be able to change them afterwards.')">{% include "ui/icon.html" with name="check-circle" %}Submit marks</button>
       </div>
       {% endif %}
+      </div>
       </fieldset>
     </form>
 </div>

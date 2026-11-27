@@ -330,27 +330,36 @@
   }, { passive: true });
 })();
 
-// Faculty marking: a mark can't go above the criterion's maximum or below 0; add up the marks as they are typed.
+// Every number box with a maximum (marks, self-score, ...): a value above it, or below its minimum, is brought back as
+// it is typed, with a short note. The server checks again.
+(function () {
+  "use strict";
+  document.addEventListener("input", function (e) {
+    var input = e.target;
+    if (!input || input.type !== "number" || input.value === "") return;
+    var row = input.closest(".mark-field");
+    var v = parseFloat(input.value);
+    var max = parseFloat(input.getAttribute("max") || (row && row.getAttribute("data-max")));
+    var min = parseFloat(input.getAttribute("min"));
+    var holder = row ? row.firstElementChild : input.parentElement;
+    var note = holder && holder.querySelector("[data-limit-note]");
+    if (!note && holder) {
+      note = document.createElement("div");
+      note.className = "invalid-feedback d-block";
+      note.setAttribute("data-limit-note", "");
+      holder.appendChild(note);
+    }
+    if (note) note.textContent = "";
+    if (!isNaN(max) && v > max) { input.value = max; if (note) note.textContent = "The most for this is " + max + "."; }
+    else if (!isNaN(min) && v < min) { input.value = min; if (note) note.textContent = "The least for this is " + min + "."; }
+  }, true);
+})();
+
+// Faculty marking: add up the marks as they are typed.
 (function () {
   "use strict";
   var form = document.querySelector("form[data-marks]");
   if (!form) return;
-  form.addEventListener("input", function (e) {
-    var input = e.target;
-    var row = input.closest && input.closest(".mark-field");
-    if (!row || input.type !== "number" || input.value === "") return;
-    var v = parseFloat(input.value), max = parseFloat(row.getAttribute("data-max"));
-    var note = row.querySelector("[data-max-note]");
-    if (!note) {
-      note = document.createElement("div");
-      note.className = "invalid-feedback d-block";
-      note.setAttribute("data-max-note", "");
-      row.firstElementChild.appendChild(note);
-    }
-    note.textContent = "";
-    if (!isNaN(max) && v > max) { input.value = max; note.textContent = "The most for this is " + max + "."; }
-    else if (v < 0) { input.value = 0; note.textContent = "Marks can't be below 0."; }
-  }, true);
   var out = form.querySelector("[data-marks-total]");
   if (!out) return;
   var box = out.closest(".mark-total");
