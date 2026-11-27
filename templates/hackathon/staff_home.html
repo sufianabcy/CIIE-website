@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Judging{% endblock %}
+{% block title %}Your hackathons{% endblock %}
 {% block robots %}<meta name="robots" content="noindex">{% endblock %}
 {% block content %}
 <div class="page-mid">
@@ -7,7 +7,7 @@
     <div>
       <span class="eyebrow">{{ user.display_name }}</span>
       <h1 class="heading-3">Your hackathons</h1>
-      <p>Where you judge, and where you supervise.</p>
+      <p>Where you judge, supervise or volunteer.</p>
     </div>
   </header>
   {% if roles %}
@@ -22,7 +22,7 @@
   </ul>
   {% endif %}
   {% if overseen %}
-  <h2 class="heading-6 mb-3">Supervising</h2>
+  <h2 class="heading-6 mb-3" id="supervising">Supervising</h2>
   <ul class="reg-list mb-5">
     {% for e in overseen %}
     <li><a class="reg-row mark-row" href="{% url 'hackathon_dashboard' e.slug %}">
@@ -33,11 +33,11 @@
   </ul>
   {% endif %}
   {% if volunteering %}
-  <h2 class="heading-6 mb-3">Volunteering</h2>
+  <h2 class="heading-6 mb-3" id="volunteering">Volunteering</h2>
   <ul class="reg-list mb-5">
     {% for v in volunteering %}
     <li><a class="reg-row mark-row" href="{% url 'hackathon_volunteer_today' v.event.slug %}">
-      <span><span class="r-title">{{ v.event.title }}</span><br><span class="caption-2 text-secondary">{{ v.event.starts_at|date:"D j M Y" }} · {{ v.switch_labels|join:", " }}</span></span>
+      <span><span class="r-title">{{ v.event.title }}</span><br><span class="caption-2 text-secondary">{{ v.event.starts_at|date:"D j M Y" }} · {% for r in v.rooms.all %}{{ r.name }}{% if not forloop.last %}, {% endif %}{% empty %}no rooms yet{% endfor %}</span></span>
       {% include "ui/icon.html" with name="arrow-right" %}
     </a></li>
     {% endfor %}
@@ -47,7 +47,7 @@
   <div class="empty-state">
     <div class="empty-icon">{% include "ui/icon.html" with name="gavel" %}</div>
     <h2 class="heading-5">Nothing assigned to you yet</h2>
-    <p>The organisers add faculty and supervisors to each hackathon. Check back soon.</p>
+    <p>The organisers add faculty, supervisors and volunteers to each hackathon. Check back soon.</p>
     {% if not user.is_faculty %}<a class="btn btn-primary" href="{% url 'faculty_register' %}">Register as faculty</a>{% endif %}
   </div>
   {% endif %}

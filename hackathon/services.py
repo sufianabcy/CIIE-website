@@ -818,6 +818,12 @@ def import_allocations(event, upload, columns=None, only_rows=None) -> ImportRep
             clash = room_conflict(round_.pk, faculty.pk, team)
             if clash:
                 report.warnings.append(f"Row {line}: {faculty}, {team.name}: {clash}")
+            from .models import volunteer_conflict
+
+            clash = volunteer_conflict(faculty.person_id, team)
+            if clash:
+                report.problems.append(f"Row {line}: {faculty}, {team.name}: {clash}")
+                continue
             Assignment.objects.create(round=round_, faculty=faculty, team=team, source=Assignment.Source.IMPORT)
             report.created += 1
     return report
@@ -1375,3 +1381,208 @@ def move_one_person_teams(event) -> tuple[int, list]:
         team.members.all().delete()
         team.delete()
     return len(move), kept
+
+
+# --- Supervisors and volunteers (one tab, one Add form, one import) -----------------------------------
+
+
+class HelperError(Exception):
+    """A supervisor or volunteer row that can't be saved, with the reason to show."""
+
+
+ROLE_WORDS = {"supervisor": "supervisor", "supervising": "supervisor", "sup": "supervisor",
+              "volunteer": "volunteer", "volunteering": "volunteer", "vol": "volunteer"}
+
+
+def helper_role(text) -> str:
+    """ "Supervisor" / "Volunteer" (any case, or the start of the word) -> "supervisor" / "volunteer", else ""."""
+    word = _key(text)
+    if word in ROLE_WORDS:
+        return ROLE_WORDS[word]
+    if word.startswith("sup"):
+        return "supervisor"
+    if word.startswith("vol"):
+        return "volunteer"
+    return ""
+
+
+def _clean_id(value) -> str:
+    value = str(value if value is not None else "").strip()
+    return value.split(".", 1)[0] if re.fullmatch(r"\d+\.0+", value) else value
+
+
+def match_helper(employee_id="", student_id="", email="") -> Person | None:
+    """The person these details belong to: by employee ID, then KL ID (or its KL email), then email."""
+    if employee_id:
+        person = Person.objects.filter(employee_id__iexact=employee_id).first()
+        if person:
+            return person
+    if student_id:
+        person = Person.objects.filter(student_id__iexact=student_id).first()
+        kl = kl_email_for(student_id)
+        person = person or (Person.objects.filter(Q(email__iexact=kl) | Q(kl_email__iexact=kl)).first() if kl else None)
+        if person:
+            return person
+    if email:
+        return Person.objects.filter(Q(email__iexact=email) | Q(kl_email__iexact=email) | Q(contact_email__iexact=email)).first()
+    return None
+
+
+def find_or_make_helper(name, employee_id="", student_id="", email="", phone="") -> tuple[Person, bool]:
+    """The existing person (a faculty member or student anywhere on the portal) or a new one: an employee ID makes a
+    Faculty person, a KL ID a Student. Fills blanks on an existing person; never makes a second account."""
+    name = " ".join(str(name or "").split())
+    employee_id, student_id = _clean_id(employee_id), _clean_id(student_id)
+    email = normalise_email(email) or ""
+    phone = re.sub(r"\D", "", str(phone or "")) or str(phone or "").strip()
+    if not (employee_id or student_id):
+        raise HelperError("needs an employee ID or a KL ID")
+    person = match_helper(employee_id, student_id, email)
+    created = person is None
+    if created:
+        if not name:
+            raise HelperError("no name")
+        if employee_id:
+            owner = Person.objects.filter(Q(email__iexact=email) | Q(kl_email__iexact=email)).first() if email else None
+            person = Person(email=(email or None) if owner is None else None, full_name=name, kind=Person.Kind.FACULTY,
+                            source=Person.Source.IMPORT, profile_completed_at=timezone.now())
+            if email and is_kl_email(email) and owner is None:
+                person.kl_email = email
+        else:
+            kl = kl_email_for(student_id)
+            person = Person(email=kl, kl_email=kl, full_name=name, kind=Person.Kind.STUDENT, source=Person.Source.IMPORT,
+                            profile_completed_at=timezone.now(), contact_email=email if email and email != kl else "")
+        person.set_unusable_password()
+    else:
+        if employee_id and person.employee_id and person.employee_id.lower() != employee_id.lower():
+            raise HelperError(f"{person.display_name} already has employee ID {person.employee_id}")
+        if student_id and person.student_id and person.student_id.lower() != student_id.lower():
+            raise HelperError(f"{person.display_name} already has KL ID {person.student_id}")
+        if email and not person.email:
+            if not Person.objects.filter(Q(email__iexact=email) | Q(kl_email__iexact=email)).exclude(pk=person.pk).exists():
+                person.email = email
+    for attr, value in (("full_name", name), ("employee_id", employee_id), ("student_id", student_id), ("phone", phone)):
+        if value and not getattr(person, attr):
+            setattr(person, attr, value)
+    if employee_id and student_id:
+        raise HelperError("give an employee ID or a KL ID, not both")
+    try:
+        person.full_clean(exclude=["password", "kl_email"], validate_unique=True)
+    except ValidationError as exc:
+        raise HelperError("; ".join(m for msgs in exc.message_dict.values() for m in msgs)) from None
+    person.save()
+    return person, created
+
+
+def rooms_from_text(event, text) -> tuple[list, list[str]]:
+    """("L502, L503" -> [Room, Room], [codes not found in this hackathon])."""
+    from .models import clean_room_code
+
+    rooms, unknown = [], []
+    for part in re.split(r"[,;/\n]+", str(text or "")):
+        code = clean_room_code(part)
+        if not code:
+            continue
+        room = Room.objects.filter(event=event, name__iexact=code).first()
+        if room is None:
+            unknown.append(part.strip())
+        elif room not in rooms:
+            rooms.append(room)
+    return rooms, unknown
+
+
+def volunteer_room_conflicts(event, person, rooms) -> list[str]:
+    """A volunteer takes attendance in their rooms, so they can't be allocated to judge teams there."""
+    room_ids = [r.pk for r in rooms]
+    if not room_ids:
+        return []
+    clashes = (Assignment.objects.filter(round__event=event, faculty__person=person, team__room_id__in=room_ids)
+               .select_related("team__room").order_by("team__room__name", "team__name"))
+    seen, out = set(), []
+    for a in clashes:
+        if a.team_id in seen:
+            continue
+        seen.add(a.team_id)
+        out.append(f"{person.display_name} judges {a.team.name} in {a.team.room.name}, so they can't volunteer there.")
+    return out
+
+
+def set_volunteer_rooms(volunteer, rooms):
+    problems = volunteer_room_conflicts(volunteer.event, volunteer.person, rooms)
+    if problems:
+        raise HelperError(" ".join(problems))
+    volunteer.rooms.set(rooms)
+
+
+@transaction.atomic
+def add_helper(event, role, name, employee_id="", student_id="", email="", phone="", rooms=None, switches=None):
+    """Add a supervisor or volunteer to this hackathon (the same person if they're already on the portal).
+    Returns (role row, person created?)."""
+    if role not in ("supervisor", "volunteer"):
+        raise HelperError("the role must be Supervisor or Volunteer")
+    person, created = find_or_make_helper(name, employee_id, student_id, email, phone)
+    if role == "supervisor":
+        kind = Supervisor.Kind.STUDENT if (person.kind == Person.Kind.STUDENT and not person.employee_id) else Supervisor.Kind.FACULTY
+        row, _ = add_supervisor(event, person, kind, switches=switches)
+    else:
+        row, _ = add_volunteer(event, person, switches=switches)
+        if rooms is not None:
+            set_volunteer_rooms(row, rooms)
+    return row, created
+
+
+HELPER_COLUMNS = {
+    "name": PERSON_COLUMNS["name"] + ["volunteer", "volunteer name"],
+    "role": ["role", "type", "supervisor or volunteer", "as"],
+    "employee_id": PERSON_COLUMNS["employee_id"],
+    "student_id": PERSON_COLUMNS["student_id"],
+    "email": PERSON_COLUMNS["email"],
+    "phone": PERSON_COLUMNS["phone"],
+    "rooms": ["rooms", "room", "room numbers", "rooms to look after", "assigned rooms"],
+}
+
+
+@transaction.atomic
+def import_helpers(event, upload, columns=None, only_rows=None) -> ImportReport:
+    """Supervisors and volunteers, one row per person: Name, Role, an employee ID or a KL ID, and optional Email,
+    Phone and (volunteers) Rooms such as "L502, L503". Permission switches can be columns too (Yes/No)."""
+    report = ImportReport()
+    headers, rows = read_rows(upload)
+    spec = {**HELPER_COLUMNS, **_switch_columns(), **_volunteer_switch_columns()}
+    columns = columns if columns is not None else match_columns(headers, spec)
+    used = set(columns.values())
+    if not {"name", "role"} <= used or not ({"employee_id", "student_id"} & used):
+        report.problems.append("The first row needs Name, Role and an Employee ID or KL ID column.")
+        return report
+    for line, row in enumerate(rows, start=2):
+        if only_rows is not None and line not in only_rows:
+            continue
+        data, _ = _row_data(headers, row, columns)
+        role = helper_role(data.get("role"))
+        if not role:
+            report.problems.append(f"Row {line}: the role \"{data.get('role') or ''}\" isn't Supervisor or Volunteer.")
+            continue
+        names = _switch_columns() if role == "supervisor" else _volunteer_switch_columns()
+        switches = {}
+        for name in names:
+            word = _key(data.get(name))
+            if word in TRUE_WORDS:
+                switches[name] = True
+            elif word in FALSE_WORDS:
+                switches[name] = False
+        rooms = None
+        if role == "volunteer" and data.get("rooms"):
+            rooms, unknown = rooms_from_text(event, data["rooms"])
+            if unknown:
+                report.problems.append(f"Row {line}: no room {', '.join(unknown)} in this hackathon. Add the rooms first.")
+                continue
+        try:
+            with transaction.atomic():
+                _, created = add_helper(event, role, data.get("name"), data.get("employee_id"), data.get("student_id"),
+                                        data.get("email"), data.get("phone"), rooms=rooms, switches=switches)
+        except HelperError as exc:
+            report.problems.append(f"Row {line}: {exc}.")
+            continue
+        report.created += created
+        report.updated += not created
+    return report

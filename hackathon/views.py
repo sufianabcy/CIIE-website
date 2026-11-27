@@ -104,6 +104,7 @@ UPLOADS = {
     "faculty": ("Faculty", "faculty"),
     "supervisors": ("Supervisors", "supervisor(s)"),
     "volunteers": ("Volunteers", "volunteer(s)"),
+    "helpers": ("Supervisors and volunteers", "person(s)"),
     "allocations": ("Allocations", "allocation(s)"),
     "rooms": ("Rooms", "room(s)"),
     "teams": ("Teams", "team(s)"),
@@ -141,7 +142,7 @@ def reverse_lazy_dashboard(slug):
 
 
 def _import_allowed(request, event, kind):
-    if kind in ("supervisors", "volunteers") and not is_admin(request.user):
+    if kind in ("supervisors", "volunteers", "helpers") and not is_admin(request.user):
         raise PermissionDenied  # only admins add supervisors and volunteers
     require(request.user, event, "can_import")
 
@@ -156,7 +157,7 @@ def import_start(request, slug):
         if request.POST.get("kind") not in UPLOADS:
             raise Http404
         return upload(request, slug, request.POST["kind"])
-    kinds = [(k, label) for k, label in imports.KINDS.items() if k in UPLOADS and (k not in ("supervisors", "volunteers") or is_admin(request.user))]
+    kinds = [(k, label) for k, label in imports.KINDS.items() if k in UPLOADS and (k != "helpers" or is_admin(request.user))]
     return render(request, "hackathon/import_start.html", {
         "event": event, "kinds": kinds, "chosen": request.GET.get("kind", "students"), "upload_form": UploadForm(),
     })

@@ -58,10 +58,14 @@
         <li><a href="{% url 'home' %}#faq">FAQ</a></li>
         {% if user.is_authenticated %}
           <li><a href="{% url 'my_events' %}" {% if page == 'my_events' or page == 'my_registrations' or page == 'pass' or page == 'my_hackathon' %}aria-current="page"{% endif %}>My events</a></li>
-          {% if user.is_faculty or user.is_supervisor %}
-            <li><a href="{% url 'staff_home' %}" {% if page == 'staff_home' or page == 'hackathon_judge_event' or page == 'hackathon_mark' %}aria-current="page"{% endif %}>Judging</a></li>
-          {% elif user.volunteer_roles.exists %}
-            <li><a href="{% url 'staff_home' %}" {% if page == 'staff_home' or page == 'hackathon_volunteer_today' %}aria-current="page"{% endif %}>Volunteering</a></li>
+          {% if user.is_faculty %}
+            <li><a href="{% url 'staff_home' %}" {% if page == 'hackathon_judge_event' or page == 'hackathon_mark' %}aria-current="page"{% endif %}>Judging</a></li>
+          {% endif %}
+          {% if user.supervises %}
+            <li><a href="{% url 'staff_home' %}#supervising" data-testid="menu-supervising">Supervising</a></li>
+          {% endif %}
+          {% if user.volunteers_somewhere %}
+            <li><a href="{% url 'staff_home' %}#volunteering" {% if page == 'hackathon_volunteer_today' %}aria-current="page"{% endif %} data-testid="menu-volunteering">Volunteering</a></li>
           {% endif %}
           {% if user.is_coordinator or user.is_supervisor or user.door_events.exists %}
             <li><a href="{% url 'manage' %}" {% if page == 'manage' or page == 'event_report' or page == 'hackathon_dashboard' %}aria-current="page"{% endif %}>Run events</a></li>
@@ -110,7 +114,9 @@
       <li style="--i:3"><a href="{% url 'home' %}#faq">FAQ {% include "ui/icon.html" with name="arrow-right" %}</a></li>
       {% if user.is_authenticated %}
         <li style="--i:4"><a href="{% url 'my_events' %}" {% if page == 'my_events' %}aria-current="page"{% endif %}>My events {% include "ui/icon.html" with name="arrow-right" %}</a></li>
-        {% if user.is_faculty or user.is_supervisor %}<li style="--i:5"><a href="{% url 'staff_home' %}">Judging {% include "ui/icon.html" with name="arrow-right" %}</a></li>{% elif user.volunteer_roles.exists %}<li style="--i:5"><a href="{% url 'staff_home' %}">Volunteering {% include "ui/icon.html" with name="arrow-right" %}</a></li>{% endif %}
+        {% if user.is_faculty %}<li style="--i:5"><a href="{% url 'staff_home' %}">Judging {% include "ui/icon.html" with name="arrow-right" %}</a></li>{% endif %}
+        {% if user.supervises %}<li style="--i:5"><a href="{% url 'staff_home' %}#supervising">Supervising {% include "ui/icon.html" with name="arrow-right" %}</a></li>{% endif %}
+        {% if user.volunteers_somewhere %}<li style="--i:5"><a href="{% url 'staff_home' %}#volunteering">Volunteering {% include "ui/icon.html" with name="arrow-right" %}</a></li>{% endif %}
         {% if user.is_coordinator or user.is_supervisor or user.door_events.exists %}<li style="--i:5"><a href="{% url 'manage' %}" {% if page == 'manage' %}aria-current="page"{% endif %}>Run events {% include "ui/icon.html" with name="arrow-right" %}</a></li>{% endif %}
       {% endif %}
     </ul>

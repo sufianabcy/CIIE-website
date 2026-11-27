@@ -12,6 +12,7 @@
   <div class="d-flex flex-wrap gap-2">
     {% if extra_url %}<a class="btn btn-quiet" href="{{ extra_url }}">{% if extra_label == "Email login details" %}{% include "ui/icon.html" with name="mail" %}{% endif %}{{ extra_label }}</a>{% endif %}
     {% if import_url %}<a class="btn btn-quiet" href="{{ import_url }}">{% include "ui/icon.html" with name="download" %}Import from Excel</a>{% endif %}
+    {% if second_add_url %}<a class="btn btn-quiet" href="{{ second_add_url }}">{% include "ui/icon.html" with name="plus" %}{{ second_add_label }}</a>{% endif %}
     {% if add_url %}<a class="btn btn-primary" href="{{ add_url }}">{% include "ui/icon.html" with name="plus" %}{{ add_label }}</a>{% endif %}
   </div>
 </header>

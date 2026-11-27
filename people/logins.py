@@ -79,7 +79,7 @@ def login_states(people) -> dict[int, LoginState]:
 
 def _context(person, password, expires_at, event, role):
     signin = settings.SITE_URL + reverse("signin")
-    if role == "faculty":
+    if role in ("faculty", "helper"):
         home = settings.SITE_URL + reverse("staff_home")
     elif event is not None:
         home = settings.SITE_URL + reverse("my_hackathon", args=[event.slug]) if event.is_hackathon else signin

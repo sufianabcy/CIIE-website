@@ -12,7 +12,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
-from .models import Assignment, Attendance, EventFaculty, Room, Round, Team
+from .models import Assignment, Attendance, EventFaculty, Room, Round, Team, volunteer_conflict
 
 
 # --- Faculty to teams ---------------------------------------------------------------------
@@ -68,6 +68,9 @@ def random_allocate(round_, per_team=1, copy_from=None, only_unallocated=True, s
             for member in panel:
                 if team.mentor_id == member.person_id:
                     notes.append(f"{team.name} not given to {member}: they mentor it.")
+                    continue
+                if volunteer_conflict(member.person_id, team):
+                    notes.append(f"{team.name} not given to {member}: they volunteer in its room.")
                     continue
                 _, created = Assignment.objects.get_or_create(
                     round=round_, faculty=member, team=team, defaults={"source": Assignment.Source.RANDOM}
@@ -269,13 +272,15 @@ def undo_attendance(mark, by, reason):
 # --- By floor -----------------------------------------------------------------------------------------
 
 
-def floors(event, round_, block="", floor=""):
+def floors(event, round_, block="", floor="", room_ids=None):
     """[(block, floor, [room view])], each room view with its faculty, teams, attendance and marking status.
 
     Marking status is only "submitted or not" per faculty and team: this never carries marks.
     """
     teams_att, faculty_att = live_attendance(round_) if round_ else ({}, {})
     rooms = Room.objects.filter(event=event).order_by("block", "floor", "name")
+    if room_ids is not None:
+        rooms = rooms.filter(pk__in=room_ids)  # a volunteer: only their rooms
     if block:
         rooms = rooms.filter(block__iexact=block)
     if floor:

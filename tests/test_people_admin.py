@@ -226,7 +226,8 @@ def test_portal_forms_turn_clashes_into_form_errors(client, make_person, make_ev
 
     services.add_supervisor = racing
     try:
-        response = client.post(reverse("hackathon_manage_supervisor_add", args=[slug]), {"p-who": "taken@example.com", "s-kind": "faculty", "s-is_active": "on"})
+        response = client.post(reverse("hackathon_manage_supervisor_add", args=[slug]), {
+            "p-name": "Taken Example", "p-role": "supervisor", "p-email": "taken@example.com", "p-employee_id": "KLF77", "s-is_active": "on"})
     finally:
         services.add_supervisor = original
     assert response.status_code == 302 and "Not saved" in client.get(response["Location"]).content.decode()

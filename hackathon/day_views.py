@@ -22,7 +22,7 @@ from events.models import Event
 
 from . import rooms as room_tools
 from .access import allowed, day_allowed, is_admin, oversees, overseen_event, require, volunteer_row
-from .models import Attendance, EventFaculty, Room, Round, Team
+from .models import Assignment, Attendance, EventFaculty, Room, Round, Team
 
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
@@ -135,12 +135,35 @@ def rooms_plan(request, slug):
 # --- By floor --------------------------------------------------------------------------------------
 
 
+def volunteer_rooms(user, event):
+    """None for organisers (every room), or the ids of the rooms this volunteer looks after (maybe none)."""
+    if oversees(user, event):
+        return None
+    row = volunteer_row(user, event)
+    return list(row.rooms.values_list("pk", flat=True)) if row else []
+
+
+def _may_mark(user, event, round_, team=None, faculty=None) -> bool:
+    """Volunteers mark only their rooms: their teams, and faculty judging there. Never a team they judge."""
+    rooms = volunteer_rooms(user, event)
+    if rooms is None:
+        return True
+    if team is not None:
+        judges_it = Assignment.objects.filter(team=team, faculty__person=user).exists()
+        return team.room_id in rooms and not judges_it
+    return Assignment.objects.filter(round=round_, faculty=faculty, team__room_id__in=rooms).exists()
+
+
 def _floor_context(request, event):
     round_ = _round(request, event)
     block, floor = request.GET.get("block", ""), request.GET.get("floor", "")
-    data, unroomed = room_tools.floors(event, round_, block, floor)
-    all_rooms = Room.objects.filter(event=event)
+    mine = volunteer_rooms(request.user, event)
+    data, unroomed = room_tools.floors(event, round_, block, floor, room_ids=mine)
+    all_rooms = Room.objects.filter(event=event) if mine is None else Room.objects.filter(pk__in=mine)
+    if mine is not None:
+        unroomed = []  # other teams are not theirs to see
     return {
+        "mine": mine is not None, "has_rooms": mine is None or bool(mine),
         "event": event, "round": round_, "rounds": Round.objects.filter(event=event), "floors": data, "unroomed": unroomed,
         "block": block, "floor": floor,
         "blocks": sorted({r.block for r in all_rooms if r.block}), "floor_choices": sorted({r.floor for r in all_rooms if r.floor}),
@@ -148,6 +171,7 @@ def _floor_context(request, event):
         "can_faculty_att": day_allowed(request.user, event, "faculty_attendance"),
         "can_progress": day_allowed(request.user, event, "progress"),
         "is_overseer": oversees(request.user, event),
+        "can_floors": day_allowed(request.user, event, "floors"),
     }
 
 
@@ -196,6 +220,8 @@ def attendance_mark(request, slug):
         if not day_allowed(request.user, event, "team_attendance"):
             raise PermissionDenied
         team = get_object_or_404(Team, pk=request.POST["team"], event=event)
+        if not _may_mark(request.user, event, round_, team=team):
+            raise PermissionDenied  # not one of their rooms, or a team they judge
         members = [int(m) for m in request.POST.getlist("members") if m.isdigit()]
         room_tools.mark_attendance(round_, request.user, present, team=team, members=members)
         messages.success(request, f"{team.name}: {'present' if present else 'absent'}.")
@@ -203,6 +229,8 @@ def attendance_mark(request, slug):
         if not day_allowed(request.user, event, "faculty_attendance"):
             raise PermissionDenied
         faculty = get_object_or_404(EventFaculty, pk=request.POST.get("faculty"), event=event)
+        if not _may_mark(request.user, event, round_, faculty=faculty):
+            raise PermissionDenied  # not judging in one of their rooms
         room_tools.mark_attendance(round_, request.user, present, faculty=faculty)
         messages.success(request, f"{faculty}: {'present' if present else 'absent'}.")
     return redirect(request.POST.get("next") or f"{reverse('hackathon_floors', args=[slug])}?round={round_.pk}")
@@ -214,6 +242,8 @@ def attendance_undo(request, slug, pk):
     event = get_object_or_404(Event, slug=slug, kind=Event.Kind.HACKATHON)
     mark = get_object_or_404(Attendance, pk=pk, round__event=event)
     if not day_allowed(request.user, event, "team_attendance" if mark.team_id else "faculty_attendance"):
+        raise PermissionDenied
+    if not _may_mark(request.user, event, mark.round, team=mark.team, faculty=mark.faculty):
         raise PermissionDenied
     try:
         room_tools.undo_attendance(mark, request.user, request.POST.get("reason", ""))
@@ -233,8 +263,12 @@ def attendance_export(request, slug):
     wb = Workbook()
     marks = Attendance.objects.filter(round__event=event).select_related(
         "round", "team__room", "faculty__person", "marked_by", "undone_by").order_by("round__position", "marked_at")
+    mine = volunteer_rooms(request.user, event)
+    if mine is not None:  # a volunteer: only their rooms' teams, and faculty judging there
+        judging_here = set(Assignment.objects.filter(round__event=event, team__room_id__in=mine).values_list("round_id", "faculty_id"))
+        marks = [a for a in marks if (a.team_id and a.team.room_id in mine) or (a.faculty_id and (a.round_id, a.faculty_id) in judging_here)]
     regs = {}
-    for t in Team.objects.filter(event=event).prefetch_related("members__registration__person"):
+    for t in Team.objects.filter(event=event, **({} if mine is None else {"room_id__in": mine})).prefetch_related("members__registration__person"):
         for m in t.members.all():
             regs[m.registration_id] = m.registration.person.display_name
 
@@ -263,8 +297,8 @@ def volunteer_today(request, slug):
     row = volunteer_row(request.user, event)
     if not row and not is_admin(request.user):
         raise PermissionDenied
-    if day_allowed(request.user, event, "floors"):
-        return redirect("hackathon_floors", slug)
+    if row is None or oversees(request.user, event):
+        return redirect("hackathon_floors", slug)  # organisers see every room
     ctx = _floor_context(request, event)
     ctx["today_only"] = True
-    return render(request, "hackathon/floors.html", ctx)
+    return render(request, "hackathon/floors_print.html" if request.GET.get("print") else "hackathon/floors.html", ctx)

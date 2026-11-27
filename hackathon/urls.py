@@ -23,6 +23,7 @@ urlpatterns = [
     path("manage/<slug:slug>/hackathon/rooms/", manage_views.rooms, name="hackathon_manage_rooms"),
     path("manage/<slug:slug>/hackathon/faculty/", manage_views.faculty, name="hackathon_manage_faculty"),
     path("manage/<slug:slug>/hackathon/<slug:who>/login-details/", manage_views.login_details, name="hackathon_login_details"),
+    path("manage/<slug:slug>/hackathon/helpers/", manage_views.helpers, name="hackathon_manage_helpers"),
     path("manage/<slug:slug>/hackathon/supervisors/", manage_views.supervisors, name="hackathon_manage_supervisors"),
     path("manage/<slug:slug>/hackathon/rounds/", manage_views.rounds, name="hackathon_manage_rounds"),
     path("manage/<slug:slug>/hackathon/allocations/", manage_views.allocations, name="hackathon_manage_allocations"),

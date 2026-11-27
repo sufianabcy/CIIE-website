@@ -204,3 +204,13 @@ class Person(AbstractBaseUser, PermissionsMixin):
     @property
     def is_supervisor(self) -> bool:
         return self.in_group("Supervisor")
+
+    @property
+    def supervises(self) -> bool:
+        """Supervises a hackathon now: their menu shows Supervising."""
+        return self.supervisor_roles.filter(is_active=True).exists()
+
+    @property
+    def volunteers_somewhere(self) -> bool:
+        """Volunteers at a hackathon now: their menu shows Volunteering."""
+        return self.volunteer_roles.filter(is_active=True).exists()
