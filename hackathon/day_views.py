@@ -7,6 +7,7 @@ only "submitted or not" per faculty and team, for everyone.
 from io import BytesIO
 
 from django import forms
+from django.db import transaction
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -55,8 +56,13 @@ def _round(request, event):
 
 class RandomForm(forms.Form):
     round = forms.ModelChoiceField(queryset=Round.objects.none(), widget=forms.Select(attrs={"class": "form-select"}))
-    per_team = forms.IntegerField(label="Faculty per team", min_value=1, max_value=10, initial=1,
+    per_team = forms.IntegerField(label="Faculty per jury", min_value=1, max_value=10, initial=1,
+                                  help_text="How many faculty judge each team together.",
                                   widget=forms.NumberInput(attrs={"class": "form-control", "style": "max-width:6rem"}))
+    teams_per_jury = forms.IntegerField(label="Teams per jury", min_value=1, max_value=100, required=False,
+                                        help_text="Empty: share all teams evenly.",
+                                        widget=forms.NumberInput(attrs={"class": "form-control", "style": "max-width:6rem"}))
+    every_round = forms.BooleanField(label="Same juries and teams in every round", required=False)
     copy_from = forms.ModelChoiceField(label="Or copy from round", queryset=Round.objects.none(), required=False,
                                        empty_label="No, allocate randomly", widget=forms.Select(attrs={"class": "form-select"}))
     only_unallocated = forms.BooleanField(label="Only teams with no faculty yet in this round", required=False, initial=True)
@@ -79,14 +85,24 @@ def random_allocate(request, slug):
     if d["copy_from"] == d["round"]:
         messages.error(request, "Choose a different round to copy from.")
         return redirect("hackathon_dashboard", slug)
+    back = "hackathon_manage_allocations" if request.POST.get("back") == "allocations" else "hackathon_dashboard"
     try:
-        made, notes = room_tools.random_allocate(d["round"], d["per_team"], d["copy_from"], d["only_unallocated"])
+        with transaction.atomic():
+            made, notes = room_tools.random_allocate(d["round"], d["per_team"], d["copy_from"], d["only_unallocated"],
+                                                     teams_per_jury=d["teams_per_jury"])
+            if d["every_round"] and not d["copy_from"]:
+                for other in Round.objects.filter(event=event).exclude(pk=d["round"].pk):
+                    made += room_tools.random_allocate(other, copy_from=d["round"])[0]
     except ValidationError as exc:
         messages.error(request, " ".join(exc.messages))
-        return redirect("hackathon_dashboard", slug)
-    messages.success(request, f"{made} allocation(s) made in {d['round']}. Next: assign rooms.")
+        return redirect(back, slug)
+    where = "every round (the same juries and teams)" if d["every_round"] and not d["copy_from"] else str(d["round"])
+    messages.success(request, f"{made} allocation(s) made in {where}.")
     for note in notes:
         messages.warning(request, note)
+    if back == "hackathon_manage_allocations":
+        return redirect(back, slug)
+    messages.info(request, "Next: assign rooms.")
     return redirect(f"{reverse('hackathon_rooms_plan', args=[slug])}?round={d['round'].pk}")
 
 

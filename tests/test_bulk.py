@@ -7,6 +7,7 @@ import re
 import pytest
 from django.contrib.messages import get_messages
 from django.core import mail
+from django.db.models import F
 from django.urls import reverse
 
 from hackathon import services
@@ -251,3 +252,39 @@ def test_the_replace_choice_is_offered_on_each_import(client, hack, admin_user, 
     client.force_login(admin_user)
     url = start(client, hack, kind, [["Name", "KL ID", "Team", "Email"], ["Some One", "2500079999", "Some Team", "s.one@kluniversity.in"]])
     assert "The list you have now" in client.get(url).content.decode()
+
+
+def auto(client, event, round_, **data):
+    body = {"round": round_.pk, "per_team": 1, "only_unallocated": "on", "back": "allocations", **data}
+    return client.post(reverse("hackathon_random_allocate", args=[event.slug]), body)
+
+
+def test_automatic_juries_get_the_chosen_number_of_teams_from_one_room(client, setup, admin_user):
+    event = setup["event"]
+    round1, round2 = setup["rounds"]
+    client.force_login(admin_user)
+    assert 'data-testid="allocate-auto"' in client.get(reverse("hackathon_manage_allocations", args=[event.slug])).content.decode()
+    response = auto(client, event, round1, teams_per_jury=2, every_round="on")
+    assert response["Location"] == reverse("hackathon_manage_allocations", args=[event.slug])
+    for r in (round1, round2):
+        by_faculty = {}
+        for a in Assignment.objects.filter(round=r).select_related("team"):
+            by_faculty.setdefault(a.faculty_id, set()).add(a.team.room_id)
+        assert all(len(rooms) == 1 for rooms in by_faculty.values())  # each jury in one room
+    alpha_judges = set(Assignment.objects.filter(round=round1, team__name="Alpha").values_list("faculty", flat=True))
+    beta_judges = set(Assignment.objects.filter(round=round1, team__name="Beta").values_list("faculty", flat=True))
+    assert alpha_judges == beta_judges and len(alpha_judges) == 1  # one jury of one took both R1 teams
+    assert not Assignment.objects.filter(team__mentor=F("faculty__person")).exists()  # never their own mentee
+    # The same juries and teams in round 2.
+    assert set(Assignment.objects.filter(round=round2).values_list("faculty", "team")) == set(
+        Assignment.objects.filter(round=round1).values_list("faculty", "team"))
+
+
+def test_teams_left_over_when_there_are_not_enough_juries(client, setup, admin_user):
+    event = setup["event"]
+    round1 = setup["rounds"][0]
+    client.force_login(admin_user)
+    response = auto(client, event, round1, per_team=2, teams_per_jury=2)  # 3 faculty: one jury of 2
+    assert "1 team(s) not allocated" in said(response) and "Gamma" in said(response)
+    assert set(Assignment.objects.values_list("team__name", flat=True)) == {"Alpha", "Beta"}
+    assert Assignment.objects.values("faculty").distinct().count() == 2

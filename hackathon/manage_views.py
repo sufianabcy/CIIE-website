@@ -1112,11 +1112,15 @@ def allocations(request, slug):
         by_room = {}
         for team in sorted(Team.objects.filter(event=event).select_related("room"), key=team_number_order):
             by_room.setdefault(team.room, []).append(team)
+        from .day_views import RandomForm
+
         extra = {"top_template": "hackathon/_allocate_teams.html", "alloc_rounds": list(Round.objects.filter(event=event)),
+                 "random_form": RandomForm(event=event, initial={"every_round": True, "round": Round.objects.filter(event=event).first()}),
                  "alloc_faculty": list(EventFaculty.objects.filter(event=event, is_active=True).select_related("person")),
                  "alloc_rooms": sorted(by_room.items(), key=lambda kv: (kv[0] is None, kv[0].name if kv[0] else ""))}
     return _list(request, event, "allocations", "Allocations", ["Round", "Room", "Faculty", "Team", "How", "Marks"], rows,
-                 intro="Pick a jury panel and their teams below, or allocate whole rooms on the hackathon page. Remove single allocations here.",
+                 intro="Allocate automatically (juries, and how many teams each), or pick faculty and their teams yourself. "
+                       "Remove single allocations in the list below.",
                  **extra)
 
 

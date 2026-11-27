@@ -1,6 +1,28 @@
+<section class="panel mb-4" aria-labelledby="auto-title" data-testid="allocate-auto">
+  <h2 class="panel-title" id="auto-title">{% include "ui/icon.html" with name="sparkle" %}Automatic: juries and how many teams each</h2>
+  <p class="caption-2 text-secondary">Faculty are put in juries of the size you choose, and each jury gets the number of teams you choose, all from one room. Leave "Teams per jury" empty to share every team out evenly. A team is never given to its own mentor.</p>
+  {% if alloc_rounds and alloc_faculty %}
+  <form method="post" action="{% url 'hackathon_random_allocate' event.slug %}">{% csrf_token %}<input type="hidden" name="back" value="allocations">
+    <div class="d-flex flex-wrap align-items-end gap-3">
+      <div><label class="form-label" for="{{ random_form.round.id_for_label }}">Round</label>{{ random_form.round }}</div>
+      <div><label class="form-label" for="{{ random_form.per_team.id_for_label }}">{{ random_form.per_team.label }}</label>{{ random_form.per_team }}</div>
+      <div><label class="form-label" for="{{ random_form.teams_per_jury.id_for_label }}">{{ random_form.teams_per_jury.label }}</label>{{ random_form.teams_per_jury }}</div>
+      <div><label class="form-label" for="{{ random_form.copy_from.id_for_label }}">{{ random_form.copy_from.label }}</label>{{ random_form.copy_from }}</div>
+    </div>
+    <div class="d-flex flex-wrap gap-3 mt-2">
+      <label class="caption-2">{{ random_form.every_round }} {{ random_form.every_round.label }}</label>
+      <label class="caption-2">{{ random_form.only_unallocated }} {{ random_form.only_unallocated.label }}</label>
+    </div>
+    <button class="btn btn-primary mt-3" type="submit">Allocate automatically</button>
+  </form>
+  {% else %}
+  <p class="text-secondary mb-0">Add rounds and faculty first.</p>
+  {% endif %}
+</section>
+
 <section class="panel mb-4" aria-labelledby="panel-title" data-testid="allocate-teams">
-  <h2 class="panel-title" id="panel-title">{% include "ui/icon.html" with name="gavel" %}Allocate a jury panel to teams</h2>
-  <p class="caption-2 text-secondary">Tick one or more faculty and the teams they should judge. Every ticked faculty member judges every ticked team. In each round a faculty member judges teams in one room only, so tick teams from one room.</p>
+  <h2 class="panel-title" id="panel-title">{% include "ui/icon.html" with name="gavel" %}Custom: pick faculty and their teams</h2>
+  <p class="caption-2 text-secondary">Tick one faculty member or a jury of several, and as many teams as they should judge. Every ticked faculty member judges every ticked team. In each round a faculty member judges in one room only, so tick teams from one room. Repeat for the next jury.</p>
   {% if alloc_rounds and alloc_faculty and alloc_rooms %}
   <form method="post" action="{% url 'hackathon_allocate_teams' event.slug %}">{% csrf_token %}
     <fieldset class="mb-3"><legend class="form-label">Rounds</legend>
@@ -22,7 +44,7 @@
         {% endfor %}
       </div>
     </div>
-    <button class="btn btn-primary mt-3" type="submit">{% include "ui/icon.html" with name="plus" %}Allocate</button>
+    <button class="btn btn-primary mt-3" type="submit">{% include "ui/icon.html" with name="plus" %}Allocate the ticked teams</button>
   </form>
   {% else %}
   <p class="text-secondary mb-0">Add rounds, faculty and teams first.</p>

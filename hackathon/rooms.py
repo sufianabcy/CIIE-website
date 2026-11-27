@@ -19,12 +19,15 @@ from .models import Assignment, Attendance, EventFaculty, Room, Round, Team, mem
 
 
 @transaction.atomic
-def random_allocate(round_, per_team=1, copy_from=None, only_unallocated=True, seed=None):
-    """Give each team `per_team` faculty for this round, evenly and at random; never a team's own mentor.
+def random_allocate(round_, per_team=1, copy_from=None, only_unallocated=True, seed=None, teams_per_jury=None):
+    """Give each team `per_team` faculty for this round, at random; never a team's own mentor.
 
-    Faculty are grouped into panels of `per_team`, and each panel takes a share of the teams, so a
+    Faculty are grouped into juries (panels) of `per_team`, and each jury takes a share of the teams, so a
     team's judges always judge the same teams (which keeps the room assignment possible).
-    copy_from (another round) copies that round's allocations instead. Returns (new allocations, notes).
+    teams_per_jury: each jury gets that many teams, taken from one room (teams with no room yet count as one
+    room); teams left over when there aren't enough juries are listed, not allocated. Empty: all teams are
+    shared out evenly. copy_from (another round) copies that round's allocations instead.
+    Returns (new allocations, notes).
     """
     event = round_.event
     made, notes = 0, []
@@ -59,10 +62,30 @@ def random_allocate(round_, per_team=1, copy_from=None, only_unallocated=True, s
     leftover = faculty[len(panels) * per_team:]
     if leftover:
         notes.append(f"{', '.join(str(f) for f in leftover)} not used: faculty split into panels of {per_team}.")
-    shares = [[] for _ in panels]
-    for i, team in enumerate(teams):
-        shares[i % len(panels)].append(team)
-    _fix_mentors(panels, shares)
+    if teams_per_jury:
+        from .models import team_number_order
+
+        by_room = defaultdict(list)
+        for team in teams:
+            by_room[team.room_id].append(team)
+        blocks = []
+        for room_id in sorted(by_room, key=lambda r: (r is None, r or 0)):
+            in_room = sorted(by_room[room_id], key=team_number_order)
+            blocks += [in_room[i:i + teams_per_jury] for i in range(0, len(in_room), teams_per_jury)]
+        shares = blocks[:len(panels)] + [[] for _ in range(len(panels) - len(blocks))]
+        left = [t for block in blocks[len(panels):] for t in block]
+        if left:
+            notes.append(f"{len(left)} team(s) not allocated: {len(panels)} jur{'y' if len(panels) == 1 else 'ies'} × "
+                         f"{teams_per_jury} teams isn't enough. Left: {', '.join(t.name for t in left)}.")
+        idle = len(panels) - len(blocks)
+        if idle > 0:
+            notes.append(f"{idle} jur{'y' if idle == 1 else 'ies'} got no teams: there are fewer teams than juries × {teams_per_jury}.")
+        _fix_mentors(panels, shares, same_room=True)
+    else:
+        shares = [[] for _ in panels]
+        for i, team in enumerate(teams):
+            shares[i % len(panels)].append(team)
+        _fix_mentors(panels, shares)
     for panel, share in zip(panels, shares):
         for team in share:
             for member in panel:
@@ -82,8 +105,9 @@ def random_allocate(round_, per_team=1, copy_from=None, only_unallocated=True, s
     return made, notes
 
 
-def _fix_mentors(panels, shares):
-    """Swap teams between panels so no panel judges a team one of its members mentors."""
+def _fix_mentors(panels, shares, same_room=False):
+    """Swap teams between panels so no panel judges a team one of its members mentors (same_room: only with a team
+    in the same room, so each jury stays in one room)."""
     mentors = [{f.person_id for f in p} for p in panels]
     for i, share in enumerate(shares):
         for t_index, team in enumerate(share):
@@ -93,6 +117,8 @@ def _fix_mentors(panels, shares):
                 if j == i:
                     continue
                 for o_index, swap in enumerate(other):
+                    if same_room and swap.room_id != team.room_id:
+                        continue
                     if team.mentor_id not in mentors[j] and swap.mentor_id not in mentors[i]:
                         share[t_index], other[o_index] = swap, team
                         break

@@ -147,12 +147,14 @@
     <div class="d-flex flex-wrap align-items-end gap-2">
       <div><label class="form-label" for="{{ random_form.round.id_for_label }}">Round</label>{{ random_form.round }}</div>
       <div><label class="form-label" for="{{ random_form.per_team.id_for_label }}">{{ random_form.per_team.label }}</label>{{ random_form.per_team }}</div>
+      <div><label class="form-label" for="{{ random_form.teams_per_jury.id_for_label }}">{{ random_form.teams_per_jury.label }}</label>{{ random_form.teams_per_jury }}</div>
       <div><label class="form-label" for="{{ random_form.copy_from.id_for_label }}">{{ random_form.copy_from.label }}</label>{{ random_form.copy_from }}</div>
       <label class="caption-2 mb-2">{{ random_form.only_unallocated }} {{ random_form.only_unallocated.label }}</label>
-      <button class="btn btn-primary" type="submit">Allocate randomly</button>
+      <label class="caption-2 mb-2">{{ random_form.every_round }} {{ random_form.every_round.label }}</label>
+      <button class="btn btn-primary" type="submit">Allocate automatically</button>
     </div>
   </form>
-  <p class="caption-2 text-secondary">Teams are spread evenly across the active faculty, in random order, and never given to their own mentor. Or upload the allocations Excel below (Round, Faculty, Team or a team member's email). Rooms aren't needed yet.</p>
+  <p class="caption-2 text-secondary">Faculty are put in juries of the size you choose; each jury gets the number of teams you choose (from one room), or an even share if you leave it empty. Never a team's own mentor. To pick faculty and teams yourself, use the <a href="{% url 'hackathon_manage_allocations' event.slug %}">Allocations</a> page. Or upload the allocations Excel below (Round, Faculty, Team or a team member's email). Rooms aren't needed yet.</p>
   <h3 class="heading-6 mt-3">Then rooms</h3>
   <p class="caption-2 text-secondary">Add the rooms you'll use with their max teams (Rooms page or the rooms Excel below), then let the portal place each faculty member's teams in one room.</p>
   <div class="d-flex flex-wrap gap-2 mb-3">
