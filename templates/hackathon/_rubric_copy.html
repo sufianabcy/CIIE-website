@@ -1,3 +1,11 @@
+<section class="panel mb-4">
+  <h2 class="panel-title">Rubric file</h2>
+  <p class="caption-2 text-secondary">The whole rubric as one file: rounds, criteria, descriptors, advance rules, prompts, bands, weights, red flags, recommendations, self-score and guidance.</p>
+  <div class="d-flex flex-wrap gap-2">
+    <a class="btn btn-quiet btn-sm" href="{% url 'hackathon_rubric_import' event.slug %}">{% include "ui/icon.html" with name="plus" %}Import rubric from a file</a>
+    <a class="btn btn-quiet btn-sm" href="{% url 'hackathon_rubric_download' event.slug %}">{% include "ui/icon.html" with name="download" %}Download this rubric as a file</a>
+  </div>
+</section>
 {% if others %}
 <section class="panel">
   <h2 class="panel-title">Copy from another hackathon</h2>

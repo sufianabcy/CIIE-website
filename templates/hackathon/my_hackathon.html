@@ -18,14 +18,22 @@
         <h2 class="panel-title">{% include "ui/icon.html" with name="users" %}{% if team %}{{ team.name }}{% else %}Your team{% endif %}</h2>
         {% if team %}
         <dl class="detail-list mb-0">
+          {% if team.number %}<div><dt>Team number</dt><dd>{{ team.number }}</dd></div>{% endif %}
           {% if team.project_title %}<div><dt>Project</dt><dd>{{ team.project_title }}</dd></div>{% endif %}
           {% if team.project_description %}<div><dt>Description</dt><dd style="white-space:pre-wrap">{{ team.project_description }}</dd></div>{% endif %}
+          {% if team.category %}<div><dt>Category</dt><dd>{{ team.category }}</dd></div>{% endif %}
           <div><dt>Room</dt><dd>{% if team.room %}{{ team.room.name }}{% else %}Not allocated yet{% endif %}</dd></div>
           {% if show_mentor and team.mentor_display %}<div><dt>Mentor</dt><dd>{{ team.mentor_display }}</dd></div>{% endif %}
           <div><dt>Members</dt><dd>{% for m in team_members %}{% if m.is_leader %}★ {% endif %}{{ m.registration.person.display_name }}{% if m.registration.person.pk == person.pk %} (you){% endif %}{% if is_leader and not locked_reason and m.registration.person.pk != person.pk %}
             <form method="post" action="{% url 'my_team' event.slug %}" class="d-inline" onsubmit="return confirm('Remove {{ m.registration.person.display_name|escapejs }} from your team?');">{% csrf_token %}<input type="hidden" name="action" value="remove"><input type="hidden" name="member" value="{{ m.pk }}"><button class="btn btn-link btn-sm p-0 ms-2 align-baseline" type="submit">Remove</button></form>{% endif %}{% if not forloop.last %}<br>{% endif %}{% endfor %}</dd></div>
         </dl>
         {% if is_leader and not locked_reason %}
+          {% if team.has_number_name %}
+          <form method="post" action="{% url 'my_team' event.slug %}" class="d-flex flex-wrap align-items-end gap-2 mt-3" data-testid="rename-team">{% csrf_token %}<input type="hidden" name="action" value="rename">
+            <div><label class="form-label" for="team-new-name">Give your team a name</label><input id="team-new-name" name="name" class="form-control" maxlength="150" required></div>
+            <button class="btn btn-quiet" type="submit">Save name</button>
+          </form>
+          {% endif %}
           {% if team_members|length < high %}
           <form method="post" action="{% url 'my_team' event.slug %}" class="d-flex flex-wrap align-items-end gap-2 mt-3" data-testid="add-teammate">{% csrf_token %}<input type="hidden" name="action" value="add">
             <div><label class="form-label" for="add-mate">Add a teammate (KL ID)</label><input id="add-mate" name="student_id" class="form-control" inputmode="numeric" maxlength="20"></div>

@@ -183,7 +183,8 @@ def test_teams_and_students_tabs_show_the_links(client, hack, admin_user, make_p
     from events.exports import build_export
 
     rows = list(load_workbook(BytesIO(build_export(hack, "teams", admin_user)[1]))["Teams"].iter_rows(values_only=True))
-    assert rows[0][6:9] == ("Member 1 name (leader)", "Member 1 email", "Member 1 KL ID") and rows[1][6] == "Other Person"
+    first = rows[0].index("Member 1 name (leader)")
+    assert rows[0][first:first + 3] == ("Member 1 name (leader)", "Member 1 email", "Member 1 KL ID") and rows[1][first] == "Other Person"
 
 
 def test_a_leader_registers_the_whole_team(client, hack, make_person, django_capture_on_commit_callbacks):

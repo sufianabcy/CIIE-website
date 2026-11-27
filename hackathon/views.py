@@ -245,8 +245,13 @@ def import_step(request, slug, pk):
                 constants[key] = value
         item.constants = constants
         item.save(update_fields=["constants"])
+    if request.method == "POST" and item.kind == "students" and request.POST.get("team_mode") in services.TEAM_MODES:
+        item.options = {**item.options, "team_mode": request.POST["team_mode"]}
+        item.save(update_fields=["options"])
     c_headers, c_rows, c_mapping = imports.with_constants(headers, rows, mapping, item.constants)
-    no_team = imports.no_team_rows(c_headers, c_rows, c_mapping, numbers) if item.kind == "students" else []
+    mode = imports.team_mode(c_mapping, item.options) if item.kind == "students" else ""
+    no_team = imports.no_team_rows(c_headers, c_rows, c_mapping, numbers, mode) if item.kind == "students" else []
+    teams_preview = imports.team_preview(event, c_headers, c_rows, c_mapping, numbers, mode) if item.kind == "students" else {}
     leaving = 0  # of those, how many are in a team now (they'll be taken out of it)
     ids = [sid.lower() for _, _, sid in no_team if sid]
     if ids:
@@ -254,11 +259,13 @@ def import_step(request, slug, pk):
 
         leaving = (TeamMember.objects.filter(team__event=event).annotate(sid=Lower("registration__person__student_id"))
                    .filter(sid__in=ids).count())
-    errors, warnings = imports.sheet_checks(c_headers, c_rows, c_mapping, targets_, item.kind)
+    errors, warnings = imports.sheet_checks(c_headers, c_rows, c_mapping, targets_, item.kind, item.options.get("team_mode", ""))
+    warnings += teams_preview.get("warnings", [])
     errors = twice + errors
     problems, step, new_people = None, 2, 0
     if action in ("check", "import") and not errors:
-        found, new_people = imports.row_checks(event, item.kind, c_headers, c_rows, c_mapping, targets_, want_new=True)
+        found, new_people = imports.row_checks(event, item.kind, c_headers, c_rows, c_mapping, targets_, want_new=True,
+                                               options=item.options)
         problems = {numbers[line - 2]: imports.real_rows(msgs, numbers) for line, msgs in found.items() if 0 <= line - 2 < len(numbers)}
         step = 3
         if action == "import":
@@ -291,7 +298,8 @@ def import_step(request, slug, pk):
         "errors": errors, "warnings": warnings, "problems": sorted((problems or {}).items()),
         "valid_count": len(rows) - len(problems or {}), "row_count": len(rows), "can_fields": can_fields, "new_people": new_people,
         "can_define_fields": allowed(request.user, event, "can_manage_fields"),
-        "no_team": no_team, "leaving": leaving,
+        "no_team": no_team, "leaving": leaving, "team_mode": mode, "team_modes": services.TEAM_MODES.items(),
+        "team_summary": teams_preview.get("summary", ""),
     })
 
 
@@ -443,9 +451,13 @@ def staff_home(request):
     from .models import Volunteer
 
     volunteering = Volunteer.objects.filter(person=request.user, is_active=True).select_related("event").order_by("-event__starts_at")
+    # Someone who is both faculty and a student still reaches the hackathons they take part in.
+    taking_part = (Registration.objects.filter(person=request.user, status=Registration.Status.CONFIRMED, event__kind="hackathon")
+                   .select_related("event").order_by("-event__starts_at"))
     return render(
         request, "hackathon/staff_home.html",
-        {"roles": roles, "overseen": overseen_events(request.user).order_by("-starts_at"), "volunteering": volunteering},
+        {"roles": roles, "overseen": overseen_events(request.user).order_by("-starts_at"), "volunteering": volunteering,
+         "taking_part": taking_part},
     )
 
 
@@ -478,7 +490,7 @@ def mark(request, pk):
         Assignment.objects.select_related("round__event", "team__room", "team__mentor", "faculty"),
         pk=pk, faculty__person=request.user, faculty__is_active=True,
     )
-    from . import rubric
+    from . import rubric, rubric_file
 
     round_ = assignment.round
     ids = rubric.eligible_team_ids(round_)
@@ -516,6 +528,7 @@ def mark(request, pk):
             "total": sum(scores.values()) if scores else None,
             "editable": is_open and not assignment.is_submitted,
             "bands": rubric.bands(round_.event),
+            "band_rows": rubric_file.band_rows(round_.event), "guidance": settings_row.guidance,
             "saved_bands": {c.pk: rubric.band_for(round_.event, scores.get(c.pk), c.max_marks) for c in criteria},
         },
     )
@@ -618,6 +631,9 @@ def my_team(request, slug):
         elif action == "remove":
             removed = services.leader_remove_teammate(event, registration, request.POST.get("member"))
             messages.success(request, f"{removed.person.display_name} removed from your team.")
+        elif action == "rename":
+            team = services.leader_rename_team(event, registration, request.POST.get("name", ""))
+            messages.success(request, f"Your team is now called {team.name}.")
         else:
             raise Http404
     except services.TeamError as exc:

@@ -125,7 +125,7 @@ def test_blank_team_names_are_listed_under_not_in_a_team(client, hack, admin_use
     url = upload(client, hack, [["Team", "Name", "KL ID"], ["Rocket", "R One", "2300000701"], ["", "R Two", "2300000702"],
                                 ["Rocket", "R Three", "2300000703"], ["", "C One", "2300000704"]])
     page = choose(client, url, {0: "team", 1: "name", 2: "student_id"}).content.decode()
-    assert "2 students have no team name; they'll be listed under Not in a team." in page
+    assert "2 students have no team name and will be listed under Not in a team yet." in page
     assert 'name="blank_teams"' not in page and "row above" not in page and "team of one" not in page.lower()
     choose(client, url, {0: "team", 1: "name", 2: "student_id"}, action="import")
     assert list(Team.objects.filter(event=hack).values_list("name", flat=True)) == ["Rocket"]

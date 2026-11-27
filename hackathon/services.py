@@ -24,7 +24,10 @@ from people.staff import issue_temp_password
 from registrations.models import Registration
 from registrations.services import RegistrationError, register
 
-from .models import Assignment, EventFaculty, Room, Round, Score, Supervisor, Team, TeamMember, clean_team_name, room_conflict
+from .models import (
+    Assignment, EventFaculty, Room, Round, Score, Supervisor, Team, TeamMember, clean_team_name, clean_team_number, member_conflict,
+    room_conflict,
+)
 
 # --- Reading Excel ------------------------------------------------------------
 
@@ -40,10 +43,13 @@ PERSON_COLUMNS = {
     "institution": ["institution", "college", "university", "institute"],
 }
 STUDENT_COLUMNS = {
-    **{k: PERSON_COLUMNS[k] for k in ("name", "email", "phone", "student_id", "branch", "year", "institution")},
-    "team": ["team", "team name", "group", "group name"],
-    "project_title": ["project", "project title", "project name", "title", "idea"],
+    **{k: PERSON_COLUMNS[k] for k in ("name", "email", "phone", "branch", "year", "institution")},
+    "student_id": PERSON_COLUMNS["student_id"] + ["id", "kl id number", "student kl id"],
+    "team": ["team", "team name", "group", "group name", "name of the team", "name of team"],
+    "team_number": ["team no", "team number", "team #", "team id", "group no", "team num", "team sno", "group number"],
+    "project_title": ["project", "project title", "project name", "title", "idea", "title of the project", "title of project"],
     "project_description": ["project description", "description", "problem statement", "problem", "abstract", "idea description"],
+    "category": ["category", "theme", "domain", "project category"],
     "room": ["room", "room no", "room number", "lab", "venue", "allocated room"],
     "mentor": ["mentor", "mentor name", "mentor email", "guide", "faculty mentor"],
 }
@@ -509,13 +515,159 @@ def _drop_empty_team_named_after(team, person) -> bool:
     return True
 
 
+# How the students import forms teams (chosen on the column step).
+TEAM_MODES = {
+    "name": "Team name",
+    "number": "Team number",
+    "number_named": "Team number, named from the team-name column where one is given",
+}
+TEAM_VALUE_FIELDS = (("project_title", "project title"), ("project_description", "project description"), ("category", "category"))
+
+
+def team_mode_for(used, chosen="") -> str:
+    """The team mode to use: the one chosen, else (c) when both a number and a name column are used, else by what's used."""
+    used = set(used)
+    if chosen in TEAM_MODES:
+        return chosen
+    if "team_number" in used:
+        return "number_named" if "team" in used else "number"
+    return "name"
+
+
+def team_column_for(mode) -> str:
+    """The column that decides who is in which team for this mode."""
+    return "team" if mode == "name" else "team_number"
+
+
+@dataclass
+class TeamGroup:
+    key: str
+    number: str = ""
+    name: str = ""  # from the sheet; "" when no row of the team has one (numbered teams are then called "Team <number>")
+    lines: list = field(default_factory=list)
+    values: dict = field(default_factory=dict)  # project title, description and category: the first non-blank value
+
+    @property
+    def label(self) -> str:
+        return f"team number {self.number}" if self.number else f"team \"{self.name}\""
+
+
+@dataclass
+class TeamPlan:
+    mode: str
+    groups: dict = field(default_factory=dict)  # key -> TeamGroup, in sheet order
+    row_key: dict = field(default_factory=dict)  # sheet line -> group key (lines without a team are not here)
+    no_team: list = field(default_factory=list)  # sheet lines with no team number (or, by name, no team name)
+    errors: dict = field(default_factory=dict)  # sheet line -> [problems]
+    warnings: list = field(default_factory=list)
+
+
+def plan_teams(rows, mode) -> TeamPlan:
+    """Group sheet rows into teams before anything is saved. rows: [(sheet line, row data)].
+
+    By name (a), rows with the same team name (ignoring case and spaces) form a team. By number (b, c), rows with the
+    same team number form a team; with (c) the team takes the name any of its rows gives. Two different names for one
+    number is an error on every row of that number. A name that is just a member's name or KL ID is never used.
+    """
+    plan = TeamPlan(mode=mode)
+    names = defaultdict(dict)  # key -> {name key: (name, first line)}
+    people = defaultdict(set)  # key -> members' names and KL IDs, lower case
+    seen_values = defaultdict(lambda: defaultdict(dict))  # key -> field -> {value: first line}
+    for line, data in rows:
+        name = clean_team_name(data.get("team")) if mode != "number" else ""
+        number = clean_team_number(data.get("team_number")) if mode != "name" else ""
+        key = (name.lower() if mode == "name" else number)
+        if not key:
+            plan.no_team.append(line)
+            continue
+        group = plan.groups.setdefault(key, TeamGroup(key=key, number=number, name=name if mode == "name" else ""))
+        group.lines.append(line)
+        plan.row_key[line] = key
+        people[key] |= {v.lower() for v in (" ".join(str(data.get("name") or "").split()), clean_student_id(data.get("student_id"))) if v}
+        if mode == "number_named" and name:
+            names[key].setdefault(name.lower(), (name, line))
+        for fname, _ in TEAM_VALUE_FIELDS:
+            value = " ".join(str(data.get(fname) or "").split()) if fname != "project_description" else str(data.get(fname) or "").strip()
+            if value:
+                seen_values[key][fname].setdefault(value, line)
+                group.values.setdefault(fname, value)
+    for key, group in plan.groups.items():
+        found = list(names[key].values())
+        if mode == "name" and group.name.lower() in people[key]:
+            plan.warnings.append(f"Row {group.lines[0]}: the team name \"{group.name}\" is a student's own name or KL ID. "
+                                 "Check the team column.")
+        usable = [(n, line) for n, line in found if n.lower() not in people[key]]
+        for n, line in found:
+            if n.lower() in people[key]:
+                plan.warnings.append(f"Row {line}: \"{n}\" is a student's own name or KL ID, so it isn't used as the name of "
+                                     f"team number {group.number}.")
+        if len(usable) > 1:
+            listed = " and ".join(f"\"{n}\" (row {line})" for n, line in usable)
+            for line in group.lines:
+                plan.errors.setdefault(line, []).append(
+                    f"Row {line}: team number {group.number} has different team names: {listed}. Use one name for the whole team.")
+        elif usable:
+            group.name = usable[0][0]
+        for fname, label in TEAM_VALUE_FIELDS:
+            options = seen_values[key][fname]
+            if len(options) > 1:
+                first = next(iter(options.values()))
+                rows_text = ", ".join(str(line) for line in sorted(options.values()))
+                plan.warnings.append(f"The rows of {group.label} (rows {rows_text}) give different {label}s; "
+                                     f"the one in row {first} is used.")
+    return plan
+
+
+def _team_for_group(event, group, mode, cache, report_warnings) -> tuple[Team | None, str]:
+    """(team, problem): the team a planned group goes into, made if needed. Same answer for every row of the group."""
+    if group.key in cache:
+        return cache[group.key]
+    if mode == "name":
+        result = (find_team(event, group.name) or Team.objects.create(event=event, name=group.name), "")
+        cache[group.key] = result
+        return result
+    team = Team.objects.filter(event=event, number=group.number).first()
+    problem = ""
+    if team is not None:
+        if group.name and clean_team_name(group.name).lower() != team.name.lower():
+            clash = find_team(event, group.name)
+            if clash and clash.pk != team.pk:
+                problem = (f"team number {group.number} is called \"{group.name}\" in the sheet, but another team already has "
+                           "that name. Change one of them.")
+            else:
+                report_warnings.append(f"Team number {group.number} was renamed from \"{team.name}\" to \"{group.name}\".")
+                team.name = group.name
+                team.save(update_fields=["name"])
+    else:
+        name = group.name or f"Team {group.number}"
+        existing = find_team(event, name)
+        if existing is not None and group.name and not existing.number:
+            existing.number = group.number  # the same team, made earlier by name: it gets its number
+            existing.save(update_fields=["number"])
+            team = existing
+        elif existing is not None:
+            other = f" (team number {existing.number})" if existing.number else ""
+            problem = (f"team number {group.number} would be called \"{name}\", but another team{other} already has that name. "
+                       "Rename that team, or give this one a name in the sheet.")
+        else:
+            try:
+                with transaction.atomic():
+                    team = Team.objects.create(event=event, name=name, number=group.number)
+            except IntegrityError:
+                problem = f"team number {group.number} or the name \"{name}\" is already used by another team."
+    result = (None, problem) if problem else (team, "")
+    cache[group.key] = result
+    return result
+
+
 @transaction.atomic
-def import_students(event, upload, by=None, columns=None, only_rows=None) -> ImportReport:
+def import_students(event, upload, by=None, columns=None, only_rows=None, team_mode="") -> ImportReport:
     """Students, their teams, rooms and mentors. The KL ID is the key: an ID already here updates that student.
 
-    Only Name and KL ID are required. When the sheet has a team column, a blank team name means "not in a team":
-    a student in a team is taken out of it, and no team is ever made up for them. Without a team column, teams
-    are left as they are. columns and only_rows come from the import's matching screen (see import_staff).
+    Only Name and KL ID are required. Teams are formed by team name, or by team number (see plan_teams and
+    TEAM_MODES). When the sheet has the column that forms teams, a blank value means "not in a team": a student
+    in a team is taken out of it, and no team is ever made up for them. Without that column, teams are left as
+    they are. columns and only_rows come from the import's matching screen (see import_staff).
     """
     report = ImportReport()
     headers, rows = read_rows(upload)
@@ -529,7 +681,11 @@ def import_students(event, upload, by=None, columns=None, only_rows=None) -> Imp
     if not {"name", "student_id"} <= used:
         report.problems.append("The first row needs a Name and a KL ID column: each student is matched by their KL ID.")
         return report
-    team_column = "team" in used
+    mode = team_mode_for(used, team_mode)
+    team_column = team_column_for(mode) in used
+    plan = plan_teams([(line, _row_data(headers, row, columns)[0]) for line, row in enumerate(rows, start=2)], mode)
+    report.warnings += plan.warnings
+    teams_cache = {}
     seen = {}
     for line, row in enumerate(rows, start=2):
         if only_rows is not None and line not in only_rows:
@@ -547,8 +703,18 @@ def import_students(event, upload, by=None, columns=None, only_rows=None) -> Imp
             report.problems.append(f"Row {line}: KL ID {data['student_id']} is also in row {seen[key]}.")
             continue
         seen[key] = line
+        if team_column and line in plan.errors:
+            report.problems += plan.errors[line]
+            continue
+        group = plan.groups.get(plan.row_key.get(line)) if team_column else None
         answers = {name[2:]: value for name, value in data.items() if name.startswith("q:") and value}
         with transaction.atomic():
+            planned_team = None
+            if group is not None:
+                planned_team, problem = _team_for_group(event, group, mode, teams_cache, report.warnings)
+                if problem:
+                    report.problems.append(f"Row {line}: {problem}")
+                    continue
             person, _, problem = _upsert_person(data, id_first=True)
             if problem:
                 report.problems.append(f"Row {line}: {problem}.")
@@ -570,15 +736,15 @@ def import_students(event, upload, by=None, columns=None, only_rows=None) -> Imp
                     continue
                 report.created += 1
                 report.added.append(registration.pk)
-            team_name = clean_team_name(data.get("team"))
             membership = TeamMember.objects.filter(registration=registration).select_related("team").first()
-            if team_name:
-                team = find_team(event, team_name) or Team.objects.create(event=event, name=team_name)
+            if planned_team is not None:
+                team = planned_team
             elif team_column:
                 if membership:
                     old_team = membership.team
                     membership.delete()
-                    report.warnings.append(f"Row {line}: {person.display_name} has no team name, so they were taken out of "
+                    what = "team name" if mode == "name" else "team number"
+                    report.warnings.append(f"Row {line}: {person.display_name} has no {what}, so they were taken out of "
                                            f"{old_team.name} and are listed under Not in a team.")
                     if _drop_empty_team_named_after(old_team, person):
                         report.warnings.append(f"Row {line}: removed the empty team \"{old_team.name}\" that was made for {person.display_name} alone.")
@@ -595,14 +761,17 @@ def import_students(event, upload, by=None, columns=None, only_rows=None) -> Imp
                 if _drop_empty_team_named_after(old_team, person):
                     report.warnings.append(f"Row {line}: removed the empty team \"{old_team.name}\" that was made for {person.display_name} alone.")
             elif not membership:
-                membership = TeamMember.objects.create(team=team, registration=registration, extra=extra)
+                # By number, a team's first row is its leader (the leader can rename a "Team <number>" team).
+                leader = mode != "name" and not team.members.filter(is_leader=True).exists()
+                membership = TeamMember.objects.create(team=team, registration=registration, extra=extra, is_leader=leader)
             if extra and membership.extra != {**membership.extra, **extra}:
                 membership.extra = {**membership.extra, **extra}
                 membership.save(update_fields=["extra"])
             changed = []
-            for name in ("project_title", "project_description"):
-                if data.get(name) and getattr(team, name) != data[name]:
-                    setattr(team, name, data[name])
+            values = group.values if group is not None else {n: data.get(n) for n, _ in TEAM_VALUE_FIELDS}
+            for name, _ in TEAM_VALUE_FIELDS:
+                if values.get(name) and getattr(team, name) != values[name]:
+                    setattr(team, name, values[name])
                     changed.append(name)
             if data.get("mentor"):
                 mentor = _find_faculty(event, data["mentor"])
@@ -660,6 +829,9 @@ def allocate_room(round_, faculty, room) -> tuple[int, list[str]]:
             continue
         if team.mentor_id == faculty.person_id:
             notes.append(f"Skipped {team.name}: {faculty} mentors it.")
+            continue
+        if member_conflict(faculty.person_id, team):
+            notes.append(f"Skipped {team.name}: {faculty} is one of its members.")
             continue
         assignment = Assignment(round=round_, faculty=faculty, team=team, source=Assignment.Source.WEBSITE)
         if Assignment.objects.filter(round=round_, faculty=faculty, team=team).exists():
@@ -812,6 +984,9 @@ def import_allocations(event, upload, columns=None, only_rows=None) -> ImportRep
                 continue
             if team.mentor_id == faculty.person_id:
                 report.problems.append(f"Row {line}: {faculty} mentors {team.name}, so they can't judge it. Not allocated.")
+                continue
+            if member_conflict(faculty.person_id, team):
+                report.problems.append(f"Row {line}: {faculty} is a member of {team.name}, so they can't judge it. Not allocated.")
                 continue
             if Assignment.objects.filter(round=round_, faculty=faculty, team=team).exists():
                 continue
@@ -1334,6 +1509,30 @@ def leader_add_teammate(event, leader_reg, teammate_id) -> Registration:
         raise TeamError("Type your teammate's KL ID.")
     TeamMember.objects.create(team=team, registration=reg[0])
     return reg[0]
+
+
+@transaction.atomic
+def leader_rename_team(event, leader_reg, name) -> Team:
+    """The leader of a "Team <number>" team gives it a name, until teams lock. Never a member's own name or KL ID."""
+    team = _leader_team(event, leader_reg)
+    if not team.has_number_name:
+        raise TeamError("Your team already has a name. Ask the organisers to change it.")
+    name = clean_team_name(name)
+    if not name:
+        raise TeamError("Type a name for your team.")
+    for member in team.members.select_related("registration__person"):
+        if name.lower() in {clean_team_name(v).lower() for v in (member.registration.person.full_name, member.registration.person.student_id) if v}:
+            raise TeamError("Use a team name, not a person's name or KL ID.")
+    clash = find_team(event, name)
+    if clash and clash.pk != team.pk:
+        raise TeamError(f"Another team already has the name \"{name}\". Choose another name.")
+    team.name = name
+    try:
+        with transaction.atomic():
+            team.save(update_fields=["name"])
+    except IntegrityError:
+        raise TeamError(f"Another team already has the name \"{name}\". Choose another name.") from None
+    return team
 
 
 @transaction.atomic

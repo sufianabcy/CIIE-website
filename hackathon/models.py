@@ -24,6 +24,20 @@ def clean_team_name(name) -> str:
     return " ".join(str(name or "").split())
 
 
+def clean_team_number(value) -> str:
+    """A team number as stored: trimmed, and "7.0" (an Excel number cell read as text) becomes "7"."""
+    text = " ".join(str(value if value is not None else "").split())
+    if re.fullmatch(r"\d+\.0+", text):
+        text = text.split(".", 1)[0]
+    return text
+
+
+def team_number_order(team) -> tuple:
+    """Sort key: numbered teams first, by number (2 before 10), then the rest by name."""
+    number = team.number or ""
+    return (not number, int(number) if number.isdigit() else float("inf"), number.lower(), team.name.lower())
+
+
 # The same normalisation in SQL, so the database itself refuses "Team  A" next to "team a".
 TEAM_NAME_KEY = Lower(Trim(Func(F("name"), Value(r"\s+"), Value(" "), Value("g"), function="REGEXP_REPLACE")))
 
@@ -150,6 +164,9 @@ class Team(models.Model):
     name = models.CharField(max_length=150)
     project_title = models.CharField(max_length=200, blank=True)
     project_description = models.TextField("project description / problem statement", blank=True)
+    number = models.CharField("team number", max_length=30, blank=True,
+                              help_text="From the Team No column of the students Excel. Unique in this hackathon.")
+    category = models.CharField(max_length=150, blank=True)
     room = models.ForeignKey(Room, null=True, blank=True, on_delete=models.SET_NULL, related_name="teams")
     mentor = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="mentored_teams",
@@ -163,14 +180,27 @@ class Team(models.Model):
 
     class Meta:
         ordering = ["event", "name"]
-        constraints = [models.UniqueConstraint("event", TEAM_NAME_KEY, name="team_name_unique_per_event_normalised")]
+        constraints = [
+            models.UniqueConstraint("event", TEAM_NAME_KEY, name="team_name_unique_per_event_normalised"),
+            models.UniqueConstraint(fields=["event", "number"], condition=~Q(number=""), name="team_number_unique_per_event"),
+        ]
 
     def __str__(self):
         return self.name
 
     def save(self, *args, **kwargs):
         self.name = clean_team_name(self.name)
+        self.number = clean_team_number(self.number)
         super().save(*args, **kwargs)
+
+    @property
+    def number_name(self) -> str:
+        """The name an unnamed numbered team gets: "Team 7"."""
+        return f"Team {self.number}" if self.number else ""
+
+    @property
+    def has_number_name(self) -> bool:
+        return bool(self.number) and self.name.lower() == self.number_name.lower()
 
     def clean(self):
         if self.room_id and self.event_id and self.room.event_id != self.event_id:
@@ -280,7 +310,7 @@ class Criterion(models.Model):
 
     round = models.ForeignKey(Round, on_delete=models.CASCADE, related_name="criteria")
     label = models.CharField(max_length=200)
-    tag = models.CharField(max_length=20, blank=True, help_text="A short tag, e.g. Q3.")
+    tag = models.CharField(max_length=60, blank=True, help_text="A short tag, e.g. Q3.")
     strong_text = models.TextField("strong looks like", blank=True)
     weak_text = models.TextField("weak looks like", blank=True)
     description = models.CharField(
@@ -319,6 +349,13 @@ def room_conflict(round_id, faculty_id, team, exclude_pk=None) -> str:
     where = others.team.room.name if others.team.room else "no room"
     here = team.room.name if team.room else "no room"
     return f"In this round they already judge teams in {where}; one faculty member judges one room per round, and {team.name} is in {here}."
+
+
+def member_conflict(person_id, team) -> str:
+    """Why this person can't judge this team: they are one of its members (a faculty member who is also a student). Or ""."""
+    if team.pk and TeamMember.objects.filter(team=team, registration__person_id=person_id).exists():
+        return f"They are a member of {team.name}, so they can't judge it."
+    return ""
 
 
 def volunteer_conflict(person_id, team) -> str:
@@ -378,7 +415,7 @@ class Assignment(models.Model):
             problem = room_conflict(self.round_id, self.faculty_id, self.team, exclude_pk=self.pk)
             if problem:
                 raise ValidationError(problem)
-        problem = volunteer_conflict(self.faculty.person_id, self.team)
+        problem = volunteer_conflict(self.faculty.person_id, self.team) or member_conflict(self.faculty.person_id, self.team)
         if problem:
             raise ValidationError(problem)
 
@@ -552,6 +589,7 @@ class ImportUpload(models.Model):
     header_row = models.PositiveIntegerField(default=0, help_text="1-based row holding the column names. 0: the first non-empty row.")
     result = models.JSONField(default=dict, blank=True, help_text="Summary and skipped rows, once imported.")
     imported_at = models.DateTimeField(null=True, blank=True)
+    options = models.JSONField(default=dict, blank=True, help_text="Choices on the column step, e.g. how teams are formed.")
 
 
 class ImportMapping(models.Model):
@@ -636,7 +674,9 @@ class RubricSettings(models.Model):
     event = models.OneToOneField("events.Event", on_delete=models.CASCADE, related_name="rubric_settings")
     bands = models.JSONField(default=list, help_text="Highest first: name and the lowest percentage, e.g. Strong from 85%.")
     red_flags = models.JSONField(default=list, blank=True)
-    self_score_max = models.PositiveSmallIntegerField("student self-score out of", default=50)
+    self_score_max = models.PositiveSmallIntegerField("student self-score out of", default=50, null=True, blank=True,
+                                                      help_text="Empty: faculty don't record a self-score.")
+    guidance = models.TextField(blank=True, help_text="Shown at the top of every faculty marksheet.")
     recommendations = models.JSONField(default=list, blank=True)
 
     def __str__(self):

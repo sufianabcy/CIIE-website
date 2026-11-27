@@ -33,9 +33,11 @@
 
 {% if rows %}
 <div class="panel mb-4"><div class="table-responsive"><table class="table table-sm align-middle mb-0">
-  <thead><tr><th>Team</th><th>Members (★ leader)</th><th class="text-end">Size</th><th>Problem statement</th><th>Room</th><th>Mentor</th><th></th></tr></thead>
+  <thead><tr><th class="text-end">No.</th><th>Team</th><th>Members (★ leader)</th><th class="text-end">Size</th><th>Project title</th><th>Category</th><th>Room</th><th>Mentor</th><th></th></tr></thead>
   <tbody>{% for row in rows %}<tr>
+    <td class="text-end num">{{ row.team.number|default:"—" }}</td>
     <td>{{ row.team.name }}</td><td>{{ row.members }}</td><td class="text-end num">{{ row.size }}</td><td>{{ row.team.project_title|default:"—" }}</td>
+    <td>{{ row.team.category|default:"—" }}</td>
     <td>{{ row.team.room.name|default:"—" }}</td><td>{{ row.team.mentor_display|default:"—" }}</td>
     <td class="text-end">{% if row.edit %}<a class="btn btn-quiet btn-sm" href="{{ row.edit }}">Edit</a>{% endif %}</td>
   </tr>{% endfor %}</tbody>

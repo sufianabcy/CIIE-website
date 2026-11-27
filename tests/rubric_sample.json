@@ -1,0 +1,52 @@
+{
+  "format": "kl-ciie-rubric",
+  "version": 1,
+  "guidance": "Sample guidance for judges. Mark what you see, not what you hope.",
+  "bands": [
+    {"name": "Bright", "min_percent": 80, "max_percent": 100, "meaning": "Sample meaning for the top band"},
+    {"name": "Fair", "min_percent": 50, "max_percent": 79, "meaning": "Sample meaning for the middle band"},
+    {"name": "Dim", "min_percent": 0, "max_percent": 49, "meaning": "Sample meaning for the low band"}
+  ],
+  "self_score_out_of": 20,
+  "round_weights": [0.2, 0.3, 0.5],
+  "recommendations": ["Sample: keep going", "Sample: try again"],
+  "red_flags": ["Sample flag one.", "Sample flag two."],
+  "rounds": [
+    {
+      "name": "Sample round one",
+      "focus": "Sample focus one",
+      "total": 100,
+      "suggested_questions": "Sample question one? Sample question two?",
+      "advance": {"min_total": 50, "key_criterion": "Sample criterion A", "key_min_band": "Fair", "may_advance_anyway": false},
+      "comment_prompts": ["Sample prompt: a good point", "Sample prompt: a next step"],
+      "criteria": [
+        {"name": "Sample criterion A", "tag": "S1", "max": 60, "strong": "Sample strong A", "weak": "Sample weak A"},
+        {"name": "Sample criterion B", "tag": "", "max": 40, "strong": "Sample strong B", "weak": "Sample weak B"}
+      ]
+    },
+    {
+      "name": "Sample round two",
+      "focus": "Sample focus two",
+      "total": 100,
+      "suggested_questions": "Sample question three?",
+      "advance": {"min_total": 60, "key_criterion": null, "key_min_band": null, "may_advance_anyway": true},
+      "comment_prompts": ["Sample prompt: a good point", "Sample prompt: a next step"],
+      "criteria": [
+        {"name": "Sample criterion C", "tag": "S2 and a longer sample tag", "max": 50, "strong": "Sample strong C", "weak": "Sample weak C"},
+        {"name": "Sample criterion D", "tag": "S3", "max": 50, "strong": "Sample strong D", "weak": "Sample weak D"}
+      ]
+    },
+    {
+      "name": "Sample round three",
+      "focus": "Sample focus three",
+      "total": 100,
+      "suggested_questions": "Sample question four?",
+      "advance": null,
+      "comment_prompts": ["Sample prompt: a good point", "Sample prompt: a next step"],
+      "criteria": [
+        {"name": "Sample criterion E", "tag": "", "max": 70, "strong": "Sample strong E", "weak": "Sample weak E"},
+        {"name": "Sample criterion F", "tag": "", "max": 30, "strong": "Sample strong F", "weak": "Sample weak F"}
+      ]
+    }
+  ]
+}

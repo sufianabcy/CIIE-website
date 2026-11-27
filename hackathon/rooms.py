@@ -12,7 +12,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
-from .models import Assignment, Attendance, EventFaculty, Room, Round, Team, volunteer_conflict
+from .models import Assignment, Attendance, EventFaculty, Room, Round, Team, member_conflict, volunteer_conflict
 
 
 # --- Faculty to teams ---------------------------------------------------------------------
@@ -71,6 +71,9 @@ def random_allocate(round_, per_team=1, copy_from=None, only_unallocated=True, s
                     continue
                 if volunteer_conflict(member.person_id, team):
                     notes.append(f"{team.name} not given to {member}: they volunteer in its room.")
+                    continue
+                if member_conflict(member.person_id, team):
+                    notes.append(f"{team.name} not given to {member}: they are one of its members.")
                     continue
                 _, created = Assignment.objects.get_or_create(
                     round=round_, faculty=member, team=team, defaults={"source": Assignment.Source.RANDOM}

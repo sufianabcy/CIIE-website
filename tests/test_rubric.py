@@ -248,8 +248,8 @@ def test_final_sheet_weighted_total_rank_and_round_sheets(setup, admin_user):
     _, content = build_export(event, "marks", admin_user)
     final = sheet(content, "Final")
     header = final[0]
-    assert header[:4] == ("Team", "Members", "Members' KL IDs", "Room")
-    rows = {r[0]: r for r in final[1:]}
+    assert header[:7] == ("Team no", "Team", "Project title", "Category", "Members", "Members' KL IDs", "Room")
+    rows = {r[1]: r for r in final[1:]}
     # Alpha: Round 1 = 27/30 = 90, Round 2 = 4/5 = 80; weights default to half each with two rounds.
     assert rows["Alpha"][header.index("Round 1 (out of 100)")] == 90
     assert rows["Alpha"][header.index("Round 2 (out of 100)")] == 80
@@ -258,7 +258,7 @@ def test_final_sheet_weighted_total_rank_and_round_sheets(setup, admin_user):
     assert rows["Alpha"][header.index("Furthest round reached")] == "Round 2"
     assert rows["Beta"][header.index("Furthest round reached")] == "Round 1"
     assert rows["Beta"][header.index("Weighted total (out of 100)")] is None
-    assert rows["Alpha"][header.index("Self-score gap (faculty % minus self %)")] == 10  # 90 - 80
+    assert rows["Alpha"][header.index("Self-score gap (faculty % minus self-score %)")] == 10  # 90 - 80
     assert rows["Alpha"][header.index("Recommendation")] == "Pursue as a startup"
     assert rows["Beta"][header.index("Red flags")] == 1
     r1 = sheet(content, "R1 Round 1")
@@ -266,7 +266,7 @@ def test_final_sheet_weighted_total_rank_and_round_sheets(setup, admin_user):
     for col in ("Idea (/10)", "Idea band", "Total", "One strength to tell the team", "Red flags", "Self-score", "Evaluator",
                 "Employee ID", "Submitted at"):
         assert col in h
-    alpha_row = next(r for r in r1[1:] if r[0] == "Alpha")
+    alpha_row = next(r for r in r1[1:] if r[1] == "Alpha")
     assert alpha_row[h.index("Idea band")] == "Strong" and alpha_row[h.index("One strength to tell the team")] == "Clear"
     rub = sheet(content, "Rubric")
     assert (None, "Idea", None, 10) == rub[2][:4] and any(r[0] == "Strong" and r[1] == 85 for r in rub)

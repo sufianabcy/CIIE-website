@@ -9,7 +9,7 @@
     <h1 class="heading-3">{{ event.title }}</h1>
     <p>Every faculty member's marks, by round. {% if can.can_change_marks or can.can_reopen_marks %}Use "Change" to change or reopen a marksheet; you'll be asked for a reason, which is recorded.{% else %}Read-only: you can't change marks.{% endif %}</p>
   </div>
-  {% if can.can_download %}<a class="btn btn-primary" href="{% url 'event_export' event.slug 'marks' %}">{% include "ui/icon.html" with name="download" %}Excel</a>{% endif %}
+  {% if can.can_download and can.can_view_marks %}<a class="btn btn-primary" data-testid="final-marks" href="{% url 'event_export' event.slug 'marks' %}">{% include "ui/icon.html" with name="download" %}Download final marks (Excel)</a>{% endif %}
 </header>
 {% for round, criteria, rows in rounds %}
 <section class="panel mb-4">

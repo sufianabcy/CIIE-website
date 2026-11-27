@@ -12,6 +12,7 @@
   <div class="d-flex flex-wrap gap-2">
     {% if can.can_email_participants %}<a class="btn btn-quiet" href="{% url 'hackathon_invites' event.slug %}">{% include "ui/icon.html" with name="mail" %}Send sign-in invites</a>{% endif %}
     {% if can.can_view_marks %}<a class="btn btn-quiet" href="{% url 'hackathon_marks' event.slug %}">{% include "ui/icon.html" with name="chart" %}All marks</a>{% endif %}
+    {% if can.can_download and can.can_view_marks %}<a class="btn btn-quiet" data-testid="final-marks" href="{% url 'event_export' event.slug 'marks' %}">{% include "ui/icon.html" with name="download" %}Download final marks (Excel)</a>{% endif %}
   </div>
 </header>
 {% include "hackathon/_manage_nav.html" %}
@@ -219,10 +220,10 @@
 <section class="panel step-panel">
   <h2 class="panel-title"><span class="step-num step-done">{% include "ui/icon.html" with name="trophy" %}</span>Results</h2>
   <div class="d-flex flex-wrap gap-2">
-    {% if can.can_download and can.can_view_marks %}<a class="btn btn-primary" href="{% url 'event_export' event.slug 'marks' %}">{% include "ui/icon.html" with name="download" %}Marks by round (Excel)</a>{% endif %}
+    {% if can.can_download and can.can_view_marks %}<a class="btn btn-primary" href="{% url 'event_export' event.slug 'marks' %}">{% include "ui/icon.html" with name="download" %}Download final marks (Excel)</a>{% endif %}
     {% if can.can_view_marks %}<a class="btn btn-quiet" href="{% url 'hackathon_marks' event.slug %}">See all marks</a>{% endif %}
     {% if can.can_download %}<a class="btn btn-quiet" href="{% url 'event_export' event.slug 'registrations' %}">{% include "ui/icon.html" with name="download" %}Registrations (Excel)</a>{% endif %}
   </div>
-  <p class="caption-2 text-secondary mt-3 mb-0">The marks file has, for each round, one row per team per faculty member and a summary ranking teams by their average, plus an overall sheet and every recorded mark change. {% if can.can_change_marks or can.can_reopen_marks %}To change or reopen marks, use "Change" on the marks page; a reason is recorded.{% endif %}</p>
+  <p class="caption-2 text-secondary mt-3 mb-0">The final marks file has a Final sheet (one row per team: each round out of 100, the weighted total and rank), one sheet per round (one row per evaluator per team), the rubric, and every recorded mark change. {% if can.can_change_marks or can.can_reopen_marks %}To change or reopen marks, use "Change" on the marks page; a reason is recorded.{% endif %}</p>
 </section>
 {% endblock %}

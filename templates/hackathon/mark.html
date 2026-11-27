@@ -1,5 +1,6 @@
 {% extends "base.html" %}
-{% block title %}Marks · {{ team.name }}{{ bands|json_script:"bands" }}
+{% block title %}Marks · {{ team.name }}{% endblock %}
+{% block extra_body %}{{ bands|json_script:"bands" }}
 <script>
   (function () {
     var bands = JSON.parse(document.getElementById("bands").textContent);
@@ -32,14 +33,16 @@
 <header class="tool-head">
   <div>
     <span class="eyebrow">{{ round.name }} · {{ event.title }}</span>
-    <h1 class="heading-3">{{ team.name }}</h1>
+    <h1 class="heading-3">{% if team.number %}{{ team.number }}. {% endif %}{{ team.name }}</h1>
   </div>
 </header>
+{% if guidance %}<div class="alert alert-info" data-testid="marksheet-guidance" style="white-space:pre-wrap">{{ guidance }}</div>{% endif %}
 <div class="row g-4">
   <div class="col-lg-5">
     <div class="panel">
       <dl class="detail-list mb-0">
         {% if team.project_title %}<div><dt>Project</dt><dd>{{ team.project_title }}</dd></div>{% endif %}
+        {% if team.category %}<div><dt>Category</dt><dd>{{ team.category }}</dd></div>{% endif %}
         {% if team.project_description %}<div><dt>Description</dt><dd style="white-space:pre-wrap">{{ team.project_description }}</dd></div>{% endif %}
         <div><dt>Room</dt><dd>{{ team.room|default:"—" }}</dd></div>
         {% if team.mentor_display %}<div><dt>Mentor</dt><dd>{{ team.mentor_display }}</dd></div>{% endif %}
@@ -52,6 +55,10 @@
       {% if round.suggested_questions %}<h3 class="heading-6">Suggested questions</h3><p class="mb-0" style="white-space:pre-wrap">{{ round.suggested_questions }}</p>{% endif %}
     </div>
     {% endif %}
+    <div class="panel mt-3" data-testid="marksheet-bands">
+      <h2 class="panel-title">Bands</h2>
+      <ul class="mb-0 caption-2">{% for b in band_rows %}<li><strong>{{ b.name }}</strong> {{ b.min_percent }}–{{ b.max_percent }}%{% if b.meaning %}: {{ b.meaning }}{% endif %}</li>{% endfor %}</ul>
+    </div>
   </div>
   <div class="col-lg-7">
     {% if assignment.is_submitted %}

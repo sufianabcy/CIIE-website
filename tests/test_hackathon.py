@@ -449,11 +449,12 @@ def test_admin_changes_a_submitted_mark_with_a_recorded_reason(client, setup, ad
     change = MarkChange.objects.get(assignment=assignment)
     assert (change.changed_by, change.reason, change.before["Idea"], change.after["Idea"]) == (admin_user, "Typo by judge", 3, 9)
     rows = sheet(build_export(event, "marks", admin_user)[1], "R1 Round 1")
-    header = next(r for r in rows if r[0] == "Team")
-    row = next(r for r in rows if r[0] == "Alpha")
+    header = next(r for r in rows if r[0] == "Team no")
+    row = next(r for r in rows if r[1] == "Alpha")
     assert row[header.index("Idea (/10)")] == 9
     log = sheet(build_export(event, "marks", admin_user)[1], "Mark changes")
-    assert log[1][2:7] == ("Marks changed", "Round 1", "Alpha", "Dr. A", "Typo by judge")
+    assert [log[1][log[0].index(h)] for h in ("What", "Round", "Team", "Faculty", "Reason")] == [
+        "Marks changed", "Round 1", "Alpha", "Dr. A", "Typo by judge"]
     # Reopening is recorded too, and lets the faculty member edit again.
     client.post(url, {f"c_{idea.pk}": "9", f"c_{demo.pk}": "10", "reason": "Judge asked", "action": "reopen"})
     assignment.refresh_from_db()
@@ -491,17 +492,18 @@ def test_marks_export_final_rounds_and_rubric(setup, admin_user):
     rows = sheet(content, "R1 Round 1")
     assert rows[0][0] == "Marking in progress: 2 of 4 marksheets submitted"
     header = rows[1]
-    assert header[:4] == ("Team", "Room", "Evaluator", "Employee ID")
-    alpha_a = next(r for r in rows[2:] if r[0] == "Alpha" and r[header.index("Evaluator")] == "Dr. A")
+    assert header[:5] == ("Team no", "Team", "Room", "Evaluator", "Employee ID")
+    alpha_a = next(r for r in rows[2:] if r[1] == "Alpha" and r[header.index("Evaluator")] == "Dr. A")
     assert alpha_a[header.index("Idea (/10)")] == 8 and alpha_a[header.index("Idea band")] == "Adequate"
     assert alpha_a[header.index("Total")] == 20 and alpha_a[header.index("Status")] == "Submitted"
     final = sheet(content, "Final")
     header = final[1]
-    alpha = next(r for r in final[2:] if r[0] == "Alpha")
+    alpha = next(r for r in final[2:] if r[header.index("Team")] == "Alpha")
     assert alpha[header.index("Round 1 (out of 100)")] == 70 and alpha[header.index("Rank")] == 1
     assert alpha[header.index("Weighted total (out of 100)")] is None  # Round 2 not marked yet
     teams = sheet(build_export(event, "teams", admin_user)[1], "Teams")
-    assert ("Gamma", "Gamma project", None, "R2") == teams[[r[0] for r in teams].index("Gamma")][:4]
+    gamma = teams[[r[1] for r in teams].index("Gamma")]
+    assert [gamma[teams[0].index(h)] for h in ("Team", "Project title", "Project description", "Room")] == ["Gamma", "Gamma project", None, "R2"]
 
 
 def test_portal_pages_load_and_the_admin_has_no_hackathon_models(client, setup, admin_user):

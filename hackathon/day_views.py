@@ -196,14 +196,15 @@ def by_floor_export(request, slug):
             for t in r["teams"] or [None]:
                 row = [block, floor, r["room"].name, r["room"].capacity, faculty]
                 if t is None:
-                    rows.append(row + ["", "", "", "", ""])
+                    rows.append(row + ["", "", "", "", "", "", ""])
                     continue
                 att = t["attendance"]
                 progress = ", ".join(f"{f}: {'done' if s else 'pending'}" for f, s in t["progress"]) if ctx["can_progress"] else ""
-                rows.append(row + [t["team"].name, ", ".join(t["members"]), t["team"].project_title,
+                rows.append(row + [t["team"].number, t["team"].name, ", ".join(t["members"]), t["team"].project_title, t["team"].category,
                                    ("Present" if att.present else "Absent") if att else "Not marked", progress])
-    _sheet(wb, "By floor", ["Block", "Floor", "Room", "Max teams", "Faculty", "Team", "Members", "Project",
-                            f"Attendance ({ctx['round'] or 'no round'})", "Marking (done or pending, never marks)"], rows)
+    _sheet(wb, "By floor", ["Block", "Floor", "Room", "Max teams", "Faculty", "Team no", "Team", "Members", "Project", "Category",
+                            f"Attendance ({ctx['round'] or 'no round'})", "Marking (done or pending, never marks)"], rows,
+           text_columns=["Team no"])
     return _download(f"{event.slug}-by-floor.xlsx", wb)
 
 
@@ -276,11 +277,12 @@ def attendance_export(request, slug):
         who = a.team.name if a.team_id else str(a.faculty)
         room = a.team.room.name if a.team_id and a.team.room else ""
         members = ", ".join(regs.get(i, "?") for i in a.members_present)
-        return [a.round.name, "Team" if a.team_id else "Faculty", who, room, "Present" if a.present else "Absent", members,
+        return [a.round.name, "Team" if a.team_id else "Faculty", a.team.number if a.team_id else "", who,
+                a.team.category if a.team_id else "", room, "Present" if a.present else "Absent", members,
                 a.marked_by.display_name, _local(a.marked_at),
                 a.undone_by.display_name if a.undone_by else "", _local(a.undone_at), a.undo_reason]
 
-    headers = ["Round", "Who", "Name", "Room", "Mark", "Members ticked present", "Marked by", "Marked at", "Undone by", "Undone at", "Why undone"]
+    headers = ["Round", "Who", "Team no", "Name", "Category", "Room", "Mark", "Members ticked present", "Marked by", "Marked at", "Undone by", "Undone at", "Why undone"]
     _sheet(wb, "Attendance", headers, [row(a) for a in marks if not a.undone_at])
     _sheet(wb, "Undone and replaced", headers, [row(a) for a in marks if a.undone_at])
     return _download(f"{event.slug}-attendance.xlsx", wb)

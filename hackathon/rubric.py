@@ -175,7 +175,7 @@ def copy_rubric(source_event, target_event):
         dst.save(update_fields=["key_criterion"])
         made += 1
     src_settings, dst_settings = settings_for(source_event), settings_for(target_event)
-    for field in ("bands", "red_flags", "self_score_max", "recommendations"):
+    for field in ("bands", "red_flags", "self_score_max", "recommendations", "guidance"):
         setattr(dst_settings, field, getattr(src_settings, field))
     dst_settings.save()
     return made

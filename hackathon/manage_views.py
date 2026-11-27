@@ -234,7 +234,7 @@ def student_remove(request, slug, pk):
 class TeamForm(forms.ModelForm):
     class Meta:
         model = Team
-        fields = ["name", "project_title", "project_description", "room", "mentor", "mentor_name"]
+        fields = ["number", "name", "project_title", "project_description", "category", "room", "mentor", "mentor_name"]
         widgets = {"project_description": forms.Textarea(attrs={"rows": 3})}
         labels = {"mentor": "Mentor (a faculty member of this hackathon)", "mentor_name": "Or a mentor without an account"}
 
@@ -252,6 +252,14 @@ class TeamForm(forms.ModelForm):
             raise ValidationError("Another team already has this name.")
         return name
 
+    def clean_number(self):
+        from .models import clean_team_number
+
+        number = clean_team_number(self.cleaned_data.get("number"))
+        if number and Team.objects.filter(event=self.instance.event, number=number).exclude(pk=self.instance.pk).exists():
+            raise ValidationError("Another team already has this number.")
+        return number
+
 
 @never_cache
 @login_required
@@ -260,7 +268,10 @@ def teams(request, slug):
     can_edit = allowed(request.user, event, "can_edit_teams")
     low, high = services.size_limits(event)
     rows = []
-    team_list = list(Team.objects.filter(event=event).select_related("room", "mentor").prefetch_related("members__registration__person"))
+    from .models import team_number_order
+
+    team_list = sorted(Team.objects.filter(event=event).select_related("room", "mentor").prefetch_related("members__registration__person"),
+                       key=team_number_order)
     for t in team_list:
         members = ", ".join(("★ " if m.is_leader else "") + m.registration.person.display_name for m in t.members.all())
         rows.append({"team": t, "members": members or "no members yet", "size": len(t.members.all()),
@@ -365,7 +376,7 @@ def team_edit(request, slug, pk=None):
             with transaction.atomic():
                 new.save()
         except IntegrityError:
-            form.add_error("name", "Another team already has this name.")
+            form.add_error("name", "Another team already has this name or number.")
             return _form(request, event, "teams", f"Edit {team.name}" if team else "Add a team", [form], back=_url(event, "teams"))
         if new.mentor_id and new.assignments.filter(faculty__person_id=new.mentor_id).exists():
             messages.warning(request, f"{new.mentor} mentors this team but is allocated to judge it. Remove that allocation.")
@@ -1244,9 +1255,12 @@ def volunteer_remove(request, slug, pk):
 
 
 class RubricSettingsForm(forms.Form):
+    guidance = forms.CharField(label="Guidance for faculty (shown at the top of every marksheet)", required=False,
+                               widget=forms.Textarea(attrs={"rows": 3}))
     bands_text = forms.CharField(label="Scoring bands (one per line: name and the lowest %, highest first)", widget=forms.Textarea(attrs={"rows": 4}))
     red_flags_text = forms.CharField(label="Red flags faculty can tick (one per line)", required=False, widget=forms.Textarea(attrs={"rows": 4}))
-    self_score_max = forms.IntegerField(label="Student self-score out of", min_value=1, max_value=1000)
+    self_score_max = forms.IntegerField(label="Student self-score out of", min_value=1, max_value=1000, required=False,
+                                        help_text="Leave empty if faculty don't record a self-score.")
     recommendations_text = forms.CharField(label="Recommendations for the final round (one per line)", required=False, widget=forms.Textarea(attrs={"rows": 3}))
 
     def __init__(self, *args, rounds, **kwargs):
@@ -1300,13 +1314,24 @@ def rubric_settings(request, slug):
     initial = {
         "bands_text": "\n".join(f"{b['name']} {b['min']:g}" for b in rubric.bands(event)),
         "red_flags_text": "\n".join(settings_row.red_flags), "self_score_max": settings_row.self_score_max,
+        "guidance": settings_row.guidance,
         "recommendations_text": "\n".join(settings_row.recommendations),
         **{f"w_{r.pk}": rubric.weight(r) for r in rounds},
     }
     form = _style(RubricSettingsForm(request.POST or None, rounds=rounds, initial=initial))
     if request.method == "POST" and form.is_valid():
         d = form.cleaned_data
+        # Keep each band's meaning from the rubric file, and the top ends too while no band's start changed.
+        old = {b["name"].lower(): b for b in settings_row.bands or []}
+        same_starts = {(n, float(b.get("min", -1))) for n, b in old.items()} == {(b["name"].lower(), b["min"]) for b in d["bands_text"]}
+        for b in d["bands_text"]:
+            before = old.get(b["name"].lower(), {})
+            if before.get("meaning"):
+                b["meaning"] = before["meaning"]
+            if same_starts and before.get("max") is not None:
+                b["max"] = before["max"]
         settings_row.bands = d["bands_text"]
+        settings_row.guidance = d["guidance"].strip()
         settings_row.red_flags = [x.strip() for x in d["red_flags_text"].splitlines() if x.strip()]
         settings_row.self_score_max = d["self_score_max"]
         settings_row.recommendations = [x.strip() for x in d["recommendations_text"].splitlines() if x.strip()]
@@ -1321,3 +1346,62 @@ def rubric_settings(request, slug):
     others = Event.objects.filter(kind=Event.Kind.HACKATHON).exclude(pk=event.pk).order_by("-starts_at")
     return _form(request, event, "rounds", "Rubric settings", [form], back=_url(event, "rounds"),
                  extra_template="hackathon/_rubric_copy.html", others=others)
+
+
+@login_required
+def rubric_download(request, slug):
+    """This hackathon's rubric as a .json file, in the format "Import rubric from a file" reads."""
+    from django.http import HttpResponse
+
+    from . import rubric_file
+
+    event = overseen_event(request, slug)
+    require(request.user, event, "can_manage_fields")
+    response = HttpResponse(rubric_file.export_text(event), content_type="application/json; charset=utf-8")
+    response["Content-Disposition"] = f'attachment; filename="{event.slug}-rubric.json"'
+    return response
+
+
+@never_cache
+@login_required
+def rubric_import(request, slug):
+    """Import a rubric file: choose the file, see what it holds, then confirm. All or nothing."""
+    from . import rubric_file
+
+    event = overseen_event(request, slug)
+    require(request.user, event, "can_manage_fields")
+    ctx = {"title": "Import rubric from a file"}
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "import":
+            raw = request.POST.get("content", "")
+        else:
+            upload = request.FILES.get("file")
+            if upload is None:
+                ctx["problems"] = ["Choose a rubric file (.json)."]
+                return render(request, "hackathon/rubric_import.html", _ctx(request, event, "rounds", **ctx))
+            if upload.size > 1024 * 1024:
+                ctx["problems"] = ["That file is over 1 MB; a rubric file is much smaller."]
+                return render(request, "hackathon/rubric_import.html", _ctx(request, event, "rounds", **ctx))
+            raw = upload.read()
+        try:
+            spec = rubric_file.parse(raw)
+        except rubric_file.RubricFileError as exc:
+            ctx["problems"] = exc.problems
+            return render(request, "hackathon/rubric_import.html", _ctx(request, event, "rounds", **ctx))
+        if action == "import":
+            if request.POST.get("confirm") != "1":
+                messages.error(request, "Tick the box to confirm the import.")
+            else:
+                try:
+                    rubric_file.apply(event, spec)
+                except rubric_file.RubricFileError as exc:
+                    ctx["problems"] = exc.problems
+                except IntegrityError:
+                    ctx["problems"] = ["Nothing was imported: the rounds changed while you were importing. Try again."]
+                else:
+                    messages.success(request, f"Rubric imported: {len(spec['rounds'])} round(s), {len(spec['bands'])} bands.")
+                    return redirect("hackathon_rubric_settings", slug)
+        ctx.update(spec=spec, plan=rubric_file.plan(event, spec),
+                   content=raw.decode("utf-8-sig") if isinstance(raw, bytes) else raw)
+    return render(request, "hackathon/rubric_import.html", _ctx(request, event, "rounds", **ctx))

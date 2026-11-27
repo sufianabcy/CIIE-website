@@ -12,7 +12,7 @@ from openpyxl.styles import Font
 
 from events.exports import PERSON_HEADERS, _about, _local, _person_columns, _sheet
 
-from .models import Assignment, EventFaculty, Round, Supervisor, Team, TeamMember
+from .models import Assignment, EventFaculty, Round, Supervisor, Team, TeamMember, team_number_order
 from .services import mentor_conflicts, room_rule_warnings
 
 
@@ -52,35 +52,36 @@ def teams_workbook(event, wb):
     """One row per student with their team, project, room and mentor; then one row per team."""
     answer_headers, answer_values = _answers(event)
     custom_headers, custom_values = _custom(event, "student")
-    members = (
-        TeamMember.objects.filter(team__event=event)
-        .select_related("team__room", "team__mentor", "registration__person")
-        .order_by("team__room__name", "team__name", "registration__person__full_name")
+    members = sorted(
+        TeamMember.objects.filter(team__event=event).select_related("team__room", "team__mentor", "registration__person"),
+        key=lambda m: (team_number_order(m.team), m.registration.person.full_name.lower()),
     )
     _sheet(
         wb, "Students",
-        ["Team", "Project title", "Room", "Mentor", "Registration ID"] + PERSON_HEADERS + custom_headers + answer_headers,
+        ["Team no", "Team", "Project title", "Category", "Room", "Mentor", "Registration ID"] + PERSON_HEADERS + custom_headers + answer_headers,
         [
-            [m.team.name, m.team.project_title, m.team.room.name if m.team.room else "", m.team.mentor_display,
-             m.registration.pass_code_display] + _person_columns(m.registration.person)
+            [m.team.number, m.team.name, m.team.project_title, m.team.category, m.team.room.name if m.team.room else "",
+             m.team.mentor_display, m.registration.pass_code_display] + _person_columns(m.registration.person)
             + custom_values(m.registration.person) + answer_values(m.registration)
             for m in members
         ],
-        text_columns=["Phone", "KL ID", "Registration ID"],
+        text_columns=["Team no", "Phone", "KL ID", "Registration ID"],
     )
-    teams = list(Team.objects.filter(event=event).select_related("room", "mentor").prefetch_related("members__registration__person"))
+    teams = sorted(Team.objects.filter(event=event).select_related("room", "mentor").prefetch_related("members__registration__person"),
+                   key=team_number_order)
     slots = max([event.team_size_max or 1] + [t.members.count() for t in teams])
-    headers = ["Team", "Problem statement", "Project description", "Room", "Mentor", "Size"]
+    headers = ["Team no", "Team", "Project title", "Project description", "Category", "Room", "Mentor", "Size"]
     for n in range(1, slots + 1):
         headers += [f"Member {n} name" + (" (leader)" if n == 1 else ""), f"Member {n} email", f"Member {n} KL ID"]
     rows = []
     for t in teams:
-        row = [t.name, t.project_title, t.project_description, t.room.name if t.room else "", t.mentor_display, t.members.count()]
+        row = [t.number, t.name, t.project_title, t.project_description, t.category, t.room.name if t.room else "", t.mentor_display,
+               t.members.count()]
         for m in sorted(t.members.all(), key=lambda m: (not m.is_leader, m.registration.person.display_name)):
             p = m.registration.person
             row += [p.display_name, p.email or "", p.student_id]
         rows.append(row)
-    _sheet(wb, "Teams", headers, rows)
+    _sheet(wb, "Teams", headers, rows, text_columns=["Team no"])
 
 
 def allocations_workbook(event, wb):
@@ -91,13 +92,14 @@ def allocations_workbook(event, wb):
     )
     _sheet(
         wb, "Allocations",
-        ["Round", "Block", "Floor", "Room", "Faculty", "Faculty email", "Employee ID", "Team", "How", "Status"],
+        ["Round", "Block", "Floor", "Room", "Faculty", "Faculty email", "Employee ID", "Team no", "Team", "Category", "How", "Status"],
         [
             [a.round.name, *_where(a.team), a.faculty.person.display_name, a.faculty.person.email or "",
-             a.faculty.person.employee_id, a.team.name, a.get_source_display(), "Submitted" if a.submitted_at else "Not submitted"]
+             a.faculty.person.employee_id, a.team.number, a.team.name, a.team.category, a.get_source_display(),
+             "Submitted" if a.submitted_at else "Not submitted"]
             for a in rows
         ],
-        text_columns=["Employee ID"],
+        text_columns=["Employee ID", "Team no"],
     )
     problems = room_rule_warnings(event) + mentor_conflicts(event)
     _sheet(wb, "Warnings", ["Check these"], [[p] for p in problems] or [["None: every faculty member judges one room per round, and no mentor judges their own team."]])
@@ -126,19 +128,33 @@ def _banner(ws, text):
     ws.freeze_panes = "A3"
 
 
+def _advance_text(round_) -> str:
+    parts = []
+    if round_.min_total is not None:
+        parts.append(f"at least {round_.min_total.normalize():f}")
+    if round_.key_criterion_id and round_.key_min_band:
+        parts.append(f"{round_.key_criterion.label} at least {round_.key_min_band}")
+    text = " and ".join(parts)
+    if round_.allow_override:
+        text += ("; " if text else "") + "evaluators may recommend advancing anyway"
+    return text
+
+
 def marks_workbook(event, wb):
-    """Final (one row per team, ranked), then one sheet per round (one row per team per evaluator), then the rubric."""
+    """Final (one row per team, ranked), then one sheet per round (one row per evaluator per team), then the rubric."""
     from collections import Counter
 
     from . import rubric
     from .models import MarkChange
+    from .rubric_file import band_rows
 
-    rounds = list(Round.objects.filter(event=event).prefetch_related("criteria"))
-    teams = list(Team.objects.filter(event=event).select_related("room").prefetch_related("members__registration__person"))
+    rounds = list(Round.objects.filter(event=event).select_related("key_criterion").prefetch_related("criteria"))
+    teams = sorted(Team.objects.filter(event=event).select_related("room").prefetch_related("members__registration__person"),
+                   key=team_number_order)
     settings_row = rubric.settings_for(event)
-    assignments = list(
-        Assignment.objects.filter(round__event=event).select_related("round", "faculty__person", "team__room")
-        .prefetch_related("scores").order_by("round__position", "team__room__name", "team__name", "faculty__person__full_name")
+    assignments = sorted(
+        Assignment.objects.filter(round__event=event).select_related("round", "faculty__person", "team__room").prefetch_related("scores"),
+        key=lambda a: (a.round.position, team_number_order(a.team), a.faculty.person.display_name.lower()),
     )
     submitted = [a for a in assignments if a.submitted_at]
     final_round = rounds[-1] if rounds else None
@@ -161,9 +177,9 @@ def marks_workbook(event, wb):
         complete = bool(rounds) and all(p is not None for p in percents)
         recs = Counter(a.recommendation for a in mine if final_round and a.round_id == final_round.pk and a.recommendation)
         rows.append({
-            "cells": [team.name, ", ".join(p.display_name for p in people), ", ".join(p.student_id or "" for p in people),
-                      team.room.name if team.room else ""] + [_num(p) for p in percents]
-                     + [_num(weighted.quantize(Decimal("0.01"))) if complete else None],
+            "cells": [team.number, team.name, team.project_title, team.category, ", ".join(p.display_name for p in people),
+                      ", ".join(p.student_id or "" for p in people), team.room.name if team.room else ""]
+                     + [_num(p) for p in percents] + [_num(weighted.quantize(Decimal("0.01"))) if complete else None],
             "tail": [rubric.furthest_round(team, rounds), _num(gap),
                      recs.most_common(1)[0][0] if recs else "", sum(len(a.red_flags or []) for a in mine)],
             "key": (sum(p is not None for p in percents), weighted),
@@ -172,10 +188,11 @@ def marks_workbook(event, wb):
     final_rows = [r["cells"] + [rank] + r["tail"] for rank, r in enumerate(rows, start=1)]
     ws = _sheet(
         wb, "Final",
-        ["Team", "Members", "Members' KL IDs", "Room"] + [f"{r.name} (out of 100)" for r in rounds]
-        + ["Weighted total (out of 100)", "Rank", "Furthest round reached", "Self-score gap (faculty % minus self %)",
+        ["Team no", "Team", "Project title", "Category", "Members", "Members' KL IDs", "Room"]
+        + [f"Round {r.position} (out of 100)" for r in rounds]
+        + ["Weighted total (out of 100)", "Rank", "Furthest round reached", "Self-score gap (faculty % minus self-score %)",
            "Recommendation", "Red flags"],
-        final_rows, text_columns=["Members' KL IDs"],
+        final_rows, text_columns=["Team no", "Members' KL IDs"],
     )
     if len(submitted) < len(assignments):
         _banner(ws, f"Marking in progress: {len(submitted)} of {len(assignments)} marksheets submitted")
@@ -184,7 +201,7 @@ def marks_workbook(event, wb):
     for r in rounds:
         criteria = list(r.criteria.all())
         prompts = rubric.prompts(r)
-        headers = ["Team", "Room", "Evaluator", "Employee ID"]
+        headers = ["Team no", "Team", "Room", "Evaluator", "Employee ID"]
         for c in criteria:
             headers += [f"{c.label} (/{c.max_marks.normalize():f})", f"{c.label} band"]
         headers += ["Total", "Out of", "Band"] + prompts + ["Red flags", "Self-score", "Recommendation", "Recommends advancing anyway",
@@ -193,7 +210,8 @@ def marks_workbook(event, wb):
         for a in (a for a in assignments if a.round_id == r.pk):
             marks = {s.criterion_id: s.marks for s in a.scores.all()}
             total = sum(marks.values(), Decimal(0)) if marks else None
-            cells = [a.team.name, a.team.room.name if a.team.room else "", a.faculty.person.display_name, a.faculty.person.employee_id]
+            cells = [a.team.number, a.team.name, a.team.room.name if a.team.room else "", a.faculty.person.display_name,
+                     a.faculty.person.employee_id]
             for c in criteria:
                 cells += [_num(marks.get(c.pk)), rubric.band_for(event, marks.get(c.pk), c.max_marks)]
             cells += [_num(total), _num(r.out_of), rubric.band_for(event, total, r.out_of)]
@@ -201,7 +219,7 @@ def marks_workbook(event, wb):
             cells += [", ".join(a.red_flags or []), _num(a.self_score), a.recommendation, "Yes" if a.advance_anyway else "",
                       a.remarks, "Submitted" if a.submitted_at else ("Draft saved" if marks else "Not started"), _local(a.submitted_at)]
             lines.append(cells)
-        ws = _sheet(wb, _title(r), headers, lines, text_columns=["Employee ID"])
+        ws = _sheet(wb, _title(r), headers, lines, text_columns=["Team no", "Employee ID"])
         done = sum(1 for a in assignments if a.round_id == r.pk and a.submitted_at)
         total_here = sum(1 for a in assignments if a.round_id == r.pk)
         if done < total_here:
@@ -210,26 +228,36 @@ def marks_workbook(event, wb):
     # --- Rubric ------------------------------------------------------------------------------------
     lines = []
     for r in rounds:
-        lines.append([r.name, "", "", _num(r.total_marks), "", "", _num(rubric.weight(r))])
+        lines.append([r.name, "", "", _num(r.total_marks), "", "", _num(rubric.weight(r)), r.focus, _advance_text(r),
+                      " / ".join(rubric.prompts(r))])
         for c in r.criteria.all():
             lines.append(["", c.label, c.tag, _num(c.max_marks), c.strong_text, c.weak_text, None])
     lines.append([])
-    lines.append(["Bands", "From % of the maximum"])
-    lines += [[b["name"], b["min"]] for b in rubric.bands(event)]
-    _sheet(wb, "Rubric", ["Round", "Criterion", "Tag", "Max marks", "Strong", "Weak", "Round weight"], lines)
+    lines.append(["Bands", "From % of the maximum", "To %", "Meaning"])
+    lines += [[b["name"], b["min_percent"], b["max_percent"], b["meaning"]] for b in band_rows(event)]
+    lines.append([])
+    lines.append(["Student self-score out of", settings_row.self_score_max or "none"])
+    lines.append(["Recommendations", "; ".join(settings_row.recommendations or [])])
+    lines.append(["Red flags", "; ".join(settings_row.red_flags or [])])
+    if settings_row.guidance:
+        lines.append(["Guidance for faculty", settings_row.guidance])
+    _sheet(wb, "Rubric", ["Round", "Criterion", "Tag", "Max marks", "Strong", "Weak", "Round weight", "Focus", "Advance rule",
+                          "Comment prompts"], lines)
 
     changes = MarkChange.objects.filter(assignment__round__event=event).select_related(
         "assignment__round", "assignment__team", "assignment__faculty__person", "changed_by"
     ).order_by("changed_at")
     _sheet(
         wb, "Mark changes",
-        ["Changed at", "Changed by", "What", "Round", "Team", "Faculty", "Reason", "Before", "After"],
+        ["Changed at", "Changed by", "What", "Round", "Team no", "Team", "Faculty", "Reason", "Before", "After"],
         [
-            [_local(c.changed_at), c.changed_by.display_name, c.get_kind_display(), c.assignment.round.name, c.assignment.team.name,
+            [_local(c.changed_at), c.changed_by.display_name, c.get_kind_display(), c.assignment.round.name,
+             c.assignment.team.number, c.assignment.team.name,
              c.assignment.faculty.person.display_name, c.reason,
              ", ".join(f"{k}: {v:g}" for k, v in c.before.items()), ", ".join(f"{k}: {v:g}" for k, v in c.after.items())]
             for c in changes
         ],
+        text_columns=["Team no"],
     )
 
 
@@ -255,8 +283,10 @@ def credentials_file(event, issued, user) -> tuple[str, bytes]:
 
 
 TEMPLATES = {
-    "students": ("Students", ["Name", "Email", "Phone", "KL ID", "Branch", "Year", "Team name", "Project title", "Project description", "Room", "Mentor"],
-                 ["A. Student", "2300012345@kluniversity.in", "9000000000", "2300012345", "CSE", "3", "Team Rocket", "Smart attendance", "Face-based attendance for labs.", "R&D 101", "faculty@kluniversity.in"]),
+    "students": ("Students", ["Name", "Email", "Phone", "KL ID", "Branch", "Year", "Team No", "Team name", "Project title", "Category",
+                              "Project description", "Room", "Mentor"],
+                 ["A. Student", "2300012345@kluniversity.in", "9000000000", "2300012345", "CSE", "3", "1", "Team Rocket", "Smart attendance",
+                  "Campus", "Face-based attendance for labs.", "R&D 101", "faculty@kluniversity.in"]),
     "faculty": ("Faculty", ["Name", "Email", "Employee ID", "Department", "Phone"],
                 ["Dr. A. Example", "a.example@kluniversity.in", "KLF1234", "CSE", "9000000000"]),
     "supervisors": ("Supervisors", ["Name", "Email", "Employee ID", "KL ID", "Department", "Phone", "Type", "Change marks", "Publish results"],

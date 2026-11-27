@@ -63,10 +63,17 @@
       {% endfor %}
     </section>
 
-    {% if no_team %}
-    <section class="panel mb-4" aria-labelledby="no-team">
-      <h2 class="panel-title" id="no-team">{% include "ui/icon.html" with name="info" %}{{ no_team|length }} student{{ no_team|length|pluralize }} {{ no_team|length|pluralize:"has,have" }} no team name; they'll be listed under Not in a team.</h2>
-      <p class="caption-2 text-secondary mb-0">{% for n, who, sid in no_team|slice:":8" %}Row {{ n }}{% if who %} ({{ who }}){% endif %}{% if not forloop.last %} · {% endif %}{% endfor %}{% if no_team|length > 8 %} and {{ no_team|length|add:"-8" }} more{% endif %}.{% if leaving %} {{ leaving }} of them {{ leaving|pluralize:"is,are" }} in a team now and will be taken out of it.{% endif %} Put them in teams afterwards on the Teams page. Team names in merged cells count for every row of the merge.</p>
+    {% if item.kind == "students" %}
+    <section class="panel mb-4" aria-labelledby="team-mode">
+      <h2 class="panel-title" id="team-mode">Form teams by:</h2>
+      <div class="d-flex flex-column gap-1 mb-2">
+        {% for key, label in team_modes %}<label class="d-flex gap-2 align-items-center"><input class="form-check-input" type="radio" name="team_mode" value="{{ key }}"{% if key == team_mode %} checked{% endif %}> {{ label }}</label>{% endfor %}
+      </div>
+      <p class="caption-2 text-secondary">Choose, then press Check the rows. Team number: rows with the same number are one team. A team with no name is called "Team" and its number; its leader can rename it.</p>
+      {% if team_summary %}<p class="mb-1"><strong>{{ team_summary }}</strong></p>{% endif %}
+      {% if no_team %}
+      <p class="caption-2 text-secondary mb-0">No team {% if team_mode == "name" %}name{% else %}number{% endif %}: {% for n, who, sid in no_team|slice:":8" %}Row {{ n }}{% if who %} ({{ who }}){% endif %}{% if not forloop.last %} · {% endif %}{% endfor %}{% if no_team|length > 8 %} and {{ no_team|length|add:"-8" }} more{% endif %}.{% if leaving %} {{ leaving }} of them {{ leaving|pluralize:"is,are" }} in a team now and will be taken out of it.{% endif %} Put them in teams afterwards on the Teams page. Values in merged cells count for every row of the merge.</p>
+      {% endif %}
     </section>
     {% endif %}
 
