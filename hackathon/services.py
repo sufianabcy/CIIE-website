@@ -1080,6 +1080,13 @@ class MarkingClosed(Exception):
 
 
 @transaction.atomic
+def _check_marks(marks: dict):
+    """Every mark between 0 and its criterion's maximum, whatever page or tool sent it."""
+    for criterion, value in marks.items():
+        if value is not None and not 0 <= Decimal(value) <= criterion.max_marks:
+            raise ValidationError(f"{criterion.label}: marks must be from 0 to {criterion.max_marks.normalize():f}.")
+
+
 def save_marks(assignment, marks: dict, remarks: str, submit: bool, extras: dict | None = None):
     """Faculty saving their own marks. marks: {criterion: Decimal or None}. extras: comments, red flags, self-score,
     recommendation and "advance anyway" from the marksheet."""
@@ -1088,6 +1095,7 @@ def save_marks(assignment, marks: dict, remarks: str, submit: bool, extras: dict
         raise MarkingClosed("These marks are already submitted. Ask an admin if something needs changing.")
     if not assignment.round.is_open():
         raise MarkingClosed(f"Marking for {assignment.round} is closed.")
+    _check_marks(marks)
     for criterion, value in marks.items():
         if value is None:
             Score.objects.filter(assignment=assignment, criterion=criterion).delete()

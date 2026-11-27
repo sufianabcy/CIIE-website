@@ -3,6 +3,11 @@ from django import forms
 from .models import EventFaculty, Room, Round
 
 
+def plain_number(value):
+    """A mark as typed, not as stored: 20 rather than 20.00, 7.5 rather than 7.50."""
+    return None if value is None else f"{value.normalize():f}"
+
+
 class UploadForm(forms.Form):
     file = forms.FileField(
         label="Excel file (.xlsx)",
@@ -60,7 +65,9 @@ class MarksForm(forms.Form):
         for c in self.criteria:
             self.fields[f"c_{c.pk}"] = forms.DecimalField(
                 label=c.label, help_text=c.description, required=False, min_value=0, max_value=c.max_marks,
-                max_digits=6, decimal_places=2, initial=scores.get(c.pk),
+                max_digits=6, decimal_places=2, initial=plain_number(scores.get(c.pk)),
+                error_messages={"max_value": f"The most for this is {plain_number(c.max_marks)}.",
+                                "min_value": "Marks can't be below 0."},
                 widget=forms.NumberInput(attrs={"class": "form-control", "step": "0.5", "inputmode": "decimal", "style": "max-width:8rem"}),
             )
         self.fields["remarks"] = forms.CharField(

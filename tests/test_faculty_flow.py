@@ -297,3 +297,33 @@ def test_faculty_never_reach_admin_pages_other_teams_other_hackathons_or_closed_
     # A faculty member made inactive loses access too.
     EventFaculty.objects.filter(pk=a.pk).update(is_active=False)
     assert client.get(reverse("hackathon_mark", args=[a.assignments.filter(round=round1).get().pk])).status_code == 404
+
+
+def test_marks_above_the_maximum_are_refused_and_shown_plainly(client, event, ready):
+    role = services.add_faculty(event, Person.objects.create_user(email="max.judge@kluniversity.in", full_name="Dr. Max Judge"))[0]
+    services.allocate_room(ready["round"], role, ready["rooms"][0])
+    assignment = role.assignments.get()
+    client.force_login(role.person)
+    url = reverse("hackathon_mark", args=[assignment.pk])
+    page = client.post(url, marks_post(assignment, ["61", "10"])).content.decode()  # criterion A is out of 60
+    assert "The most for this is 60." in page and not Score.objects.filter(assignment=assignment).exists()
+    page = client.post(url, marks_post(assignment, ["-1", "10"])).content.decode()
+    assert "Marks can&#x27;t be below 0." in page or "Marks can't be below 0." in page
+    criterion = assignment.round.criteria.first()
+    with pytest.raises(ValidationError):
+        services.save_marks(assignment, {criterion: 61}, "", False)
+    client.post(url, marks_post(assignment, ["20", "10"]))
+    page = client.get(url).content.decode()
+    assert 'value="20"' in page and 'value="20.00"' not in page  # shown as typed, so it fits the box
+    assert 'max="60' in page  # the box knows its maximum
+
+
+def test_passwords_need_at_least_8_characters(client, make_person):
+    person = make_person(email="len.check@kluniversity.in")
+    client.force_login(person)
+    page = client.post(reverse("password_change"), {"new_password1": "Rv7#kq2", "new_password2": "Rv7#kq2"}).content.decode()
+    assert "at least 8 characters" in page.lower()
+    response = client.post(reverse("password_change"), {"new_password1": "Rv7#kq2m", "new_password2": "Rv7#kq2m"})
+    assert response.status_code == 302
+    person.refresh_from_db()
+    assert person.check_password("Rv7#kq2m")

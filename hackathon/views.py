@@ -531,8 +531,8 @@ def mark(request, pk):
         if not submitting or form.require_all():
             try:
                 services.save_marks(assignment, form.marks(), form.cleaned_data["remarks"], submitting, form.extra_values())
-            except services.MarkingClosed as exc:
-                messages.error(request, str(exc))
+            except (services.MarkingClosed, ValidationError) as exc:
+                messages.error(request, " ".join(exc.messages) if isinstance(exc, ValidationError) else str(exc))
                 return redirect("hackathon_mark", assignment.pk)
             if submitting:
                 messages.success(request, f"Marks for {assignment.team.name} submitted.")

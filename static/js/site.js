@@ -321,11 +321,37 @@
   }, { threshold: 0.2 }).observe(target);
 })();
 
-// Faculty marking: add up the marks as they are typed, and flag a total over the maximum.
+// Number boxes: the mouse wheel scrolls the page, it never changes the number in a focused box.
+(function () {
+  "use strict";
+  document.addEventListener("wheel", function (e) {
+    var el = document.activeElement;
+    if (el && el.type === "number" && el === e.target) el.blur();
+  }, { passive: true });
+})();
+
+// Faculty marking: a mark can't go above the criterion's maximum or below 0; add up the marks as they are typed.
 (function () {
   "use strict";
   var form = document.querySelector("form[data-marks]");
-  var out = form && form.querySelector("[data-marks-total]");
+  if (!form) return;
+  form.addEventListener("input", function (e) {
+    var input = e.target;
+    var row = input.closest && input.closest(".mark-field");
+    if (!row || input.type !== "number" || input.value === "") return;
+    var v = parseFloat(input.value), max = parseFloat(row.getAttribute("data-max"));
+    var note = row.querySelector("[data-max-note]");
+    if (!note) {
+      note = document.createElement("div");
+      note.className = "invalid-feedback d-block";
+      note.setAttribute("data-max-note", "");
+      row.firstElementChild.appendChild(note);
+    }
+    note.textContent = "";
+    if (!isNaN(max) && v > max) { input.value = max; note.textContent = "The most for this is " + max + "."; }
+    else if (v < 0) { input.value = 0; note.textContent = "Marks can't be below 0."; }
+  }, true);
+  var out = form.querySelector("[data-marks-total]");
   if (!out) return;
   var box = out.closest(".mark-total");
   function sum() {
