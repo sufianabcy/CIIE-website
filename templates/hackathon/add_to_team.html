@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Add to a team · {{ event.title }}{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'hackathon_manage_teams' event.slug %}#not-in-a-team">{% include "ui/icon.html" with name="arrow-left" %}Teams</a>
+<header class="tool-head"><div><span class="eyebrow">{{ event.title }}</span><h1 class="heading-3">Add to a team</h1>
+  <p>{% for r in regs %}{{ r.person.display_name }}{% if r.person.student_id %} ({{ r.person.student_id }}){% endif %}{% if not forloop.last %}, {% endif %}{% endfor %}. Teams here have {{ low }} to {{ high }} members.</p></div></header>
+<form method="post" action="{% url 'hackathon_add_to_team' event.slug %}" class="form-card" style="max-width: 560px">{% csrf_token %}
+  <input type="hidden" name="back" value="one">
+  {% for r in regs %}<input type="hidden" name="r" value="{{ r.pk }}">{% endfor %}
+  <div class="mb-3"><label class="form-label" for="team-choice">Existing team</label>
+    <select id="team-choice" name="team" class="form-select"><option value="">Choose a team</option>{% for t, size in teams_for_choice %}<option value="{{ t.pk }}">{{ t.name }} ({{ size }}/{{ high }})</option>{% endfor %}</select></div>
+  <div class="mb-4"><label class="form-label" for="new-team">Or a new team name</label><input id="new-team" name="new_name" class="form-control" maxlength="150">
+    <div class="form-text">A new team needs {{ low }} to {{ high }} members.</div></div>
+  <button class="btn btn-primary" type="submit">{% include "ui/icon.html" with name="plus" %}Add to team</button>
+  <a class="btn btn-quiet" href="{% url 'hackathon_manage_teams' event.slug %}#not-in-a-team">Cancel</a>
+</form>
+{% endblock %}

@@ -63,14 +63,10 @@
       {% endfor %}
     </section>
 
-    {% if blank_rows %}
-    <section class="panel mb-4" aria-labelledby="blank-teams">
-      <h2 class="panel-title" id="blank-teams">{% include "ui/icon.html" with name="warning" %}{{ blank_rows|length }} row{{ blank_rows|length|pluralize }} {{ blank_rows|length|pluralize:"has,have" }} no team name</h2>
-      <p class="caption-2 text-secondary">{% for n, who in blank_rows|slice:":8" %}Row {{ n }}{% if who %} ({{ who }}){% endif %}{% if not forloop.last %} · {% endif %}{% endfor %}{% if blank_rows|length > 8 %} and {{ blank_rows|length|add:"-8" }} more{% endif %}. A student who is already in a team keeps it. For the rest:</p>
-      {% for key, label, help in blank_choices %}
-        <label class="d-flex gap-2 align-items-start mb-2"><input type="radio" class="form-check-input mt-1" name="blank_teams" value="{{ key }}"{% if key == item.blank_teams %} checked{% endif %}><span>{{ label }}<br><span class="caption-2 text-secondary">{{ help }}</span></span></label>
-      {% endfor %}
-      <p class="caption-2 text-secondary mb-0">Team names in merged cells are read for every row of the merge, so those rows aren't counted here.</p>
+    {% if no_team %}
+    <section class="panel mb-4" aria-labelledby="no-team">
+      <h2 class="panel-title" id="no-team">{% include "ui/icon.html" with name="info" %}{{ no_team|length }} student{{ no_team|length|pluralize }} {{ no_team|length|pluralize:"has,have" }} no team name; they'll be listed under Not in a team.</h2>
+      <p class="caption-2 text-secondary mb-0">{% for n, who, sid in no_team|slice:":8" %}Row {{ n }}{% if who %} ({{ who }}){% endif %}{% if not forloop.last %} · {% endif %}{% endfor %}{% if no_team|length > 8 %} and {{ no_team|length|add:"-8" }} more{% endif %}.{% if leaving %} {{ leaving }} of them {{ leaving|pluralize:"is,are" }} in a team now and will be taken out of it.{% endif %} Put them in teams afterwards on the Teams page. Team names in merged cells count for every row of the merge.</p>
     </section>
     {% endif %}
 

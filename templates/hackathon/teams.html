@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Teams · {{ event.title }}{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'hackathon_dashboard' event.slug %}">{% include "ui/icon.html" with name="arrow-left" %}{{ event.title }}</a>
+<header class="tool-head">
+  <div>
+    <span class="eyebrow">{{ event.title }}</span>
+    <h1 class="heading-3">Teams</h1>
+    <p>Each team is made of registered students; teams here have {{ low }} to {{ high }} members. Add or remove members on the team's page, put students who are not in a team into one below, or import a sheet with one row per team.</p>
+  </div>
+  <div class="d-flex flex-wrap gap-2">
+    {% if import_url %}<a class="btn btn-quiet" href="{{ import_url }}">{% include "ui/icon.html" with name="download" %}Import from Excel</a>{% endif %}
+    {% if add_url %}<a class="btn btn-primary" href="{{ add_url }}">{% include "ui/icon.html" with name="plus" %}Add a team</a>{% endif %}
+  </div>
+</header>
+{% include "hackathon/_manage_nav.html" %}
+
+<section class="panel mb-4" aria-labelledby="student-teams">
+  <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+    <div>
+      <h2 class="panel-title mb-1" id="student-teams">Students forming their own teams</h2>
+      <p class="caption-2 text-secondary mb-0">{% if locked_reason %}<span class="tag" data-testid="teams-locked">Locked</span> {{ locked_reason }}{% else %}<span class="tag tag-green" data-testid="teams-open">Open</span> A student not in a team can create one on their hackathon page and add teammates by KL ID. Teams lock by themselves once faculty are allocated.{% endif %}</p>
+    </div>
+    {% if is_admin %}
+    <div class="d-flex flex-wrap gap-2">
+      <form method="post" action="{% url 'hackathon_teams_lock' event.slug %}">{% csrf_token %}<input type="hidden" name="open" value="{{ event.students_form_teams|yesno:'0,1' }}"><button class="btn btn-quiet btn-sm" type="submit">{{ event.students_form_teams|yesno:"Lock teams,Let students form teams" }}</button></form>
+      <a class="btn btn-quiet btn-sm" href="{% url 'hackathon_one_person_teams' event.slug %}">Move one-person teams named after their member to Not in a team</a>
+    </div>
+    {% endif %}
+  </div>
+</section>
+
+{% if rows %}
+<div class="panel mb-4"><div class="table-responsive"><table class="table table-sm align-middle mb-0">
+  <thead><tr><th>Team</th><th>Members (★ leader)</th><th class="text-end">Size</th><th>Problem statement</th><th>Room</th><th>Mentor</th><th></th></tr></thead>
+  <tbody>{% for row in rows %}<tr>
+    <td>{{ row.team.name }}</td><td>{{ row.members }}</td><td class="text-end num">{{ row.size }}</td><td>{{ row.team.project_title|default:"—" }}</td>
+    <td>{{ row.team.room.name|default:"—" }}</td><td>{{ row.team.mentor_display|default:"—" }}</td>
+    <td class="text-end">{% if row.edit %}<a class="btn btn-quiet btn-sm" href="{{ row.edit }}">Edit</a>{% endif %}</td>
+  </tr>{% endfor %}</tbody>
+</table></div></div>
+{% else %}
+<div class="empty-state mb-4"><h2 class="heading-5">No teams yet</h2></div>
+{% endif %}
+
+<section class="panel" id="not-in-a-team" aria-labelledby="not-in-a-team-title">
+  <h2 class="panel-title" id="not-in-a-team-title">{% include "ui/icon.html" with name="users" %}Not in a team yet <span class="tag" data-testid="not-in-team">{{ free|length }}</span></h2>
+  {% if free %}
+  <form method="post" action="{% url 'hackathon_add_to_team' event.slug %}">{% csrf_token %}
+    <div class="table-responsive"><table class="table table-sm align-middle mb-3">
+      <thead><tr>{% if can_edit %}<th><span class="visually-hidden">Choose</span></th>{% endif %}<th>Name</th><th>KL ID</th><th>Email</th>{% if can_edit %}<th></th>{% endif %}</tr></thead>
+      <tbody>{% for r in free %}<tr>
+        {% if can_edit %}<td><input type="checkbox" class="form-check-input" name="r" value="{{ r.pk }}" aria-label="Choose {{ r.person.display_name }}"></td>{% endif %}
+        <td>{{ r.person.display_name }}</td><td>{{ r.person.student_id|default:"—" }}</td><td>{{ r.person.email|default:"—" }}</td>
+        {% if can_edit %}<td class="text-end"><a class="btn btn-quiet btn-sm" href="{% url 'hackathon_add_to_team' event.slug %}?r={{ r.pk }}">Add to team</a></td>{% endif %}
+      </tr>{% endfor %}</tbody>
+    </table></div>
+    {% if can_edit %}
+    <div class="d-flex flex-wrap align-items-end gap-2">
+      <div><label class="form-label" for="team-choice">Existing team</label>
+        <select id="team-choice" name="team" class="form-select" style="min-width: 14rem"><option value="">Choose a team</option>{% for t, size in teams_for_choice %}<option value="{{ t.pk }}">{{ t.name }} ({{ size }}/{{ high }})</option>{% endfor %}</select></div>
+      <span class="pb-2 text-secondary">or</span>
+      <div><label class="form-label" for="new-team">New team name</label><input id="new-team" name="new_name" class="form-control" maxlength="150"></div>
+      <button class="btn btn-primary" type="submit">{% include "ui/icon.html" with name="plus" %}Add to team</button>
+    </div>
+    <p class="caption-2 text-secondary mt-2 mb-0">Tick the students first. A new team needs {{ low }} to {{ high }} members; the first ticked student is its leader.</p>
+    {% endif %}
+  </form>
+  {% else %}
+  <p class="text-secondary mb-0">Every registered student is in a team.</p>
+  {% endif %}
+</section>
+{% endblock %}

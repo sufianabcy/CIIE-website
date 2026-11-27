@@ -14,8 +14,8 @@ from decimal import Decimal
 from django.conf import settings
 from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError
-from django.db import transaction
-from django.db.models import F, Q
+from django.db import IntegrityError, transaction
+from django.db.models import Count, F, Q
 from django.utils import timezone
 from openpyxl import load_workbook
 
@@ -24,7 +24,7 @@ from people.staff import issue_temp_password
 from registrations.models import Registration
 from registrations.services import RegistrationError, register
 
-from .models import Assignment, EventFaculty, Room, Round, Score, Supervisor, Team, TeamMember, room_conflict
+from .models import Assignment, EventFaculty, Room, Round, Score, Supervisor, Team, TeamMember, clean_team_name, room_conflict
 
 # --- Reading Excel ------------------------------------------------------------
 
@@ -148,8 +148,32 @@ def kl_email_for(student_id) -> str:
     return normalise_email(settings.KL_STUDENT_EMAIL_FORMAT.format(id=(student_id or "").strip())) or ""
 
 
-def _find_person(email="", student_id="", employee_id="", login_id=""):
-    """(person or None, problem or "") by email, KL ID (and its KL email), then employee ID; flags rows that point at two people."""
+def _find_by_student_id(student_id):
+    """The student with this KL ID (ignoring case), or the account with its KL email."""
+    if not student_id:
+        return None
+    person = Person.objects.filter(student_id__iexact=student_id).first()
+    if person is None:
+        kl = kl_email_for(student_id)
+        person = Person.objects.filter(Q(email__iexact=kl) | Q(kl_email__iexact=kl)).first() if kl else None
+    return person
+
+
+def _find_person(email="", student_id="", employee_id="", login_id="", id_first=False):
+    """(person or None, problem or "") by email, KL ID (and its KL email), then employee ID; flags rows that point at two people.
+
+    id_first (student imports): the KL ID is the key. A student found by it is that student, whatever the email says.
+    """
+    if id_first and student_id:
+        person = _find_by_student_id(student_id)
+        if person is not None:
+            return person, ""
+        if email:
+            other = Person.objects.filter(Q(email__iexact=email) | Q(kl_email__iexact=email) | Q(contact_email__iexact=email)).first()
+            if other and other.student_id and other.student_id.lower() != student_id.lower():
+                return None, f"the email {email} belongs to {other.display_name}, whose KL ID is {other.student_id}"
+            return other, ""
+        return None, ""
     found = []
     if email:
         found.append(Person.objects.filter(Q(email__iexact=email) | Q(kl_email__iexact=email) | Q(contact_email__iexact=email)).first())
@@ -169,16 +193,23 @@ def _find_person(email="", student_id="", employee_id="", login_id=""):
     return (next(iter(people.values())) if people else None), ""
 
 
-def _upsert_person(data) -> tuple[Person | None, bool, str]:
-    """Find or create the person in an import row. Fills blanks only; never overwrites what someone typed."""
+def _upsert_person(data, id_first=False) -> tuple[Person | None, bool, str]:
+    """Find or create the person in an import row. Fills blanks only; never overwrites what someone typed.
+
+    id_first: the KL ID is the key (student imports); an email that already belongs to someone else is not used.
+    """
     email = normalise_email(data.get("email")) or ""
-    student_id = (data.get("student_id") or "").strip()
+    student_id = clean_student_id(data.get("student_id"))
     employee_id = (data.get("employee_id") or "").strip()
     if not (email or student_id or employee_id):
         return None, False, "needs an email, KL ID or employee ID"
-    person, problem = _find_person(email, student_id, employee_id)
+    person, problem = _find_person(email, student_id, employee_id, id_first=id_first)
     if problem:
         return None, False, problem
+    if id_first and email:
+        owner = Person.objects.filter(Q(email__iexact=email) | Q(kl_email__iexact=email)).first()
+        if owner is not None and (person is None or owner.pk != person.pk):
+            email = ""  # someone else signs in with it: keep the student matched by KL ID, without that address
     values = {
         "full_name": " ".join((data.get("name") or "").split()),
         "phone": data.get("phone") or "",
@@ -445,29 +476,46 @@ def set_team_room(team, room) -> list[str]:
     return warnings
 
 
-# What to do with a student row whose team name is empty (chosen on the import's check step).
-BLANK_TEAM_SOLO = "solo"  # a team of one, named after the student
-BLANK_TEAM_NONE = "none"  # no team yet; sort them out on the Teams page
-BLANK_TEAM_ABOVE = "above"  # the team named in the nearest row above (filled in before the import runs)
+def clean_student_id(raw) -> str:
+    """A KL ID as the key: trimmed, and "2300031234.0" (an Excel number cell read as text) becomes "2300031234"."""
+    value = str(raw if raw is not None else "").strip()
+    if re.fullmatch(r"\d+\.0+", value):
+        value = value.split(".", 1)[0]
+    return value
 
 
-def _drop_empty_solo_team(team, person) -> bool:
-    """Delete a team of one that was made for this person (named after them) once it is empty and unused."""
-    if team.name.lower() != person.display_name.lower() or team.members.exists():
-        return False
-    if team.assignments.exists() or team.attendance.exists() or team.outcomes.exists():
+def find_team(event, name) -> Team | None:
+    """The team with this name at this hackathon, ignoring case and extra spaces (as the database compares them)."""
+    name = clean_team_name(name)
+    return Team.objects.filter(event=event, name__iexact=name).first() if name else None
+
+
+def named_after(team, person) -> bool:
+    """True when the team's name is just this person's name (or email or KL ID): a made-up team of one."""
+    key = clean_team_name(team.name).lower()
+    return bool(key) and key in {clean_team_name(v).lower() for v in (person.full_name, person.email, person.student_id) if v}
+
+
+def _team_is_used(team) -> bool:
+    """Allocations, marks, attendance or a round decision: such a team is never deleted or merged automatically."""
+    return team.assignments.exists() or team.attendance.exists() or team.outcomes.exists()
+
+
+def _drop_empty_team_named_after(team, person) -> bool:
+    """Delete a team that was made for this person alone (named after them) once it is empty and unused."""
+    if not named_after(team, person) or team.members.exists() or _team_is_used(team):
         return False
     team.delete()
     return True
 
 
 @transaction.atomic
-def import_students(event, upload, by=None, columns=None, only_rows=None, blank_team=BLANK_TEAM_SOLO) -> ImportReport:
-    """Students, their teams, rooms and mentors.
+def import_students(event, upload, by=None, columns=None, only_rows=None) -> ImportReport:
+    """Students, their teams, rooms and mentors. The KL ID is the key: an ID already here updates that student.
 
-    A row without a team name keeps the student's current team. A student with no team yet gets a team of one
-    (blank_team "solo") or stays without a team ("none"). columns and only_rows come from the import's
-    matching screen (see import_staff).
+    Only Name and KL ID are required. When the sheet has a team column, a blank team name means "not in a team":
+    a student in a team is taken out of it, and no team is ever made up for them. Without a team column, teams
+    are left as they are. columns and only_rows come from the import's matching screen (see import_staff).
     """
     report = ImportReport()
     headers, rows = read_rows(upload)
@@ -477,16 +525,31 @@ def import_students(event, upload, by=None, columns=None, only_rows=None, blank_
         also[q.key] = f"q:{q.key}"
         also[q.label] = f"q:{q.key}"
     columns = columns if columns is not None else match_columns(headers, STUDENT_COLUMNS, also)
-    if not ({"email", "student_id"} & set(columns.values())):
-        report.problems.append("The first row needs an Email or KL ID column, so each student can be matched or created.")
+    used = set(columns.values())
+    if not {"name", "student_id"} <= used:
+        report.problems.append("The first row needs a Name and a KL ID column: each student is matched by their KL ID.")
         return report
+    team_column = "team" in used
+    seen = {}
     for line, row in enumerate(rows, start=2):
         if only_rows is not None and line not in only_rows:
             continue
         data, extra = _row_data(headers, row, columns)
+        data["student_id"] = clean_student_id(data.get("student_id"))
+        if not data["student_id"]:
+            report.problems.append(f"Row {line}: no KL ID.")
+            continue
+        if not " ".join((data.get("name") or "").split()):
+            report.problems.append(f"Row {line}: no name.")
+            continue
+        key = data["student_id"].lower()
+        if key in seen:
+            report.problems.append(f"Row {line}: KL ID {data['student_id']} is also in row {seen[key]}.")
+            continue
+        seen[key] = line
         answers = {name[2:]: value for name, value in data.items() if name.startswith("q:") and value}
         with transaction.atomic():
-            person, _, problem = _upsert_person(data)
+            person, _, problem = _upsert_person(data, id_first=True)
             if problem:
                 report.problems.append(f"Row {line}: {problem}.")
                 continue
@@ -507,24 +570,29 @@ def import_students(event, upload, by=None, columns=None, only_rows=None, blank_
                     continue
                 report.created += 1
                 report.added.append(registration.pk)
-            team_name = " ".join((data.get("team") or "").split())
+            team_name = clean_team_name(data.get("team"))
             membership = TeamMember.objects.filter(registration=registration).select_related("team").first()
             if team_name:
-                team = Team.objects.filter(event=event, name__iexact=team_name).first() or Team.objects.create(event=event, name=team_name)
+                team = find_team(event, team_name) or Team.objects.create(event=event, name=team_name)
+            elif team_column:
+                if membership:
+                    old_team = membership.team
+                    membership.delete()
+                    report.warnings.append(f"Row {line}: {person.display_name} has no team name, so they were taken out of "
+                                           f"{old_team.name} and are listed under Not in a team.")
+                    if _drop_empty_team_named_after(old_team, person):
+                        report.warnings.append(f"Row {line}: removed the empty team \"{old_team.name}\" that was made for {person.display_name} alone.")
+                continue
             elif membership:
                 team = membership.team
-            elif blank_team == BLANK_TEAM_SOLO:
-                solo = person.display_name
-                team = Team.objects.filter(event=event, name__iexact=solo).first() or Team.objects.create(event=event, name=solo)
             else:
-                report.warnings.append(f"Row {line}: {person.display_name} has no team name, so they're not in a team yet.")
-                continue
+                continue  # no team column and not in a team: stays under Not in a team
             if membership and membership.team_id != team.pk:
                 old_team = membership.team
                 report.warnings.append(f"Row {line}: {person.display_name} moved from {old_team.name} to {team.name}.")
                 membership.team = team
                 membership.save(update_fields=["team"])
-                if _drop_empty_solo_team(old_team, person):
+                if _drop_empty_team_named_after(old_team, person):
                     report.warnings.append(f"Row {line}: removed the empty team \"{old_team.name}\" that was made for {person.display_name} alone.")
             elif not membership:
                 membership = TeamMember.objects.create(team=team, registration=registration, extra=extra)
@@ -974,6 +1042,7 @@ def member_slots(data, max_size):
     slots = []
     for n in range(1, max_size + 1):
         values = {part: (data.get(f"m{n}_{part}") or "").strip() for part in MEMBER_PARTS}
+        values["student_id"] = clean_student_id(values["student_id"])
         if any(values.values()):
             slots.append((n, values))
     return slots
@@ -1000,7 +1069,7 @@ def import_teams(event, upload, by=None, columns=None, only_rows=None) -> Import
         if only_rows is not None and line not in only_rows:
             continue
         data, extra = _row_data(headers, row, columns)
-        name = " ".join((data.get("team") or "").split())
+        name = clean_team_name(data.get("team"))
         if not name:
             report.problems.append(f"Row {line}: no team name.")
             continue
@@ -1009,9 +1078,14 @@ def import_teams(event, upload, by=None, columns=None, only_rows=None) -> Import
         if problem:
             report.problems.append(problem)
             continue
+        try:
+            with transaction.atomic():
+                team = Team.objects.create(event=event, name=name, project_title=data.get("project_title") or "",
+                                           project_description=data.get("project_description") or "", extra=extra)
+        except IntegrityError:
+            report.problems.append(f"Row {line}: there is already a team called \"{name}\" in this hackathon.")
+            continue
         with transaction.atomic():
-            team = Team.objects.create(event=event, name=name, project_title=data.get("project_title") or "",
-                                       project_description=data.get("project_description") or "", extra=extra)
             if data.get("room"):
                 team.room = get_room(event, data["room"])
             if data.get("mentor"):
@@ -1049,10 +1123,11 @@ def import_teams(event, upload, by=None, columns=None, only_rows=None) -> Import
 def team_row_problem(event, line, name, slots, seen_teams, seen_people) -> str:
     """Why this team row can't be imported, or "". Tracks teams and people seen earlier in the file."""
     low, high = event.team_size_min or 1, event.team_size_max or 6
+    name = clean_team_name(name)
     if name.lower() in seen_teams:
         return f"Row {line}: the team name \"{name}\" is also in row {seen_teams[name.lower()]}."
     seen_teams[name.lower()] = line
-    if Team.objects.filter(event=event, name__iexact=name).exists():
+    if find_team(event, name):
         return f"Row {line}: there is already a team called \"{name}\" in this hackathon."
     if not low <= len(slots) <= high:
         return f"Row {line}: {name} has {len(slots)} member(s); teams here have {low} to {high}."
@@ -1089,10 +1164,214 @@ def register_team(event, leader, team_name, members):
         if new:
             registration, _ = register(event=event, person=person, created_by=leader)
         regs.append((registration, new, False))
-    team = Team.objects.create(event=event, name=team_name)
+    team_name = clean_team_name(team_name)
+    if not team_name:
+        raise RegistrationError("Give your team a name.")
+    if find_team(event, team_name):
+        raise RegistrationError(f"Another team already has the name \"{team_name}\". Choose another name.")
+    try:
+        with transaction.atomic():
+            team = Team.objects.create(event=event, name=team_name)
+    except IntegrityError:
+        raise RegistrationError(f"Another team already has the name \"{team_name}\". Choose another name.") from None
     for registration, _, is_leader in regs:
         TeamMember.objects.create(team=team, registration=registration, is_leader=is_leader)
     from registrations.notify import notify_added
 
     transaction.on_commit(lambda: [notify_added(r) for r, new, lead in regs if new and not lead])
     return team, lead_reg
+
+
+# --- Teams: "Not in a team", teams students form themselves, and tidying made-up teams --------------
+
+
+class TeamError(Exception):
+    """A team change that can't be made, with the reason to show."""
+
+
+def size_limits(event) -> tuple[int, int]:
+    return event.team_size_min or 1, event.team_size_max or 6
+
+
+def not_in_a_team(event):
+    """Confirmed registrations at this hackathon whose student is in no team."""
+    return (Registration.objects.filter(event=event, status=Registration.Status.CONFIRMED, team_membership__isnull=True)
+            .select_related("person").order_by("person__full_name"))
+
+
+def teams_locked_reason(event) -> str:
+    """Why students can't form or change their own teams right now, or "" when they can."""
+    if not event.students_form_teams:
+        return "The organisers have locked teams."
+    if Assignment.objects.filter(round__event=event).exists():
+        return "Teams are locked: faculty have been allocated to judge them."
+    return ""
+
+
+def _new_team(event, name) -> Team:
+    name = clean_team_name(name)
+    if not name:
+        raise TeamError("Give the team a name.")
+    if find_team(event, name):
+        raise TeamError(f"Another team already has the name \"{name}\". Choose another name.")
+    try:
+        with transaction.atomic():
+            return Team.objects.create(event=event, name=name)
+    except IntegrityError:
+        raise TeamError(f"Another team already has the name \"{name}\". Choose another name.") from None
+
+
+@transaction.atomic
+def add_to_team(event, registrations, team=None, new_name="") -> Team:
+    """Put students who are not in a team into an existing team or a new one, within the team size limits.
+
+    A new team's first student is its leader (change it on the team's page)."""
+    low, high = size_limits(event)
+    registrations = list(registrations)
+    if not registrations:
+        raise TeamError("Tick at least one student.")
+    taken = [r for r in registrations if TeamMember.objects.filter(registration=r).exists()]
+    if taken:
+        raise TeamError(f"{taken[0].person.display_name} is already in a team.")
+    if any(r.event_id != event.pk or not r.is_confirmed for r in registrations):
+        raise TeamError("Only students registered for this hackathon can be put in its teams.")
+    if team is not None and clean_team_name(new_name):
+        raise TeamError("Choose an existing team or type a new name, not both.")
+    if team is None:
+        if not clean_team_name(new_name):
+            raise TeamError("Choose a team, or type a name for a new one.")
+        if not low <= len(registrations) <= high:
+            raise TeamError(f"A new team needs {low} to {high} members; you chose {len(registrations)}.")
+        team = _new_team(event, new_name)
+        leader = True
+    else:
+        if team.event_id != event.pk:
+            raise TeamError("That team belongs to another event.")
+        size = team.members.count()
+        if size + len(registrations) > high:
+            raise TeamError(f"{team.name} has {size} member{'s' if size != 1 else ''}; teams here have at most {high}, "
+                            f"so {len(registrations)} more won't fit.")
+        leader = not team.members.filter(is_leader=True).exists()
+    for registration in registrations:
+        TeamMember.objects.create(team=team, registration=registration, is_leader=leader)
+        leader = False
+    return team
+
+
+def _registrations_by_ids(event, ids):
+    """[(KL ID as typed, registration or None)] for teammates named by KL ID at this hackathon."""
+    out = []
+    for raw in ids:
+        sid = clean_student_id(raw)
+        if not sid:
+            continue
+        reg = (Registration.objects.filter(event=event, status=Registration.Status.CONFIRMED, person__student_id__iexact=sid)
+               .select_related("person").first())
+        out.append((sid, reg))
+    return out
+
+
+def _teammates(event, leader_reg, ids, exclude=()):
+    regs, seen = [], {(leader_reg.person.student_id or "").lower()} - {""}
+    for sid, reg in _registrations_by_ids(event, ids):
+        if sid.lower() in seen:
+            raise TeamError(f"KL ID {sid} is listed twice (or is you).")
+        seen.add(sid.lower())
+        if reg is None:
+            raise TeamError(f"No student with KL ID {sid} is registered for this hackathon. They need to register first.")
+        if reg.pk == leader_reg.pk or reg.pk in exclude:
+            raise TeamError(f"KL ID {sid} is you.")
+        if TeamMember.objects.filter(registration=reg).exists():
+            raise TeamError(f"{reg.person.display_name} ({sid}) is already in a team.")
+        regs.append(reg)
+    return regs
+
+
+@transaction.atomic
+def create_student_team(event, leader_reg, name, teammate_ids) -> Team:
+    """A student not in a team creates one, with teammates by KL ID. They are its leader."""
+    reason = teams_locked_reason(event)
+    if reason:
+        raise TeamError(reason)
+    if TeamMember.objects.filter(registration=leader_reg).exists():
+        raise TeamError("You're already in a team.")
+    mates = _teammates(event, leader_reg, teammate_ids)
+    low, high = size_limits(event)
+    size = len(mates) + 1
+    if not low <= size <= high:
+        raise TeamError(f"Teams here have {low} to {high} members, including you. This team would have {size}.")
+    team = _new_team(event, name)
+    TeamMember.objects.create(team=team, registration=leader_reg, is_leader=True)
+    for reg in mates:
+        TeamMember.objects.create(team=team, registration=reg)
+    return team
+
+
+def _leader_team(event, leader_reg) -> Team:
+    reason = teams_locked_reason(event)
+    if reason:
+        raise TeamError(reason)
+    membership = TeamMember.objects.filter(registration=leader_reg, is_leader=True).select_related("team").first()
+    if membership is None:
+        raise TeamError("Only your team's leader can change its members.")
+    return membership.team
+
+
+@transaction.atomic
+def leader_add_teammate(event, leader_reg, teammate_id) -> Registration:
+    team = _leader_team(event, leader_reg)
+    _, high = size_limits(event)
+    if team.members.count() >= high:
+        raise TeamError(f"Your team already has {high} members, the most allowed here.")
+    reg = _teammates(event, leader_reg, [teammate_id])
+    if not reg:
+        raise TeamError("Type your teammate's KL ID.")
+    TeamMember.objects.create(team=team, registration=reg[0])
+    return reg[0]
+
+
+@transaction.atomic
+def leader_remove_teammate(event, leader_reg, member_pk) -> Registration:
+    team = _leader_team(event, leader_reg)
+    member = team.members.filter(pk=member_pk).select_related("registration__person").first()
+    if member is None:
+        raise TeamError("That student isn't in your team.")
+    if member.registration_id == leader_reg.pk:
+        raise TeamError("You're the leader, so you can't remove yourself. Ask the organisers to change the leader.")
+    low, _ = size_limits(event)
+    if team.members.count() - 1 < low:
+        raise TeamError(f"Teams here need at least {low} members. Add someone before removing a teammate.")
+    member.delete()
+    return member.registration
+
+
+def one_person_teams_named_after_member(event):
+    """([teams to move], [(team, why it is kept)]): one-person teams whose name is their member's name.
+
+    Such teams were made up by older imports. Moving them puts the student under "Not in a team" and deletes the
+    team; a team with allocations, marks, attendance or a round decision is kept and listed instead."""
+    move, kept = [], []
+    teams = Team.objects.filter(event=event).annotate(size=Count("members")).filter(size=1)
+    for team in teams.prefetch_related("members__registration__person"):
+        person = team.members.all()[0].registration.person
+        if not named_after(team, person):
+            continue
+        reasons = [label for label, used in (("allocations", team.assignments.exists()),
+                                             ("marks", Score.objects.filter(assignment__team=team).exists()),
+                                             ("attendance", team.attendance.exists()),
+                                             ("a round decision", team.outcomes.exists())) if used]
+        if reasons:
+            kept.append((team, "has " + ", ".join(reasons)))
+        else:
+            move.append(team)
+    return move, kept
+
+
+@transaction.atomic
+def move_one_person_teams(event) -> tuple[int, list]:
+    """Do it: (how many students now under "Not in a team", [(team, why kept)])."""
+    move, kept = one_person_teams_named_after_member(event)
+    for team in move:
+        team.members.all().delete()
+        team.delete()
+    return len(move), kept

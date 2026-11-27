@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}One-person teams · {{ event.title }}{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'hackathon_manage_teams' event.slug %}">{% include "ui/icon.html" with name="arrow-left" %}Teams</a>
+<header class="tool-head"><div><span class="eyebrow">{{ event.title }}</span>
+  <h1 class="heading-3">Move one-person teams named after their member to Not in a team</h1>
+  <p>Older imports made a team named after each student whose team name was blank. This takes each of those students out of their made-up team and deletes the team, so they're listed under Not in a team. Nothing is changed until you confirm.</p></div></header>
+
+<section class="panel mb-4">
+  <h2 class="panel-title">{% if move %}{{ move|length }} team{{ move|length|pluralize }} to move{% else %}Nothing to move{% endif %}</h2>
+  {% if move %}<ul class="mb-0" data-testid="to-move">{% for t in move %}<li>{{ t.name }}</li>{% endfor %}</ul>{% else %}<p class="mb-0 text-secondary">No one-person team is named after its member.</p>{% endif %}
+</section>
+{% if kept %}
+<section class="panel mb-4">
+  <h2 class="panel-title">{% include "ui/icon.html" with name="warning" %}{{ kept|length }} kept</h2>
+  <p class="caption-2 text-secondary">These have allocations, marks or attendance, so they stay as they are. Change them by hand if needed.</p>
+  <ul class="mb-0" data-testid="kept">{% for t, why in kept %}<li>{{ t.name }}: {{ why }}</li>{% endfor %}</ul>
+</section>
+{% endif %}
+{% if move %}
+<form method="post" class="panel">{% csrf_token %}
+  <label class="d-flex gap-2 align-items-center mb-3"><input type="checkbox" class="form-check-input" name="confirm" value="1"> Move these {{ move|length }} student{{ move|length|pluralize }} to Not in a team and delete their made-up teams</label>
+  <button class="btn btn-primary" type="submit">Move them</button>
+  <a class="btn btn-quiet" href="{% url 'hackathon_manage_teams' event.slug %}">Cancel</a>
+</form>
+{% endif %}
+{% endblock %}

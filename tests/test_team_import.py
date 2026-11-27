@@ -88,32 +88,33 @@ def test_every_kind_of_problem_is_listed_before_saving(client, hack, admin_user,
     client.force_login(admin_user)
     url = upload(client, hack, "students", xlsx([
         ["Name", "Email", "KL ID", "Email again"],
-        ["Good", "good@example.com", "", ""],
-        ["", "blank@example.com", "", ""],
-        ["Bad", "nope", "", ""],
-        ["Dupe", "good@example.com", "", ""],
-        ["Clash", "one@example.com", "222", ""],
+        ["Good", "good@example.com", "2300000201", ""],
+        ["", "blank@example.com", "2300000202", ""],
+        ["Bad", "nope", "2300000203", ""],
+        ["Dupe", "good@example.com", "2300000204", ""],
+        ["Clash", "one@example.com", "333", ""],
     ]))
     twice = choose(client, url, {0: "name", 1: "email", 2: "student_id", 3: "email"}).content.decode()
-    assert "Columns B and D are both used as &quot;Email (optional with a KL ID)&quot;" in twice
+    assert "Columns B and D are both used as &quot;Email (optional)&quot;" in twice
     missing = choose(client, url, {0: "", 1: "email", 2: "", 3: ""}).content.decode()
     assert "&quot;Name&quot; is required, but no column is matched to it." in missing
+    assert "&quot;KL ID&quot; is required, but no column is matched to it." in missing
     check = choose(client, url, {0: "name", 1: "email", 2: "student_id", 3: ""}).content.decode()
     assert "Row 3, column A (Name): required, but empty." in check
     assert "Row 4, column B (Email): &quot;nope&quot; is not a valid email." in check
     assert "Row 5, column B (Email): &quot;good@example.com&quot; is also in row 2." in check
-    assert "Row 6: the email and IDs belong to different people" in check
+    assert "Row 6: the email one@example.com belongs to" in check
     assert not Registration.objects.filter(event=hack).exists()  # nothing saved by checking
 
 
 def test_sheet_and_header_row_can_be_chosen_and_rows_are_numbered_as_in_excel(client, hack, admin_user):
     client.force_login(admin_user)
-    file = xlsx([["ignore me"]], sheets={"Real": [["Hackathon list"], [], ["Name", "Email"], ["Asha", "asha@example.com"], ["", "nobody@example.com"]]})
+    file = xlsx([["ignore me"]], sheets={"Real": [["Hackathon list"], [], ["Name", "KL ID"], ["Asha", "2300000301"], ["", "2300000302"]]})
     url = upload(client, hack, "students", file)
     client.post(url, {"action": "sheet", "sheet": "Real", "header_row": "3"})
     item = ImportUpload.objects.get()
     assert (item.sheet_name, item.header_row) == ("Real", 3)
-    check = choose(client, url, {0: "name", 1: "email"}).content.decode()
+    check = choose(client, url, {0: "name", 1: "student_id"}).content.decode()
     assert "Row 5, column A (Name): required, but empty." in check  # the row number in the person's Excel
 
 
@@ -260,37 +261,11 @@ def test_team_names_in_merged_cells_go_to_every_member(client, hack, admin_user)
     assert Team.objects.get(event=hack, name="Beta").members.count() == 2
 
 
-SHEET = [["Team", "Name", "KL ID"], ["Rocket", "R1", "2300000011"], ["", "R2", "2300000012"], ["Comet", "C1", "2300000013"], ["", "C2", "2300000014"]]
-
-
-@pytest.mark.parametrize("choice, teams", [
-    ("none", {"Rocket": ["R1"], "Comet": ["C1"]}),
-    ("above", {"Rocket": ["R1", "R2"], "Comet": ["C1", "C2"]}),
-    ("solo", {"Rocket": ["R1"], "Comet": ["C1"], "R2": ["R2"], "C2": ["C2"]}),
-])
-def test_rows_without_a_team_name_are_shown_and_handled_as_chosen(client, hack, admin_user, choice, teams):
-    client.force_login(admin_user)
-    url = upload(client, hack, "students", xlsx(SHEET))
-    columns = {0: "team", 1: "name", 2: "student_id"}
-    checked = choose(client, url, columns).content.decode()
-    assert "2 rows have no team name" in checked and "Row 3 (R2)" in checked and "Row 5 (C2)" in checked
-    assert 'value="none" checked' in checked  # never a made-up team unless asked
-    client.post(url, {"action": "import", "blank_teams": choice, **{f"col_{i}": v for i, v in columns.items()}})
-    got = {t.name: sorted(m.registration.person.full_name for m in t.members.all()) for t in Team.objects.filter(event=hack)}
-    assert got == teams
-    assert Registration.objects.filter(event=hack).count() == 4  # everyone is registered either way
-    if choice == "none":
-        item = ImportUpload.objects.get(event=hack)
-        assert any("no team name" in w for w in item.result["warnings"])
-        page = client.get(reverse("hackathon_manage_students", args=[hack.slug]) + "?no_team=1").content.decode()
-        assert "R2" in page and "C2" in page
-
-
 def test_reimport_with_team_names_clears_the_teams_of_one_made_before(client, hack, admin_user):
     from hackathon import services
 
-    services.import_students(hack, xlsx([["Name", "KL ID", "Team"], ["Solo Sam", "2300000021", ""], ["Lead", "2300000022", "Nova"]]))
-    assert Team.objects.filter(event=hack, name="Solo Sam").exists()  # the old behaviour, kept for direct calls
+    services.import_students(hack, xlsx([["Name", "KL ID", "Team"], ["Solo Sam", "2300000021", "Solo Sam"], ["Lead", "2300000022", "Nova"]]))
+    assert Team.objects.filter(event=hack, name="Solo Sam").exists()  # a team named after its only member, as older imports made
     report = services.import_students(hack, xlsx([["Name", "KL ID", "Team"], ["Solo Sam", "2300000021", "Nova"]]))
     assert not Team.objects.filter(event=hack, name="Solo Sam").exists()
     assert Team.objects.get(event=hack, name="Nova").members.count() == 2

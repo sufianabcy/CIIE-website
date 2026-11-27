@@ -89,6 +89,11 @@ class Event(models.Model):
     show_jury_to_students = models.BooleanField(
         default=False, help_text="Hackathons: let each team see which faculty are judging them."
     )
+    students_form_teams = models.BooleanField(
+        "students can form their own teams", default=True,
+        help_text="Hackathons: a student not in a team can create one on their hackathon page and add teammates by KL ID. "
+        "Teams lock by themselves once faculty are allocated; turn this off to lock them earlier.",
+    )
     coordinators = models.ManyToManyField(
         settings.AUTH_USER_MODEL, blank=True, related_name="coordinated_events"
     )

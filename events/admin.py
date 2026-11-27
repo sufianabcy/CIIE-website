@@ -61,7 +61,7 @@ class EventAdmin(admin.ModelAdmin):
             "Hackathon",
             {
                 "classes": ["only-hackathon"],
-                "fields": [("team_size_min", "team_size_max"), "show_jury_to_students"],
+                "fields": [("team_size_min", "team_size_max"), "students_form_teams", "show_jury_to_students"],
                 "description": "Only for hackathons. Students, teams, rooms, faculty, rounds and marks are on the event's Hackathon page.",
             },
         ),

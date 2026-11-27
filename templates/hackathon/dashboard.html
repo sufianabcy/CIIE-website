@@ -25,6 +25,7 @@
 <div class="stat-grid mb-4">
   <div class="stat-card"><div class="stat-value">{{ students }}</div><div class="stat-label">students</div></div>
   <div class="stat-card"><div class="stat-value">{{ teams|length }}</div><div class="stat-label">teams in {{ rooms|length }} room{{ rooms|length|pluralize }}</div></div>
+  <a class="stat-card{% if without_team %} stat-red{% endif %}" href="{% url 'hackathon_manage_teams' event.slug %}#not-in-a-team" data-testid="not-in-team-count"><div class="stat-value">{{ without_team }}</div><div class="stat-label">not in a team</div></a>
   <div class="stat-card"><div class="stat-value">{{ faculty|length }}</div><div class="stat-label">faculty</div></div>
   <div class="stat-card stat-blue"><div class="stat-value">{{ submitted }} / {{ allocated }}</div><div class="stat-label">marks submitted</div></div>
 </div>
@@ -39,8 +40,7 @@
   <ul class="mb-0">
     {% for w in warnings %}<li class="text-danger">{{ w }}</li>{% endfor %}
     {% if teams_without_room %}<li>{{ teams_without_room }} team{{ teams_without_room|pluralize }} without a room. Room allocation only reaches teams in a room.</li>{% endif %}
-    {% if without_team %}<li>{{ without_team }} registered student{{ without_team|pluralize }} without a team.
-      {% if can.can_edit_teams %}<form method="post" action="{% url 'hackathon_solo_teams' event.slug %}" class="d-inline">{% csrf_token %}<button class="btn btn-link btn-sm p-0 align-baseline" type="submit">Make each a team of one</button></form>{% endif %}</li>{% endif %}
+    {% if without_team %}<li>{{ without_team }} student{{ without_team|pluralize }} not in a team yet. <a href="{% url 'hackathon_manage_teams' event.slug %}#not-in-a-team">Put them in teams</a>.</li>{% endif %}
   </ul>
 </section>
 {% endif %}
@@ -52,7 +52,7 @@
     {{ upload_form.file }}
     <button class="btn btn-primary" type="submit">{% include "ui/icon.html" with name="plus" %}Upload students Excel</button>
   </form>
-  <p class="caption-2 text-secondary">Columns are matched by name: <strong>Name</strong>, <strong>Email</strong>, Phone, <strong>KL ID</strong>, Branch, Year, Team name, Project title, Project description, Room, Mentor, plus any registration question by its label. A row with no team becomes a team of one. Uploading again updates people and teams. <a href="{% url 'hackathon_template' event.slug 'students' %}">Sample file</a>. Online registration also works while the event is open.</p>
+  <p class="caption-2 text-secondary">Columns are matched by name: <strong>Name</strong>, Email, Phone, <strong>KL ID</strong>, Branch, Year, Team name, Project title, Project description, Room, Mentor, plus any registration question by its label. <strong>Name</strong> and <strong>KL ID</strong> are required; the KL ID is the key, so uploading again updates those students. A blank team name means not in a team. <a href="{% url 'hackathon_template' event.slug 'students' %}">Sample file</a>. Online registration also works while the event is open.</p>
   {% endif %}
   {% if teams %}
   <div class="table-responsive"><table class="table table-sm align-middle mb-0">

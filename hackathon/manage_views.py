@@ -132,14 +132,14 @@ def students(request, slug):
     return _list(request, event, "students", "Students",
                  ["Name", "Email", "KL ID", "Team", "Room"] + [d.label for d in defs] + (["Login details"] if can_send else []), rows,
                  add_url=_url(event, "student_add") if can_edit else None, add_label="Add a student", import_kind="students",
-                 filters=[("All students", "?", not no_team), ("No team yet", "?no_team=1", no_team)],
+                 filters=[("All students", "?", not no_team), ("Not in a team", "?no_team=1", no_team)],
                  intro="Each student's team is shown here; change it on the student's page.",
                  extra_url=reverse("hackathon_login_details", args=[event.slug, "students"]) if can_send else None,
                  extra_label="Email login details")
 
 
 class TeamChoiceForm(forms.Form):
-    team = forms.ModelChoiceField(queryset=Team.objects.none(), required=False, empty_label="No team (a team of one is made)")
+    team = forms.ModelChoiceField(queryset=Team.objects.none(), required=False, empty_label="Not in a team")
 
     def __init__(self, *args, event, **kwargs):
         super().__init__(*args, **kwargs)
@@ -147,12 +147,12 @@ class TeamChoiceForm(forms.Form):
 
 
 def _set_team(event, registration, team):
+    """Put the student in this team, or (team None) take them out of any team. A team is never made up for them."""
     membership = TeamMember.objects.filter(registration=registration).first()
     if team is None:
         if membership:
-            return
-        name = registration.person.display_name
-        team = Team.objects.filter(event=event, name__iexact=name).first() or Team.objects.create(event=event, name=name)
+            membership.delete()
+        return
     if membership and membership.team_id != team.pk:
         membership.team = team
         membership.save(update_fields=["team"])
@@ -176,7 +176,7 @@ def student_edit(request, slug, pk=None):
             with transaction.atomic():
                 if person is None:
                     email = details.cleaned_data.get("f_email")
-                    kl_id = (details.cleaned_data.get("f_student_id") or "").strip()
+                    kl_id = services.clean_student_id(details.cleaned_data.get("f_student_id"))
                     by_id = Person.objects.filter(student_id__iexact=kl_id).first() if kl_id else None
                     by_email = Person.objects.filter(Q(email__iexact=email) | Q(kl_email__iexact=email)).first() if email else None
                     if by_id and by_email and by_id != by_email:
@@ -257,14 +257,87 @@ class TeamForm(forms.ModelForm):
 def teams(request, slug):
     event = overseen_event(request, slug)
     can_edit = allowed(request.user, event, "can_edit_teams")
+    low, high = services.size_limits(event)
     rows = []
-    for t in Team.objects.filter(event=event).select_related("room", "mentor").prefetch_related("members__registration__person"):
+    team_list = list(Team.objects.filter(event=event).select_related("room", "mentor").prefetch_related("members__registration__person"))
+    for t in team_list:
         members = ", ".join(("★ " if m.is_leader else "") + m.registration.person.display_name for m in t.members.all())
-        rows.append(([t.name, members or "no members yet", t.project_title or "—", t.room.name if t.room else "—", t.mentor_display or "—"],
-                     _url(event, "team_edit", t.pk) if can_edit else None))
-    return _list(request, event, "teams", "Teams", ["Team", "Members (★ leader)", "Problem statement", "Room", "Mentor"], rows,
-                 add_url=_url(event, "team_add") if can_edit else None, add_label="Add a team", import_kind="teams",
-                 intro="Each team is made of registered students. Add or remove members on the team's page, or import a sheet with one row per team.")
+        rows.append({"team": t, "members": members or "no members yet", "size": len(t.members.all()),
+                     "edit": _url(event, "team_edit", t.pk) if can_edit else None})
+    return render(request, "hackathon/teams.html", _ctx(
+        request, event, "teams", title="Teams", rows=rows, can_edit=can_edit, low=low, high=high,
+        free=list(services.not_in_a_team(event)), teams_for_choice=[(r["team"], r["size"]) for r in rows],
+        locked_reason=services.teams_locked_reason(event),
+        add_url=_url(event, "team_add") if can_edit else None,
+        import_url=(reverse("hackathon_import_start", args=[event.slug]) + "?kind=teams") if allowed(request.user, event, "can_import") else None,
+    ))
+
+
+@never_cache
+@login_required
+def add_to_team(request, slug):
+    """Students who are not in a team: into an existing team or a new one (ticked on the Teams tab, or one at a time)."""
+    event = overseen_event(request, slug)
+    require(request.user, event, "can_edit_teams")
+    source = request.POST if request.method == "POST" else request.GET
+    chosen = {int(x) for x in source.getlist("r") if str(x).isdigit()}
+    regs = [r for r in services.not_in_a_team(event) if r.pk in chosen]
+    back = request.POST.get("back") or ""
+    if request.method == "POST":
+        team = Team.objects.filter(event=event, pk=request.POST.get("team")).first() if request.POST.get("team") else None
+        try:
+            team = services.add_to_team(event, regs, team=team, new_name=request.POST.get("new_name", ""))
+        except services.TeamError as exc:
+            messages.error(request, str(exc))
+            if back == "one" and regs:
+                return redirect(reverse("hackathon_add_to_team", args=[slug]) + "?" + "&".join(f"r={r.pk}" for r in regs))
+            return redirect(reverse("hackathon_manage_teams", args=[slug]) + "#not-in-a-team")
+        names = ", ".join(r.person.display_name for r in regs)
+        messages.success(request, f"Added {names} to {team.name}.")
+        return redirect(reverse("hackathon_manage_teams", args=[slug]) + "#not-in-a-team")
+    if not regs:
+        messages.info(request, "Those students are already in teams.")
+        return redirect("hackathon_manage_teams", slug)
+    low, high = services.size_limits(event)
+    teams_ = Team.objects.filter(event=event).annotate(size=Count("members"))
+    return render(request, "hackathon/add_to_team.html", _ctx(
+        request, event, "teams", regs=regs, teams_for_choice=[(t, t.size) for t in teams_], low=low, high=high,
+    ))
+
+
+@login_required
+@require_POST
+def teams_lock(request, slug):
+    """Admins: whether students can form their own teams. Off locks teams for students; it also locks by itself
+    once faculty are allocated."""
+    event = overseen_event(request, slug)
+    if not is_admin(request.user):
+        raise PermissionDenied
+    event.students_form_teams = request.POST.get("open") == "1"
+    event.save(update_fields=["students_form_teams"])
+    messages.success(request, "Students can form their own teams again." if event.students_form_teams
+                     else "Teams are locked: students can no longer create teams or change their members.")
+    return redirect("hackathon_manage_teams", slug)
+
+
+@never_cache
+@login_required
+def one_person_teams(request, slug):
+    """Admins: move one-person teams named after their member (made up by older imports) to Not in a team.
+    Shows what would happen first; teams with allocations, marks or attendance are kept and listed."""
+    event = overseen_event(request, slug)
+    if not is_admin(request.user):
+        raise PermissionDenied
+    if request.method == "POST":
+        if not request.POST.get("confirm"):
+            messages.error(request, "Tick the box to confirm.")
+            return redirect("hackathon_one_person_teams", slug)
+        moved, kept = services.move_one_person_teams(event)
+        messages.success(request, f"{moved} student{'s' if moved != 1 else ''} moved to Not in a team; their made-up teams were deleted."
+                         + (f" {len(kept)} team{'s' if len(kept) != 1 else ''} kept (allocations, marks or attendance)." if kept else ""))
+        return redirect(reverse("hackathon_manage_teams", args=[slug]) + "#not-in-a-team")
+    move, kept = services.one_person_teams_named_after_member(event)
+    return render(request, "hackathon/one_person_teams.html", _ctx(request, event, "teams", move=move, kept=kept))
 
 
 @never_cache

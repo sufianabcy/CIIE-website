@@ -244,19 +244,20 @@ def import_step(request, slug, pk):
                 constants[key] = value
         item.constants = constants
         item.save(update_fields=["constants"])
-    blank_choices = {key for key, _, _ in imports.BLANK_TEAM_CHOICES}
-    if request.method == "POST" and request.POST.get("blank_teams") in blank_choices and item.kind == "students":
-        item.blank_teams = request.POST["blank_teams"]
-        item.save(update_fields=["blank_teams"])
     c_headers, c_rows, c_mapping = imports.with_constants(headers, rows, mapping, item.constants)
-    blank_rows = imports.blank_team_rows(c_headers, c_rows, c_mapping, numbers) if item.kind == "students" else []
-    c_rows = imports.fill_blank_teams(c_rows, c_mapping, item.blank_teams)
+    no_team = imports.no_team_rows(c_headers, c_rows, c_mapping, numbers) if item.kind == "students" else []
+    leaving = 0  # of those, how many are in a team now (they'll be taken out of it)
+    ids = [sid.lower() for _, _, sid in no_team if sid]
+    if ids:
+        from django.db.models.functions import Lower
+
+        leaving = (TeamMember.objects.filter(team__event=event).annotate(sid=Lower("registration__person__student_id"))
+                   .filter(sid__in=ids).count())
     errors, warnings = imports.sheet_checks(c_headers, c_rows, c_mapping, targets_, item.kind)
     errors = twice + errors
     problems, step, new_people = None, 2, 0
     if action in ("check", "import") and not errors:
-        found, new_people = imports.row_checks(event, item.kind, c_headers, c_rows, c_mapping, targets_, want_new=True,
-                                               blank_teams=item.blank_teams)
+        found, new_people = imports.row_checks(event, item.kind, c_headers, c_rows, c_mapping, targets_, want_new=True)
         problems = {numbers[line - 2]: imports.real_rows(msgs, numbers) for line, msgs in found.items() if 0 <= line - 2 < len(numbers)}
         step = 3
         if action == "import":
@@ -289,7 +290,7 @@ def import_step(request, slug, pk):
         "errors": errors, "warnings": warnings, "problems": sorted((problems or {}).items()),
         "valid_count": len(rows) - len(problems or {}), "row_count": len(rows), "can_fields": can_fields, "new_people": new_people,
         "can_define_fields": allowed(request.user, event, "can_manage_fields"),
-        "blank_rows": blank_rows, "blank_choices": imports.BLANK_TEAM_CHOICES,
+        "no_team": no_team, "leaving": leaving,
     })
 
 
@@ -377,24 +378,6 @@ def move_team(request, slug, pk):
             return redirect("hackathon_dashboard", slug)
         services.set_team_room(team, room)
         messages.success(request, f"{team.name} is now in {room.name if room else 'no room'}.")
-    return redirect("hackathon_dashboard", slug)
-
-
-@login_required
-@require_POST
-def solo_teams(request, slug):
-    """Registrations with no team (online sign-ups) become teams of one."""
-    event = overseen_event(request, slug)
-    require(request.user, event, "can_edit_teams")
-    made = 0
-    for registration in Registration.objects.filter(
-        event=event, status=Registration.Status.CONFIRMED, team_membership__isnull=True
-    ).select_related("person"):
-        name = registration.person.display_name
-        team = Team.objects.filter(event=event, name__iexact=name).first() or Team.objects.create(event=event, name=name)
-        TeamMember.objects.create(team=team, registration=registration)
-        made += 1
-    messages.success(request, f"{made} student(s) put in teams of one.")
     return redirect("hackathon_dashboard", slug)
 
 
@@ -596,11 +579,49 @@ def my_hackathon(request, slug):
 
     values = custom_values(event, request.user)
     extra_details = [(d.label, display(d, values.get(d.key))) for d in ensure_fields(event, "student") if not d.builtin and values.get(d.key) not in (None, "")]
+    low, high = services.size_limits(event)
+    team_members = list(team.members.select_related("registration__person").order_by("registration__person__full_name")) if team else []
     return render(
         request, "hackathon/my_hackathon.html",
         {"event": event, "registration": registration, "person": request.user, "team": team, "members": members, "rounds": rounds,
-         "extra_details": extra_details, "show_mentor": SHOW_MENTOR_TO_STUDENTS},
+         "extra_details": extra_details, "show_mentor": SHOW_MENTOR_TO_STUDENTS,
+         "locked_reason": services.teams_locked_reason(event), "is_leader": bool(membership and membership.is_leader),
+         "team_members": team_members, "low": low, "high": high, "mate_slots": range(1, high),
+         "form_name": request.session.pop("team_form_name", ""), "form_ids": request.session.pop("team_form_ids", [])},
     )
+
+
+@login_required
+@require_POST
+def my_team(request, slug):
+    """A student's own team: create it (they lead it), or, as its leader, add or remove teammates by KL ID."""
+    registration = get_object_or_404(
+        Registration.objects.select_related("event", "person"),
+        event__slug=slug, event__kind="hackathon", person=request.user, status=Registration.Status.CONFIRMED,
+    )
+    event = registration.event
+    action = request.POST.get("action")
+    try:
+        if action == "create":
+            ids = [request.POST.get(f"mate_{n}", "") for n in range(1, (event.team_size_max or 6))]
+            try:
+                team = services.create_student_team(event, registration, request.POST.get("name", ""), ids)
+            except services.TeamError:
+                request.session["team_form_name"] = request.POST.get("name", "")[:150]
+                request.session["team_form_ids"] = [i[:20] for i in ids]
+                raise
+            messages.success(request, f"Team {team.name} created. You're its leader.")
+        elif action == "add":
+            added = services.leader_add_teammate(event, registration, request.POST.get("student_id", ""))
+            messages.success(request, f"{added.person.display_name} added to your team.")
+        elif action == "remove":
+            removed = services.leader_remove_teammate(event, registration, request.POST.get("member"))
+            messages.success(request, f"{removed.person.display_name} removed from your team.")
+        else:
+            raise Http404
+    except services.TeamError as exc:
+        messages.error(request, str(exc))
+    return redirect("my_hackathon", slug)
 
 
 # --- Faculty self-registration ------------------------------------------------------

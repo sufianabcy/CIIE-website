@@ -22,10 +22,33 @@
           {% if team.project_description %}<div><dt>Description</dt><dd style="white-space:pre-wrap">{{ team.project_description }}</dd></div>{% endif %}
           <div><dt>Room</dt><dd>{% if team.room %}{{ team.room.name }}{% else %}Not allocated yet{% endif %}</dd></div>
           {% if show_mentor and team.mentor_display %}<div><dt>Mentor</dt><dd>{{ team.mentor_display }}</dd></div>{% endif %}
-          <div><dt>Members</dt><dd>{% for p in members %}{{ p.display_name }}{% if p.pk == person.pk %} (you){% endif %}{% if not forloop.last %}<br>{% endif %}{% endfor %}</dd></div>
+          <div><dt>Members</dt><dd>{% for m in team_members %}{% if m.is_leader %}★ {% endif %}{{ m.registration.person.display_name }}{% if m.registration.person.pk == person.pk %} (you){% endif %}{% if is_leader and not locked_reason and m.registration.person.pk != person.pk %}
+            <form method="post" action="{% url 'my_team' event.slug %}" class="d-inline" onsubmit="return confirm('Remove {{ m.registration.person.display_name|escapejs }} from your team?');">{% csrf_token %}<input type="hidden" name="action" value="remove"><input type="hidden" name="member" value="{{ m.pk }}"><button class="btn btn-link btn-sm p-0 ms-2 align-baseline" type="submit">Remove</button></form>{% endif %}{% if not forloop.last %}<br>{% endif %}{% endfor %}</dd></div>
         </dl>
+        {% if is_leader and not locked_reason %}
+          {% if team_members|length < high %}
+          <form method="post" action="{% url 'my_team' event.slug %}" class="d-flex flex-wrap align-items-end gap-2 mt-3" data-testid="add-teammate">{% csrf_token %}<input type="hidden" name="action" value="add">
+            <div><label class="form-label" for="add-mate">Add a teammate (KL ID)</label><input id="add-mate" name="student_id" class="form-control" inputmode="numeric" maxlength="20"></div>
+            <button class="btn btn-quiet" type="submit">{% include "ui/icon.html" with name="plus" %}Add</button>
+          </form>
+          {% endif %}
+          <p class="caption-2 text-secondary mt-2 mb-0">You're the leader. Teams have {{ low }} to {{ high }} members; you can change yours until teams are locked.</p>
+        {% elif locked_reason and is_leader %}
+          <p class="caption-2 text-secondary mt-2 mb-0">{{ locked_reason }}</p>
+        {% endif %}
+        {% elif locked_reason %}
+        <p class="text-secondary mb-0" data-testid="no-team-locked">You're not in a team. {{ locked_reason }} Ask the organisers to put you in one.</p>
         {% else %}
-        <p class="text-secondary mb-0">The organisers haven't put you in a team yet. Your team and room show up here once they do.</p>
+        <p class="text-secondary">You're not in a team yet. Create one and add your teammates by their KL ID, or wait for the organisers to put you in one.</p>
+        <form method="post" action="{% url 'my_team' event.slug %}" data-testid="create-team">{% csrf_token %}<input type="hidden" name="action" value="create">
+          <h3 class="heading-6 mb-2">Create your team</h3>
+          <div class="mb-3"><label class="form-label" for="team-name">Team name</label><input id="team-name" name="name" class="form-control" maxlength="150" required value="{{ form_name }}"></div>
+          {% for n in mate_slots %}
+          <div class="mb-2"><label class="form-label" for="mate-{{ n }}">Teammate {{ n }} KL ID{% if n >= low %} (optional){% endif %}</label><input id="mate-{{ n }}" name="mate_{{ n }}" class="form-control" inputmode="numeric" maxlength="20" value="{% for v in form_ids %}{% if forloop.counter == n %}{{ v }}{% endif %}{% endfor %}"></div>
+          {% endfor %}
+          <p class="caption-2 text-secondary">Teams have {{ low }} to {{ high }} members including you. Teammates must be registered for this hackathon and not in a team. You'll be the leader and can change members until teams are locked.</p>
+          <button class="btn btn-primary" type="submit">{% include "ui/icon.html" with name="users" %}Create team</button>
+        </form>
         {% endif %}
       </section>
     </div>

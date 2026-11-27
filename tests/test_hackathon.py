@@ -112,7 +112,7 @@ def test_student_import_matches_columns_and_makes_teams_rooms_and_mentors(hack, 
     report = services.import_students(hack, xlsx([
         ["S.No", "Student Name", "Email ID", "Mobile", "KL ID", "Dept", "Year", "Team Name", "Project Title", "Problem Statement", "Room No", "Mentor", "Track", "T-shirt"],
         [1, "Asha", "asha@kluniversity.in", 9000000001, 2300011111, "CSE", 3, "Rocket", "Smart bins", "Waste sorting", "Lab 1", "KLF9", "Open", "M"],
-        [2, "Ravi", "ravi@example.com", "", "", "ECE", 2, "rocket", "", "", "", "", "", ""],
+        [2, "Ravi", "ravi@example.com", "", "2300022222.0", "ECE", 2, "rocket", "", "", "", "", "", ""],
         [3, "Solo", "", "", 2300033333, "CSE", 4, "", "", "", "Lab 2", "Prof. Outside", "", ""],
         [4, "Nobody", "", "", "", "", "", "Rocket", "", "", "", "", "", ""],
     ]), by=admin_user)
@@ -128,21 +128,28 @@ def test_student_import_matches_columns_and_makes_teams_rooms_and_mentors(hack, 
     assert rocket.members.count() == 2 and rocket.room.name == "Lab 1"
     assert rocket.project_description == "Waste sorting" and rocket.mentor == mentor.person
     assert reg.team_membership.extra == {"S.No": "1", "T-shirt": "M"}
-    solo = Team.objects.get(event=hack, name="Solo")
-    assert solo.members.count() == 1 and solo.mentor_name == "Prof. Outside" and solo.room.name == "Lab 2"
+    # "2300022222.0" (a number read as text) is the KL ID 2300022222.
+    assert Person.objects.get(student_id="2300022222").contact_email == "ravi@example.com"
+    # A blank team name means not in a team: no team is made up for Solo.
+    assert not Team.objects.filter(event=hack, name="Solo").exists()
+    assert not hasattr(Registration.objects.get(event=hack, person__student_id="2300033333"), "team_membership")
 
-    # Uploading again matches people (by email, then KL ID) instead of duplicating them.
+    # Uploading again matches people by KL ID instead of duplicating them.
     again = services.import_students(hack, xlsx([["KL ID", "Name", "Team"], [2300033333, "Solo", "Rocket"]]))
     assert (again.created, again.updated) == (0, 1)
-    assert "moved from Solo to Rocket" in again.warnings[0]
+    assert rocket.members.count() == 3
     assert Registration.objects.filter(event=hack).count() == 3
 
 
-def test_student_import_flags_a_row_whose_email_and_id_are_two_people(hack, make_person):
+def test_student_import_matches_by_kl_id_even_when_the_email_is_someone_elses(hack, make_person):
     make_person(email="one@example.com", student_id="111")
-    make_person(email="two@example.com", student_id="222")
+    two = make_person(email="two@example.com", student_id="222")
+    people = Person.objects.count()
     report = services.import_students(hack, xlsx([["Email", "KL ID", "Name"], ["one@example.com", "222", "X"]]))
-    assert report.created == 0 and "different people" in report.problems[0]
+    assert report.problems == [] and Person.objects.count() == people
+    assert Registration.objects.get(event=hack).person == two
+    two.refresh_from_db()
+    assert two.email == "two@example.com" and two.contact_email == ""  # someone else's address is never taken over
 
 
 def test_unreadable_file_and_missing_columns_are_reported(hack):
@@ -581,7 +588,7 @@ def test_student_page_needs_your_own_confirmed_hackathon_registration(client, se
     assert client.get(reverse("my_hackathon", args=[event.slug])).status_code == 404
     reg, _ = register(event=hack, person=outsider)
     page = client.get(reverse("my_hackathon", args=[hack.slug]))
-    assert b"haven't put you in a team yet" in page.content
+    assert b"You're not in a team yet" in page.content
     reg.status = Registration.Status.CANCELLED
     reg.save()
     assert client.get(reverse("my_hackathon", args=[hack.slug])).status_code == 404
@@ -1065,19 +1072,19 @@ def test_import_row_check_names_row_and_column_then_skips_bad_rows(client, hack,
     client.force_login(admin_user)
     upload = xlsx([
         ["Name", "Email", "Phone", "KL ID", "T-shirt size"],
-        ["Good One", "good@example.com", "9000000001", "", "M"],
-        ["Bad Email", "not-an-email", "9000000002", "", "S"],
-        ["Bad Shirt", "shirt@example.com", "9000000003", "", "XXL"],
-        ["Dupe", "good@example.com", "9000000004", "", "L"],
-        ["Clash", "one@example.com", "9000000005", "222", "L"],
-        ["Bad Phone", "phone@example.com", "123", "", "L"],
-        ["", "noname@example.com", "9000000006", "", "L"],
+        ["Good One", "good@example.com", "9000000001", "2300000101", "M"],
+        ["Bad Email", "not-an-email", "9000000002", "2300000102", "S"],
+        ["Bad Shirt", "shirt@example.com", "9000000003", "2300000103", "XXL"],
+        ["Dupe", "good@example.com", "9000000004", "2300000104", "L"],
+        ["Clash", "one@example.com", "9000000005", "333", "L"],
+        ["Bad Phone", "phone@example.com", "123", "2300000106", "L"],
+        ["", "noname@example.com", "9000000006", "2300000107", "L"],
     ])
     check = wizard(client, hack.slug, "students", upload, action="check").content.decode()
     assert "Row 3, column B (Email): &quot;not-an-email&quot; is not a valid email." in check
     assert "Row 4, column E (T-shirt size): &quot;XXL&quot; is not one of: S, M, L." in check
     assert "Row 5, column B (Email): &quot;good@example.com&quot; is also in row 2." in check
-    assert "Row 6: the email and IDs belong to different people" in check
+    assert "Row 6: the email one@example.com belongs to" in check and "whose KL ID is 111" in check
     assert "Row 7, column C (Phone)" in check and "Row 8, column A (Name): required, but empty." in check
     assert not Registration.objects.filter(event=hack).exists()  # nothing saved by the check
     assert "Import the 1 valid row and skip the rest" in check
@@ -1085,7 +1092,8 @@ def test_import_row_check_names_row_and_column_then_skips_bad_rows(client, hack,
     item = ImportUpload.objects.get()
     done = client.post(reverse("hackathon_import", args=[hack.slug, item.pk]), {"action": "import"}, follow=True).content.decode()
     assert "1 added, 0 updated, 6 rows skipped." in done
-    person = Person.objects.get(email="good@example.com")
+    person = Person.objects.get(student_id="2300000101")
+    assert person.contact_email == "good@example.com"  # they sign in with their KL email
     assert Registration.objects.filter(event=hack, person=person).exists()
     assert PersonDetails.objects.get(event=hack, person=person).values == {"shirt": "M"}
     skipped = sheet(client.get(reverse("hackathon_import_skipped", args=[hack.slug, item.pk])).content, "Skipped rows")

@@ -1,8 +1,8 @@
 """Hackathons: who judges and supervises, rooms, teams, rounds, rubrics, allocations and marks.
 
 Faculty and supervisors are ordinary portal accounts (people.Person) linked to
-one event here. Students are registrations, grouped into teams; a solo
-participant is a team of one.
+one event here. Students are registrations, grouped into teams; a student who
+isn't in a team yet is listed under "Not in a team" (never put in a made-up team).
 """
 
 from decimal import Decimal
@@ -14,9 +14,18 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
-from django.db.models import Q
-from django.db.models.functions import Lower
+from django.db.models import F, Func, Q, Value
+from django.db.models.functions import Lower, Trim
 from django.utils import timezone
+
+
+def clean_team_name(name) -> str:
+    """A team name as stored: no spaces at the ends and single spaces inside. Compared ignoring case."""
+    return " ".join(str(name or "").split())
+
+
+# The same normalisation in SQL, so the database itself refuses "Team  A" next to "team a".
+TEAM_NAME_KEY = Lower(Trim(Func(F("name"), Value(r"\s+"), Value(" "), Value("g"), function="REGEXP_REPLACE")))
 
 
 @pghistory.track()
@@ -154,10 +163,14 @@ class Team(models.Model):
 
     class Meta:
         ordering = ["event", "name"]
-        constraints = [models.UniqueConstraint("event", Lower("name"), name="team_name_unique_per_event")]
+        constraints = [models.UniqueConstraint("event", TEAM_NAME_KEY, name="team_name_unique_per_event_normalised")]
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        self.name = clean_team_name(self.name)
+        super().save(*args, **kwargs)
 
     def clean(self):
         if self.room_id and self.event_id and self.room.event_id != self.event_id:
@@ -524,11 +537,6 @@ class ImportUpload(models.Model):
     sheet_name = models.CharField(max_length=100, blank=True, help_text="Empty: the first sheet.")
     constants = models.JSONField(default=dict, blank=True, help_text="Fields not in the sheet, with one value for every row.")
     header_row = models.PositiveIntegerField(default=0, help_text="1-based row holding the column names. 0: the first non-empty row.")
-    blank_teams = models.CharField(
-        "rows with no team name", max_length=10, default="none",
-        choices=[("none", "No team yet"), ("above", "Team in the row above"), ("solo", "Team of one, named after the student")],
-        help_text="Student imports: what a row with an empty team name means.",
-    )
     result = models.JSONField(default=dict, blank=True, help_text="Summary and skipped rows, once imported.")
     imported_at = models.DateTimeField(null=True, blank=True)
 

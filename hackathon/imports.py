@@ -50,12 +50,14 @@ def targets(event, kind, user=None) -> list[Target]:
             if d.builtin:
                 key = "branch" if d.builtin == "department" else d.builtin
                 aliases = builtin_aliases.get(key, []) + [_k(d.label)]
-                if kind == "students" and key == "email":
-                    # Students are matched by KL ID (sign-in: ID@kluniversity.in); an email column is optional.
+                if kind == "students" and key in ("email", "student_id"):
+                    # Students are matched by KL ID (sign-in: ID@kluniversity.in): it's required, the email is optional.
                     from .models import FieldDefinition
 
-                    check = FieldDefinition(kind=d.kind, label=d.label, required=False)
-                    out.append(Target(key, f"{d.label} (optional with a KL ID)", False, aliases, check))
+                    required = key == "student_id"
+                    check = FieldDefinition(kind=d.kind, label=d.label, required=required)
+                    label = d.label if required else f"{d.label} (optional)"
+                    out.append(Target(key, label, required, aliases, check))
                     continue
                 out.append(Target(key, d.label, d.required or d.always_required, aliases, d))
             else:
@@ -153,43 +155,21 @@ def _unmerged_rows(ws):
     return rows
 
 
-BLANK_TEAM_CHOICES = [
-    (services.BLANK_TEAM_NONE, "Leave them without a team", "They show under \"No team yet\" on the Students page, to sort out there."),
-    (services.BLANK_TEAM_ABOVE, "Put them in the team named in the row above",
-     "For sheets that write each team's name once, on its first member's row."),
-    (services.BLANK_TEAM_SOLO, "Make each one a team of one, named after the student", "Only if they really are working alone."),
-]
-
-
-def blank_team_rows(headers, rows, mapping, line_numbers):
-    """[(Excel row number, student)] for student rows whose team cell is empty, when a team column is used."""
+def no_team_rows(headers, rows, mapping, line_numbers):
+    """[(Excel row number, student, KL ID)] for student rows with an empty team name, when a team column is used.
+    Those students are listed under "Not in a team" after the import."""
     i = mapping.get("team")
     if i is None:
         return []
-    who = [mapping.get(k) for k in ("name", "student_id", "email")]
+    who = [mapping.get(k) for k in ("name", "student_id")]
+    sid = mapping.get("student_id")
     out = []
     for n, row in zip(line_numbers, rows):
         if i < len(row) and row[i]:
             continue
         label = next((row[j] for j in who if j is not None and j < len(row) and row[j]), "")
-        out.append((n, label))
-    return out
-
-
-def fill_blank_teams(rows, mapping, choice):
-    """With "above", an empty team cell takes the team name from the nearest row above that has one."""
-    i = mapping.get("team")
-    if choice != services.BLANK_TEAM_ABOVE or i is None:
-        return rows
-    out, last = [], ""
-    for row in rows:
-        row = list(row)
-        if i < len(row):
-            if row[i]:
-                last = row[i]
-            elif last:
-                row[i] = last
-        out.append(row)
+        student_id = services.clean_student_id(row[sid]) if sid is not None and sid < len(row) else ""
+        out.append((n, label, student_id))
     return out
 
 
@@ -281,8 +261,6 @@ def sheet_checks(headers, rows, mapping, targets_, kind):
             errors.append(f"\"{t.label}\" is required, but no column is matched to it.")
     if kind == "teams" and not any(mapping.get(f"m1_{p}") is not None or mapping.get(f"m2_{p}") is not None for p in ("email", "student_id")):
         errors.append("Use at least one column as a member's email or KL ID, so the members can be found or added.")
-    if kind == "students" and mapping.get("email") is None and mapping.get("student_id") is None:
-        errors.append("Match an Email or a KL ID column, so each student can be matched or created.")
     if kind == "allocations" and all(mapping.get(k) is None for k in ("room", "team", "member")):
         errors.append("Match a Team, a team member or a Room column.")
     chosen = [i for i in mapping.values() if i is not None]
@@ -303,11 +281,24 @@ def sheet_checks(headers, rows, mapping, targets_, kind):
     return errors, warnings
 
 
-def row_checks(event, kind, headers, rows, mapping, targets_, want_new=False, blank_teams=services.BLANK_TEAM_NONE):
+def row_checks(event, kind, headers, rows, mapping, targets_, want_new=False):
     """{sheet row: [problems]} before anything is saved: types, required values, choices, duplicates, clashes."""
     problems = defaultdict(list)
     by_key = {t.key: t for t in targets_}
     seen = defaultdict(dict)
+    if kind == "students" and mapping.get("student_id") is not None:
+        # The KL ID is the key: every row of a repeated ID is an error, so nobody is imported twice or half-updated.
+        i = mapping["student_id"]
+        lines_by_id = defaultdict(list)
+        for line, row in enumerate(rows, start=2):
+            value = services.clean_student_id(row[i] if i < len(row) else "")
+            if value:
+                lines_by_id[value.lower()].append((line, value))
+        for found in lines_by_id.values():
+            if len(found) > 1:
+                for line, value in found:
+                    others = ", ".join(str(n) for n, _ in found if n != line)
+                    problems[line].append(f"Row {line}: KL ID {value} is also in row{'s' if len(found) > 2 else ''} {others}.")
     for line, row in enumerate(rows, start=2):
         for key, i in mapping.items():
             if i is None:
@@ -322,6 +313,8 @@ def row_checks(event, kind, headers, rows, mapping, targets_, want_new=False, bl
             elif t.required and not raw:
                 problems[line].append(f"Row {line}, {where}: required, but empty.")
             part = key.split("_", 1)[1] if kind == "teams" and re.match(r"m\d+_", key) else key
+            if part == "student_id" and kind == "students":
+                continue  # checked above, for every row of a repeated ID
             if part in ("email", "student_id", "employee_id") and raw and kind not in ("allocations", "rooms"):
                 value = normalise_email(raw) if part == "email" else raw.strip().lower()
                 if value in seen[part] and seen[part][value] != (line, key):
@@ -330,12 +323,12 @@ def row_checks(event, kind, headers, rows, mapping, targets_, want_new=False, bl
                     seen[part][value] = (line, key)
         if kind in ("students", "faculty", "supervisors", "volunteers"):
             data = {k: (row[i] if i is not None and i < len(row) else "") for k, i in mapping.items()}
-            _, clash = services._find_person(normalise_email(data.get("email")) or "", (data.get("student_id") or "").strip(),
-                                             (data.get("employee_id") or "").strip())
+            _, clash = services._find_person(normalise_email(data.get("email")) or "", services.clean_student_id(data.get("student_id")),
+                                             (data.get("employee_id") or "").strip(), id_first=kind == "students")
             if clash:
                 problems[line].append(f"Row {line}: {clash}.")
     # What the import itself would refuse (unknown round, a mentor judging their team, ...), tried and rolled back.
-    report = _dry_run(event, kind, mapping, rows, headers, skip=set(problems), blank_teams=blank_teams)
+    report = _dry_run(event, kind, mapping, rows, headers, skip=set(problems))
     for message in report.problems:
         m = re.match(r"Row (\d+)", message)
         if m:
@@ -353,11 +346,11 @@ def _columns(mapping):
     return {i: key for key, i in mapping.items() if i is not None}
 
 
-def _run(event, kind, content_or_rows, mapping, only_rows, user, blank_teams=services.BLANK_TEAM_NONE):
+def _run(event, kind, content_or_rows, mapping, only_rows, user):
     upload = content_or_rows
     columns = _columns(mapping)
     if kind == "students":
-        return services.import_students(event, upload, by=user, columns=columns, only_rows=only_rows, blank_team=blank_teams)
+        return services.import_students(event, upload, by=user, columns=columns, only_rows=only_rows)
     if kind == "faculty":
         return services.import_staff(event, upload, "faculty", columns=columns, only_rows=only_rows)
     if kind == "supervisors":
@@ -371,7 +364,7 @@ def _run(event, kind, content_or_rows, mapping, only_rows, user, blank_teams=ser
     return services.import_allocations(event, upload, columns=columns, only_rows=only_rows)
 
 
-def _dry_run(event, kind, mapping, rows, headers, skip, blank_teams=services.BLANK_TEAM_NONE):
+def _dry_run(event, kind, mapping, rows, headers, skip):
     """Run the import inside a transaction that is always rolled back, to collect its row problems."""
     buffer = normalized(headers, rows)
     only = {line for line in range(2, len(rows) + 2) if line not in skip}
@@ -379,7 +372,7 @@ def _dry_run(event, kind, mapping, rows, headers, skip, blank_teams=services.BLA
     try:
         with transaction.atomic():
             buffer.seek(0)
-            result = _run(event, kind, buffer, mapping, only, None, blank_teams)
+            result = _run(event, kind, buffer, mapping, only, None)
             raise _Rollback
     except _Rollback:
         pass
@@ -389,8 +382,7 @@ def _dry_run(event, kind, mapping, rows, headers, skip, blank_teams=services.BLA
 def run_import(upload, mapping, only_rows, user):
     headers, rows, _ = read_item(upload)
     headers, rows, mapping = with_constants(headers, rows, mapping, upload.constants)
-    rows = fill_blank_teams(rows, mapping, upload.blank_teams)
-    return _run(upload.event, upload.kind, normalized(headers, rows), mapping, only_rows, user, upload.blank_teams)
+    return _run(upload.event, upload.kind, normalized(headers, rows), mapping, only_rows, user)
 
 
 def remember(event, kind, headers, mapping):
