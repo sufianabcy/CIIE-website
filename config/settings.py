@@ -260,6 +260,12 @@ ANYMAIL_ESP = env("ANYMAIL_ESP", default="")  # e.g. brevo, resend, postmark
 if ANYMAIL_ESP:
     EMAIL_BACKEND = f"anymail.backends.{ANYMAIL_ESP}.EmailBackend"
     ANYMAIL = {f"{ANYMAIL_ESP.upper()}_API_KEY": env("ANYMAIL_API_KEY", default="")}
+# Gmail API over HTTPS, for hosts where Gmail's SMTP sign-in is refused. Token from `manage.py gmail_authorize`.
+GMAIL_CLIENT_ID = env("GMAIL_CLIENT_ID", default="")
+GMAIL_CLIENT_SECRET = env("GMAIL_CLIENT_SECRET", default="")
+GMAIL_REFRESH_TOKEN = env("GMAIL_REFRESH_TOKEN", default="")
+if GMAIL_REFRESH_TOKEN:
+    EMAIL_BACKEND = "ops.gmail.GmailAPIBackend"
 if TESTING:
     EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default=f"{CLUB_NAME} <noreply@localhost>")
