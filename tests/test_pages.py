@@ -70,6 +70,14 @@ def test_signin_new_email_creates_account_and_sends_code(client, db, django_capt
     assert "removed after sending" in code_mail.text_body  # codes are not kept
 
 
+def test_code_email_names_the_club(client, db, django_capture_on_commit_callbacks):
+    with django_capture_on_commit_callbacks(execute=True):
+        client.post(reverse("signin"), {"email": "someone@example.com"})
+    body = mail.outbox[-1].body
+    assert "Hello from KL-CIIE!" in body
+    assert "from !" not in body and "using !" not in body
+
+
 def test_signin_with_code_marks_kl_students(client, make_person, django_capture_on_commit_callbacks, settings):
     settings.ACCOUNT_LOGIN_BY_CODE_ENABLED = True
     person = make_person(email="2300031234@kluniversity.in")

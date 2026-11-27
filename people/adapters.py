@@ -19,6 +19,8 @@ log = logging.getLogger(__name__)
 class AccountAdapter(DefaultAccountAdapter):
     def send_mail(self, template_prefix, email, context):
         """Route allauth's mail (codes) through the outbox at top priority."""
+        # allauth's own send_mail adds current_site; without it the emails read "Hello from !".
+        context = {"email": email, "current_site": _club_site(), **context}
         msg = self.render_mail(template_prefix, email, context)
         html = None
         for content, mimetype in getattr(msg, "alternatives", []) or []:
@@ -44,6 +46,13 @@ class AccountAdapter(DefaultAccountAdapter):
 
     def get_signup_redirect_url(self, request):
         return reverse("profile")
+
+
+def _club_site():
+    from types import SimpleNamespace
+    from urllib.parse import urlparse
+
+    return SimpleNamespace(name=settings.CLUB_NAME, domain=urlparse(settings.SITE_URL).netloc)
 
 
 def _jwt_claims(token: str) -> dict:
