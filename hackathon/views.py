@@ -16,6 +16,7 @@ from django.views.decorators.http import require_POST
 from registrations.models import Registration
 
 from . import imports, rubric, services
+from .manage_views import SECTIONS
 from .day_views import RandomForm
 from .access import allowed, is_admin, overseen_event, overseen_events, permissions_for, require
 from .exports import TEMPLATES, credentials_file, template_file
@@ -67,6 +68,7 @@ def dashboard(request, slug):
         {
             "event": event,
             "is_admin": is_admin(request.user),
+            "sections": SECTIONS,
             "can": permissions_for(request.user, event),
             "eliminating": rubric.eliminating(event),
             "rounds": round_rows,

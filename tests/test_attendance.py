@@ -255,3 +255,18 @@ def test_who_can_reach_the_attendance_pages(client, hack, admin_user, make_perso
     client.force_login(student)
     assert client.get(reverse("attendance_take", args=[session.token])).status_code == 403
     assert client.get(reverse("attendance_take", args=["not-a-real-token"])).status_code == 404
+
+
+def test_the_overview_shows_every_section_and_the_attendance_button(client, hack, admin_user, make_person):
+    event = hack["event"]
+    client.force_login(admin_user)
+    page = client.get(reverse("hackathon_dashboard", args=[event.slug])).content.decode()
+    url = reverse("hackathon_manage_attendance", args=[event.slug])
+    assert 'data-testid="attendance-button"' in page and f'href="{url}">Attendance</a>' in page
+    for name in ("hackathon_manage_students", "hackathon_manage_teams", "hackathon_manage_allocations"):
+        assert reverse(name, args=[event.slug]) in page
+    sup_person = make_person(full_name="Sup Example")
+    services.add_supervisor(event, sup_person)
+    client.force_login(sup_person)
+    page = client.get(reverse("hackathon_dashboard", args=[event.slug])).content.decode()
+    assert url not in page  # admins only

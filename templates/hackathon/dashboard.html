@@ -11,6 +11,7 @@
   </div>
   <div class="d-flex flex-wrap gap-2">
     {% if can.can_email_participants %}<a class="btn btn-quiet" href="{% url 'hackathon_invites' event.slug %}">{% include "ui/icon.html" with name="mail" %}Send sign-in invites</a>{% endif %}
+    {% if is_admin %}<a class="btn btn-quiet" data-testid="attendance-button" href="{% url 'hackathon_manage_attendance' event.slug %}">{% include "ui/icon.html" with name="clock" %}Attendance</a>{% endif %}
     {% if can.can_view_marks %}<a class="btn btn-quiet" href="{% url 'hackathon_marks' event.slug %}">{% include "ui/icon.html" with name="chart" %}All marks</a>{% endif %}
     {% if can.can_download and can.can_view_marks %}<a class="btn btn-quiet" data-testid="final-marks" href="{% url 'event_export' event.slug 'marks' %}">{% include "ui/icon.html" with name="download" %}Download final marks (Excel)</a>{% endif %}
   </div>
