@@ -192,7 +192,7 @@
       <div class="footer-bottom">
         <span>© {% now "Y" %} {{ CLUB_NAME }}, KL University</span>
         <span class="footer-clock" aria-hidden="true">India time <time data-clock>--:--:--</time></span>
-        <span>Run by the {{ CLUB_NAME }} student team</span>
+        <span data-testid="footer-credit">Developed by <a href="https://www.linkedin.com/in/sufian0/" target="_blank" rel="noopener noreferrer">Sufian</a> and {{ CLUB_NAME }} Team</span>
       </div>
       <div class="footer-mark" aria-hidden="true">{% for ch in CLUB_NAME %}<span{% if ch == "-" %} class="dash"{% endif %}>{{ ch }}</span>{% endfor %}</div>
     </div>

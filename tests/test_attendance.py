@@ -331,3 +331,8 @@ def test_end_a_link_from_the_sessions_list(client, hack, admin_user):
     assert response["Location"] == url
     session.refresh_from_db()
     assert session.is_final() and 'data-testid="end-now"' not in client.get(url).content.decode()
+
+
+def test_footer_credit_links_to_the_developer(client, db):
+    page = client.get(reverse("home")).content.decode()
+    assert 'Developed by <a href="https://www.linkedin.com/in/sufian0/" target="_blank" rel="noopener noreferrer">Sufian</a>' in page
