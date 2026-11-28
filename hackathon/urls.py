@@ -67,6 +67,7 @@ urlpatterns = [
     path("volunteer/<slug:slug>/", day_views.volunteer_today, name="hackathon_volunteer_today"),
     path("manage/<slug:slug>/hackathon/volunteers/", manage_views.volunteers, name="hackathon_manage_volunteers"),
     path("manage/<slug:slug>/hackathon/volunteers/add/", manage_views.volunteer_edit, name="hackathon_manage_volunteer_add"),
+    path("manage/<slug:slug>/hackathon/helpers/add-found/", manage_views.helper_quick_add, name="hackathon_helper_quick_add"),
     path("manage/<slug:slug>/hackathon/volunteers/<int:pk>/", manage_views.volunteer_edit, name="hackathon_manage_volunteer_edit"),
     path("manage/<slug:slug>/hackathon/volunteers/<int:pk>/delete/", manage_views.volunteer_remove, name="hackathon_manage_volunteer_remove"),
     path("manage/<slug:slug>/invites/", views.invites, name="hackathon_invites"),

@@ -46,7 +46,9 @@ def room_students(room) -> list[tuple]:
 
 
 def can_take(user, session) -> bool:
-    """Admins; supervisors with the attendance switch; volunteers assigned to this classroom."""
+    """Admins; supervisors with the attendance switch; active volunteers of this hackathon with the attendance switch.
+    A volunteer who has rooms only takes attendance in those; one with no rooms yet, in any classroom whose link
+    they are given (each link shows only its own classroom)."""
     if not user.is_authenticated:
         return False
     if is_admin(user):
@@ -55,7 +57,10 @@ def can_take(user, session) -> bool:
     if oversees(user, event) and allowed(user, event, "can_take_attendance"):
         return True
     row = volunteer_row(user, event)
-    return bool(row and row.can_team_attendance and row.rooms.filter(pk=session.room_id).exists())
+    if not (row and row.is_active and row.can_team_attendance):
+        return False
+    rooms = set(row.rooms.values_list("pk", flat=True))
+    return not rooms or session.room_id in rooms
 
 
 def sessions_for_taker(user, event, only_open=True):
@@ -314,7 +319,8 @@ def session_detail(request, slug, pk):
             else:
                 messages.success(request, f"{reg.person.display_name}: {'present' if mark.present else 'absent'} "
                                           f"({mark.get_source_display().lower()}).")
-        return redirect("hackathon_attendance_session", slug, pk)
+        nxt = request.POST.get("next", "")
+        return redirect(nxt if nxt.startswith("/") and not nxt.startswith("//") else reverse("hackathon_attendance_session", args=[slug, pk]))
     marks = {m.registration_id: m for m in session.marks.select_related("marked_by")}
     groups = [(team, [(reg, marks.get(reg.pk)) for reg in regs]) for team, regs in room_students(session.room)]
     return render(request, "hackathon/attendance_session.html", _ctx(

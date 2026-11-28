@@ -63,7 +63,9 @@
       <td>{% if r.session.state == "open" %}<span class="tag tag-green">Open</span>{% elif r.session.state == "upcoming" %}<span class="tag tag-blue">Upcoming</span>{% else %}<span class="tag">Final</span>{% endif %}</td>
       <td class="text-end num">{{ r.present }} / {{ r.students }}{% if not r.marked %} <span class="caption-2 text-secondary">not taken</span>{% endif %}</td>
       <td><input class="form-control form-control-sm" style="min-width:14rem" value="{{ r.link }}" readonly onclick="this.select()" aria-label="Link for {{ r.session.room.name }}"></td>
-      <td class="text-end"><a class="btn btn-quiet btn-sm" href="{% url 'hackathon_attendance_session' event.slug r.session.pk %}">Open</a></td>
+      <td class="text-end text-nowrap">
+        {% if not r.session.is_final %}<form method="post" action="{% url 'hackathon_attendance_session' event.slug r.session.pk %}" class="d-inline" onsubmit="return confirm('Close this link now? The attendance becomes final.');">{% csrf_token %}<input type="hidden" name="next" value="{{ request.path }}"><button class="btn btn-quiet btn-sm" name="action" value="end" type="submit" data-testid="end-now">End now</button></form>{% endif %}
+        <a class="btn btn-quiet btn-sm" href="{% url 'hackathon_attendance_session' event.slug r.session.pk %}">Open</a></td>
     </tr>{% endfor %}</tbody>
   </table></div>
   {% else %}<p class="text-secondary mb-0">No sessions yet.</p>{% endif %}

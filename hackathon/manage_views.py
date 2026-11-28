@@ -855,11 +855,62 @@ def helper_add(request, slug, role="supervisor"):
                 how = "added" if created else "already on the portal: the role was added to their account"
                 messages.success(request, f"{row.person.display_name} ({ROLE_LABELS[d['role']]}): {how}.")
                 return redirect(reverse("hackathon_manage_helpers", args=[slug]))
+    query = " ".join(request.GET.get("q", "").split())
+    found = _find_people(query) if query else []
+    supervising = set(Supervisor.objects.filter(event=event, person__in=found).values_list("person_id", flat=True))
+    volunteering = set(Volunteer.objects.filter(event=event, person__in=found).values_list("person_id", flat=True))
     return render(request, "hackathon/helper_form.html", _ctx(
         request, event, "helpers", title="Add a supervisor or volunteer", person_form=person_form, sup_form=sup_form,
+        query=query, found=[(p, p.pk in supervising, p.pk in volunteering) for p in found],
         vol_form=vol_form, presets=[(k, label, help_text) for k, (label, help_text, _) in PRESETS.items()],
         role=(posted.get("p-role") if posted else None) or request.GET.get("role", role), back=_url(event, "helpers"),
     ))
+
+
+def _find_people(query, limit=20):
+    """People already on the portal, by KL ID, employee ID, email or login ID (exact), or by name (contains)."""
+    from people.models import Person
+
+    from .services import clean_student_id
+
+    q = query.strip()
+    exact = Person.objects.filter(Q(student_id__iexact=clean_student_id(q)) | Q(employee_id__iexact=q) | Q(email__iexact=q)
+                                  | Q(login_id__iexact=q), is_active=True)
+    people = list(exact[:limit])
+    if len(q) >= 3 and len(people) < limit:
+        people += [p for p in Person.objects.filter(is_active=True).filter(
+            Q(full_name__icontains=q) | Q(student_id__startswith=q) | Q(employee_id__istartswith=q)).order_by("full_name")[:limit]
+            if p not in people]
+    return people[:limit]
+
+
+@login_required
+@require_POST
+def helper_quick_add(request, slug):
+    """Give someone found by the search the supervisor or volunteer role on their own account. A volunteer can take
+    attendance straight away; their rooms and a supervisor's switches are set on the next page."""
+    from people.models import Person
+
+    event = overseen_event(request, slug)
+    _admin_only(request)
+    person = get_object_or_404(Person, pk=request.POST.get("person"), is_active=True)
+    role = request.POST.get("role")
+    if role == "volunteer":
+        row, created = services.add_volunteer(event, person)
+        if not row.is_active:
+            row.is_active = True
+            row.save(update_fields=["is_active"])
+        target = _url(event, "volunteer_edit", row.pk)
+    elif role == "supervisor":
+        row, created = services.add_supervisor(event, person, Supervisor.Kind.FACULTY if person.employee_id else Supervisor.Kind.STUDENT)
+        target = _url(event, "supervisor_edit", row.pk)
+    else:
+        raise Http404
+    label = ROLE_LABELS[role]
+    messages.success(request, f"{person.display_name} is now a {label.lower()} here{'' if created else ' (they already were)'}. "
+                              + ("They can take attendance with any link you give them; choose their rooms below to limit it."
+                                 if role == "volunteer" else "Choose what they can do below."))
+    return redirect(target)
 
 
 @never_cache

@@ -9,6 +9,35 @@
 </div></header>
 {% include "hackathon/_manage_nav.html" %}
 
+{% if person_form %}
+<section class="form-card mb-4" aria-labelledby="find" data-testid="find-person">
+  <h2 class="heading-5 mb-2" id="find">Find someone already on the portal</h2>
+  <p class="caption-2 text-secondary">Search by KL ID, employee ID, email or name, then add them. They keep their own account and password.</p>
+  <form method="get" class="d-flex flex-wrap gap-2">
+    {% if request.GET.role %}<input type="hidden" name="role" value="{{ request.GET.role }}">{% endif %}
+    <input name="q" value="{{ query }}" class="form-control" style="max-width:24rem" placeholder="For example 2500032263 or KLF1001" aria-label="KL ID, employee ID, email or name" autofocus>
+    <button class="btn btn-primary" type="submit">{% include "ui/icon.html" with name="search" %}Search</button>
+  </form>
+  {% if query %}
+  <div class="mt-3">
+    {% for p, is_sup, is_vol in found %}
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 border-top py-2" data-testid="found-person">
+      <div><strong>{{ p.display_name }}</strong>
+        <span class="caption-2 text-secondary">{% if p.student_id %}KL ID {{ p.student_id }}{% endif %}{% if p.employee_id %}{% if p.student_id %} · {% endif %}Employee ID {{ p.employee_id }}{% endif %}{% if p.email %} · {{ p.email }}{% endif %}</span></div>
+      <div class="d-flex gap-2">
+        {% if is_vol %}<span class="tag">Volunteer here</span>{% else %}<form method="post" action="{% url 'hackathon_helper_quick_add' event.slug %}">{% csrf_token %}<input type="hidden" name="person" value="{{ p.pk }}"><button class="btn btn-quiet btn-sm" name="role" value="volunteer" type="submit">Add as volunteer</button></form>{% endif %}
+        {% if is_sup %}<span class="tag">Supervisor here</span>{% else %}<form method="post" action="{% url 'hackathon_helper_quick_add' event.slug %}">{% csrf_token %}<input type="hidden" name="person" value="{{ p.pk }}"><button class="btn btn-quiet btn-sm" name="role" value="supervisor" type="submit">Add as supervisor</button></form>{% endif %}
+      </div>
+    </div>
+    {% empty %}
+    <p class="text-secondary mb-0">Nobody found for "{{ query }}". Add them with the form below; they get a new account.</p>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+<h2 class="heading-6 mb-3">Or add someone new</h2>
+{% endif %}
+
 <form method="post" novalidate data-helper-form>{% csrf_token %}
   {% if person_form %}
   <section class="form-card mb-4" aria-labelledby="who">

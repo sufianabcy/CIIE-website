@@ -270,3 +270,64 @@ def test_the_overview_shows_every_section_and_the_attendance_button(client, hack
     client.force_login(sup_person)
     page = client.get(reverse("hackathon_dashboard", args=[event.slug])).content.decode()
     assert url not in page  # admins only
+
+
+def test_a_volunteer_with_no_rooms_can_use_any_link_given_to_them(client, hack, admin_user):
+    session = make(hack, admin_user, hack["rooms"][0])
+    person = Person.objects.create_user(email="free.vol@example.com", full_name="Free Volunteer")  # not registered for the event
+    row = services.add_volunteer(hack["event"], person)[0]
+    client.force_login(person)
+    url = reverse("attendance_take", args=[session.token])
+    page = client.get(url).content.decode()
+    assert "Asha Example" in page and "Dev Example" not in page  # the link shows only its own classroom
+    client.post(url, {"present": [hack["regs"]["Asha"].pk]})
+    assert SessionMark.objects.get(session=session, registration=hack["regs"]["Asha"]).marked_by == person
+    assert url in client.get(reverse("staff_home")).content.decode()
+    # Once they have rooms, only those.
+    row.rooms.set([hack["rooms"][1]])
+    assert client.get(url).status_code == 403
+    row.rooms.clear()
+    Volunteer.objects.filter(pk=row.pk).update(is_active=False)
+    assert client.get(url).status_code == 403
+
+
+def test_admins_find_people_by_id_and_add_them_without_a_new_account(client, hack, admin_user):
+    event = hack["event"]
+    faculty = Person.objects.create_user(email="kl.staff@kluniversity.in", full_name="Dr. Staff Example", employee_id="KLF4321")
+    student = hack["regs"]["Asha"].person
+    before = Person.objects.count()
+    client.force_login(admin_user)
+    url = reverse("hackathon_manage_volunteer_add", args=[event.slug])
+    page = client.get(url, {"q": "2500090001"}).content.decode()
+    assert 'data-testid="found-person"' in page and "Asha Example" in page and "Add as volunteer" in page
+    page = client.get(url, {"q": "klf4321"}).content.decode()
+    assert "Dr. Staff Example" in page
+    assert "Nobody found" in client.get(url, {"q": "9999999999"}).content.decode()
+    add = reverse("hackathon_helper_quick_add", args=[event.slug])
+    response = client.post(add, {"person": student.pk, "role": "volunteer"})
+    row = Volunteer.objects.get(event=event, person=student)
+    assert response["Location"] == reverse("hackathon_manage_volunteer_edit", args=[event.slug, row.pk])
+    assert row.is_active and row.can_team_attendance and not row.rooms.exists()
+    client.post(add, {"person": faculty.pk, "role": "supervisor"})
+    sup = Supervisor.objects.get(event=event, person=faculty)
+    assert sup.kind == "faculty"
+    assert Person.objects.count() == before  # no new accounts
+    page = client.get(url, {"q": "2500090001"}).content.decode()
+    assert "Volunteer here" in page
+    # They can take attendance straight away.
+    session = make(hack, admin_user, hack["rooms"][1])
+    client.force_login(student)
+    assert "Dev Example" in client.get(reverse("attendance_take", args=[session.token])).content.decode()
+    # Only admins add people.
+    assert client.post(add, {"person": faculty.pk, "role": "volunteer"}).status_code == 403
+
+
+def test_end_a_link_from_the_sessions_list(client, hack, admin_user):
+    session = make(hack, admin_user, hack["rooms"][0])
+    client.force_login(admin_user)
+    url = reverse("hackathon_manage_attendance", args=[hack["event"].slug])
+    assert 'data-testid="end-now"' in client.get(url).content.decode()
+    response = client.post(reverse("hackathon_attendance_session", args=[hack["event"].slug, session.pk]), {"action": "end", "next": url})
+    assert response["Location"] == url
+    session.refresh_from_db()
+    assert session.is_final() and 'data-testid="end-now"' not in client.get(url).content.decode()
